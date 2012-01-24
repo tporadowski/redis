@@ -18,12 +18,6 @@ QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR);
 endif
 
-ifeq ($(uname_S),Linux)
-  ifneq ($(FORCE_LIBC_MALLOC),yes)
-    USE_JEMALLOC=yes
-  endif
-endif
-
 ifeq ($(uname_S),SunOS)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
@@ -44,12 +38,6 @@ ifeq ($(USE_TCMALLOC_MINIMAL),yes)
   ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
-endif
-
-ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
-  ALLOC_LINK=$(ALLOC_DEP) -ldl
-  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
 endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
@@ -154,10 +142,6 @@ dependencies:
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
-../deps/jemalloc/lib/libjemalloc.a:
-	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)jemalloc$(ENDCOLOR)
-	@cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
-
 redis-benchmark.o:
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
@@ -187,8 +171,6 @@ redis-check-aof: $(CHECKAOFOBJ)
 redis-server: $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
 
-# Because the jemalloc.h header is generated as a part of the jemalloc build
-# process, building it should complete before building any other object.
 %.o: %.c $(ALLOC_DEP)
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
@@ -211,7 +193,7 @@ log:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
-	$(MAKE) ARCH="-m32" JEMALLOC_CFLAGS='CFLAGS="-std=gnu99 -Wall -pipe -g3 -fvisibility=hidden -O3 -funroll-loops -m32"'
+	$(MAKE) ARCH="-m32" 
 
 gprof:
 	$(MAKE) PROF="-pg"
