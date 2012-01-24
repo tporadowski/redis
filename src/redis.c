@@ -657,29 +657,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * in order to guarantee a strict consistency. */
     if (server.masterhost == NULL) activeExpireCycle();
 
-    /* Swap a few keys on disk if we are over the memory limit and VM
-     * is enbled. Try to free objects from the free list first. */
-    if (vmCanSwapOut()) {
-        while (server.vm_enabled && zmalloc_used_memory() >
-                server.vm_max_memory)
-        {
-            int retval = (server.vm_max_threads == 0) ?
-                        vmSwapOneObjectBlocking() :
-                        vmSwapOneObjectThreaded();
-            if (retval == REDIS_ERR && !(loops % 300) &&
-                zmalloc_used_memory() >
-                (server.vm_max_memory+server.vm_max_memory/10))
-            {
-                redisLog(REDIS_WARNING,"WARNING: vm-max-memory limit exceeded by more than 10%% but unable to swap more objects out!");
-            }
-            /* Note that when using threade I/O we free just one object,
-             * because anyway when the I/O thread in charge to swap this
-             * object out will finish, the handler of completed jobs
-             * will try to swap more objects if we are still out of memory. */
-            if (retval == REDIS_ERR || server.vm_max_threads > 0) break;
-        }
-    }
-
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
     if (!(loops % 10)) replicationCron();
@@ -695,31 +672,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     REDIS_NOTUSED(eventLoop);
     listNode *ln;
     redisClient *c;
-
-    /* Awake clients that got all the swapped keys they requested */
-    if (server.vm_enabled && listLength(server.io_ready_clients)) {
-        listIter li;
-
-        listRewind(server.io_ready_clients,&li);
-        while((ln = listNext(&li))) {
-            c = ln->value;
-            struct redisCommand *cmd;
-
-            /* Resume the client. */
-            listDelNode(server.io_ready_clients,ln);
-            c->flags &= (~REDIS_IO_WAIT);
-            server.vm_blocked_clients--;
-            aeCreateFileEvent(server.el, c->fd, AE_READABLE,
-                readQueryFromClient, c);
-            cmd = lookupCommand(c->argv[0]->ptr);
-            redisAssert(cmd != NULL);
-            call(c);
-            resetClient(c);
-            /* There may be more data to process in the input buffer. */
-            if (c->querybuf && sdslen(c->querybuf) > 0)
-                processInputBuffer(c);
-        }
-    }
 
     /* Try to process pending commands for clients that were just unblocked. */
     while (listLength(server.unblocked_clients)) {
@@ -834,13 +786,6 @@ void initServerConfig() {
     server.maxmemory = 0;
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
-    server.vm_enabled = 0;
-    server.vm_swap_file = zstrdup("/tmp/redis-%p.vm");
-    server.vm_page_size = 256;          /* 256 bytes per page */
-    server.vm_pages = 1024*1024*100;    /* 104 millions of pages */
-    server.vm_max_memory = 1024LL*1024*1024*1; /* 1 GB of RAM */
-    server.vm_max_threads = 4;
-    server.vm_blocked_clients = 0;
     server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;
     server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
@@ -940,8 +885,6 @@ void initServer() {
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        if (server.vm_enabled)
-            server.db[j].io_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
@@ -980,7 +923,6 @@ void initServer() {
         }
     }
 
-    if (server.vm_enabled) vmInit();
     slowlogInit();
     bioInit();
     srand(time(NULL)^getpid());
@@ -1125,8 +1067,6 @@ int processCommand(redisClient *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        if (server.vm_enabled && server.vm_max_threads > 0 &&
-            blockClientOnSwappedKeys(c)) return REDIS_ERR;
         call(c);
     }
     return REDIS_OK;
@@ -1168,10 +1108,6 @@ int prepareForShutdown() {
             redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit.");
             return REDIS_ERR;
         }
-    }
-    if (server.vm_enabled) {
-        redisLog(REDIS_NOTICE,"Removing the swap file.");
-        unlink(server.vm_swap_file);
     }
     if (server.daemonize) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
@@ -1291,7 +1227,6 @@ sds genRedisInfoString(void) {
         "pubsub_channels:%ld\r\n"
         "pubsub_patterns:%u\r\n"
         "latest_fork_usec:%lld\r\n"
-        "vm_enabled:%d\r\n"
         "role:%s\r\n"
         ,REDIS_VERSION,
         redisGitSHA1(),
@@ -1337,7 +1272,6 @@ sds genRedisInfoString(void) {
         dictSize(server.pubsub_channels),
         listLength(server.pubsub_patterns),
         server.stat_fork_time,
-        server.vm_enabled != 0,
         server.masterhost == NULL ? "master" : "slave"
     );
 
@@ -1419,36 +1353,6 @@ sds genRedisInfoString(void) {
         }
     }
 
-    if (server.vm_enabled) {
-        lockThreadedIO();
-        info = sdscatprintf(info,
-            "vm_conf_max_memory:%llu\r\n"
-            "vm_conf_page_size:%llu\r\n"
-            "vm_conf_pages:%llu\r\n"
-            "vm_stats_used_pages:%llu\r\n"
-            "vm_stats_swapped_objects:%llu\r\n"
-            "vm_stats_swappin_count:%llu\r\n"
-            "vm_stats_swappout_count:%llu\r\n"
-            "vm_stats_io_newjobs_len:%lu\r\n"
-            "vm_stats_io_processing_len:%lu\r\n"
-            "vm_stats_io_processed_len:%lu\r\n"
-            "vm_stats_io_active_threads:%lu\r\n"
-            "vm_stats_blocked_clients:%lu\r\n"
-            ,(unsigned long long) server.vm_max_memory,
-            (unsigned long long) server.vm_page_size,
-            (unsigned long long) server.vm_pages,
-            (unsigned long long) server.vm_stats_used_pages,
-            (unsigned long long) server.vm_stats_swapped_objects,
-            (unsigned long long) server.vm_stats_swapins,
-            (unsigned long long) server.vm_stats_swapouts,
-            (unsigned long) listLength(server.io_newjobs),
-            (unsigned long) listLength(server.io_processing),
-            (unsigned long) listLength(server.io_processed),
-            (unsigned long) server.io_active_threads,
-            (unsigned long) server.vm_blocked_clients
-        );
-        unlockThreadedIO();
-    }
     if (server.loading) {
         double perc;
         time_t eta, elapsed;

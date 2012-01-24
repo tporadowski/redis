@@ -18,10 +18,7 @@ robj *createObject(int type, void *ptr) {
      * (no locks). But in practice this is safe, and even if we read
      * garbage Redis will not fail. */
     o->lru = server.lruclock;
-    /* The following is only needed if VM is active, but since the conditional
-     * is probably more costly than initializing the field it's better to
-     * have every field properly initialized anyway. */
-    o->storage = REDIS_VM_MEMORY;
+    o->storage = 0;
     return o;
 }
 
@@ -179,30 +176,7 @@ void incrRefCount(robj *o) {
 void decrRefCount(void *obj) {
     robj *o = obj;
 
-    /* Object is a swapped out value, or in the process of being loaded. */
-    if (server.vm_enabled &&
-        (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING))
-    {
-        vmpointer *vp = obj;
-        if (o->storage == REDIS_VM_LOADING) vmCancelThreadedIOJob(o);
-        vmMarkPagesFree(vp->page,vp->usedpages);
-        server.vm_stats_swapped_objects--;
-        zfree(vp);
-        return;
-    }
-
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
-    /* Object is in memory, or in the process of being swapped out.
-     *
-     * If the object is being swapped out, abort the operation on
-     * decrRefCount even if the refcount does not drop to 0: the object
-     * is referenced at least two times, as value of the key AND as
-     * job->val in the iojob. So if we don't invalidate the iojob, when it is
-     * done but the relevant key was removed in the meantime, the
-     * complete jobs handler will not find the key about the job and the
-     * assert will fail. */
-    if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
-        vmCancelThreadedIOJob(o);
     if (o->refcount == 1) {
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
@@ -476,7 +450,6 @@ unsigned long estimateObjectIdleTime(robj *o) {
 robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
-    if (server.vm_enabled) lookupKeyRead(c->db,key);
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetEntryVal(de);
 }

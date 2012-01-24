@@ -47,9 +47,7 @@ redisClient *createClient(int fd) {
     c->bpop.count = 0;
     c->bpop.timeout = 0;
     c->bpop.target = NULL;
-    c->io_keys = listCreate();
     c->watched_keys = listCreate();
-    listSetFreeMethod(c->io_keys,decrRefCount);
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCount);
@@ -189,7 +187,6 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
 
 void addReply(redisClient *c, robj *obj) {
     if (_installWriteEvent(c) != REDIS_OK) return;
-    redisAssert(!server.vm_enabled || obj->storage == REDIS_VM_MEMORY);
 
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
@@ -502,26 +499,6 @@ void freeClient(redisClient *c) {
         redisAssert(ln != NULL);
         listDelNode(server.unblocked_clients,ln);
     }
-    /* Remove from the list of clients waiting for swapped keys, or ready
-     * to be restarted, but not yet woken up again. */
-    if (c->flags & REDIS_IO_WAIT) {
-        redisAssert(server.vm_enabled);
-        if (listLength(c->io_keys) == 0) {
-            ln = listSearchKey(server.io_ready_clients,c);
-
-            /* When this client is waiting to be woken up (REDIS_IO_WAIT),
-             * it should be present in the list io_ready_clients */
-            redisAssert(ln != NULL);
-            listDelNode(server.io_ready_clients,ln);
-        } else {
-            while (listLength(c->io_keys)) {
-                ln = listFirst(c->io_keys);
-                dontWaitForSwappedKey(c,ln->value);
-            }
-        }
-        server.vm_blocked_clients--;
-    }
-    listRelease(c->io_keys);
     /* Master/slave cleanup.
      * Case 1: we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {

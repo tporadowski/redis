@@ -78,7 +78,6 @@
 #define REDIS_SET 2
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
-#define REDIS_VMPOINTER 8
 
 /* Object types only used for persistence in .rdb files */
 #define REDIS_HASH_ZIPMAP 9
@@ -130,18 +129,6 @@
 #define REDIS_RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define REDIS_RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
-/* Virtual memory object->where field. */
-#define REDIS_VM_MEMORY 0       /* The object is on memory */
-#define REDIS_VM_SWAPPED 1      /* The object is on disk */
-#define REDIS_VM_SWAPPING 2     /* Redis is swapping this object on disk */
-#define REDIS_VM_LOADING 3      /* Redis is loading this object from disk */
-
-/* Virtual memory static configuration stuff.
- * Check vmFindContiguousPages() to know more about this magic numbers. */
-#define REDIS_VM_MAX_NEAR_PAGES 65536
-#define REDIS_VM_MAX_RANDOM_JUMP 4096
-#define REDIS_VM_MAX_THREADS 32
-#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 /* The following is the *percentage* of completed I/O jobs to process when the
  * handelr is called. While Virtual Memory I/O operations are performed by
  * threads, this operations must be processed by the main thread when completed
@@ -250,37 +237,12 @@ void bugReportStart(void);
 #define REDIS_LRU_CLOCK_RESOLUTION 10 /* LRU clock resolution in seconds */
 typedef struct redisObject {
     unsigned type:4;
-    unsigned storage:2;     /* REDIS_VM_MEMORY or REDIS_VM_SWAPPING */
+    unsigned storage:2;
     unsigned encoding:4;
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
     void *ptr;
-    /* VM fields are only allocated if VM is active, otherwise the
-     * object allocation function will just allocate
-     * sizeof(redisObjct) minus sizeof(redisObjectVM), so using
-     * Redis without VM active will not have any overhead. */
 } robj;
-
-/* The VM pointer structure - identifies an object in the swap file.
- *
- * This object is stored in place of the value
- * object in the main key->value hash table representing a database.
- * Note that the first fields (type, storage) are the same as the redisObject
- * structure so that vmPointer strucuters can be accessed even when casted
- * as redisObject structures.
- *
- * This is useful as we don't know if a value object is or not on disk, but we
- * are always able to read obj->storage to check this. For vmPointer
- * structures "type" is set to REDIS_VMPOINTER (even if without this field
- * is still possible to check the kind of object from the value of 'storage').*/
-typedef struct vmPointer {
-    unsigned type:4;
-    unsigned storage:2; /* REDIS_VM_SWAPPED or REDIS_VM_LOADING */
-    unsigned notused:26;
-    unsigned int vtype; /* type of the object stored in the swap file */
-    off_t page;         /* the page at witch the object is stored on disk */
-    off_t usedpages;    /* number of pages used on disk */
-} vmpointer;
 
 /* Macro used to initalize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
@@ -291,14 +253,13 @@ typedef struct vmPointer {
     _var.type = REDIS_STRING; \
     _var.encoding = REDIS_ENCODING_RAW; \
     _var.ptr = _ptr; \
-    _var.storage = REDIS_VM_MEMORY; \
+    _var.storage = 0; \
 } while(0);
 
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
-    dict *io_keys;              /* Keys with clients waiting for VM I/O */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;
 } redisDb;
@@ -350,8 +311,6 @@ typedef struct redisClient {
     off_t repldbsize;       /* replication DB file size */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bpop;   /* blocking state */
-    list *io_keys;          /* Keys this client is waiting to be loaded from the
-                             * swap file in order to continue. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
@@ -478,19 +437,12 @@ struct redisServer {
     int maxmemory_samples;
     /* Blocked clients */
     unsigned int bpop_blocked_clients;
-    unsigned int vm_blocked_clients;
     list *unblocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
     int sort_alpha;
     int sort_bypattern;
-    /* Virtual memory configuration */
-    int vm_enabled;
-    char *vm_swap_file;
-    off_t vm_page_size;
-    off_t vm_pages;
-    unsigned long long vm_max_memory;
     /* Zip structure config */
     size_t hash_max_zipmap_entries;
     size_t hash_max_zipmap_value;
@@ -499,37 +451,7 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
-    /* Virtual memory state */
-    FILE *vm_fp;
-    int vm_fd;
-    off_t vm_next_page; /* Next probably empty page */
-    off_t vm_near_pages; /* Number of pages allocated sequentially */
-    unsigned char *vm_bitmap; /* Bitmap of free/used pages */
     time_t unixtime;    /* Unix time sampled every second. */
-    /* Virtual memory I/O threads stuff */
-    /* An I/O thread process an element taken from the io_jobs queue and
-     * put the result of the operation in the io_done list. While the
-     * job is being processed, it's put on io_processing queue. */
-    list *io_newjobs; /* List of VM I/O jobs yet to be processed */
-    list *io_processing; /* List of VM I/O jobs being processed */
-    list *io_processed; /* List of VM I/O jobs already processed */
-    list *io_ready_clients; /* Clients ready to be unblocked. All keys loaded */
-    pthread_mutex_t io_mutex; /* lock to access io_jobs/io_done/io_thread_job */
-    pthread_mutex_t io_swapfile_mutex; /* So we can lseek + write */
-    pthread_attr_t io_threads_attr; /* attributes for threads creation */
-    int io_active_threads; /* Number of running I/O threads */
-    int vm_max_threads; /* Max number of I/O threads running at the same time */
-    /* Our main thread is blocked on the event loop, locking for sockets ready
-     * to be read or written, so when a threaded I/O operation is ready to be
-     * processed by the main thread, the I/O thread will use a unix pipe to
-     * awake the main thread. The followings are the two pipe FDs. */
-    int io_ready_pipe_read;
-    int io_ready_pipe_write;
-    /* Virtual memory stats */
-    unsigned long long vm_stats_used_pages;
-    unsigned long long vm_stats_swapped_objects;
-    unsigned long long vm_stats_swapouts;
-    unsigned long long vm_stats_swapins;
     /* Pubsub */
     dict *pubsub_channels; /* Map channels to list of subscribed clients */
     list *pubsub_patterns; /* A list of pubsub_patterns */
@@ -549,17 +471,13 @@ typedef struct pubsubPattern {
 } pubsubPattern;
 
 typedef void redisCommandProc(redisClient *c);
-typedef void redisVmPreloadProc(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
     int flags;
-    /* Use a function to determine which keys need to be loaded
-     * in the background prior to executing this command. Takes precedence
-     * over vm_firstkey and others, ignored when NULL */
-    redisVmPreloadProc *vm_preload_proc;
-    /* What keys should be loaded in background when calling this command? */
+    /* no longer used, but kept to keep the command table intact */
+    void *vm_preload_proc;
     int vm_firstkey; /* The first argument that's a key (0 = no keys) */
     int vm_lastkey;  /* THe last argument that's a key */
     int vm_keystep;  /* The step between first and last key */
@@ -604,25 +522,6 @@ typedef struct zset {
     dict *dict;
     zskiplist *zsl;
 } zset;
-
-/* VM threaded I/O request message */
-#define REDIS_IOJOB_LOAD 0          /* Load from disk to memory */
-#define REDIS_IOJOB_PREPARE_SWAP 1  /* Compute needed pages */
-#define REDIS_IOJOB_DO_SWAP 2       /* Swap from memory to disk */
-typedef struct iojob {
-    int type;   /* Request type, REDIS_IOJOB_* */
-    redisDb *db;/* Redis database */
-    robj *key;  /* This I/O request is about swapping this key */
-    robj *id;   /* Unique identifier of this job:
-                   this is the object to swap for REDIS_IOREQ_*_SWAP, or the
-                   vmpointer objct for REDIS_IOREQ_LOAD. */
-    robj *val;  /* the value to swap for REDIS_IOREQ_*_SWAP, otherwise this
-                 * field is populated by the I/O thread for REDIS_IOREQ_LOAD. */
-    off_t page; /* Swap page where to read/write the object */
-    off_t pages; /* Swap pages needed to save object. PREPARE_SWAP return val */
-    int canceled; /* True if this command was canceled by blocking side of VM */
-    pthread_t thread; /* ID of the thread processing this entry */
-} iojob;
 
 /* Structure to hold list iteration abstraction. */
 typedef struct {
@@ -809,7 +708,6 @@ void rdbRemoveTempFile(pid_t childpid);
 int rdbSave(char *filename);
 int rdbSaveObject(FILE *fp, robj *o);
 off_t rdbSavedObjectLen(robj *o);
-off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
 void backgroundSaveDoneHandler(int statloc);
 int getObjectSaveType(robj *o);
@@ -850,32 +748,6 @@ int htNeedsResize(dict *dict);
 void oom(const char *msg);
 void populateCommandTable(void);
 
-/* Virtual Memory */
-void vmInit(void);
-void vmMarkPagesFree(off_t page, off_t count);
-robj *vmLoadObject(robj *o);
-robj *vmPreviewObject(robj *o);
-int vmSwapOneObjectBlocking(void);
-int vmSwapOneObjectThreaded(void);
-int vmCanSwapOut(void);
-void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata, int mask);
-void vmCancelThreadedIOJob(robj *o);
-void lockThreadedIO(void);
-void unlockThreadedIO(void);
-int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db);
-void freeIOJob(iojob *j);
-void queueIOJob(iojob *j);
-int vmWriteObjectOnSwap(robj *o, off_t page);
-robj *vmReadObjectFromSwap(off_t page, int type);
-void waitEmptyIOJobsQueue(void);
-void vmReopenSwapFile(void);
-int vmFreePage(off_t page);
-void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-int blockClientOnSwappedKeys(redisClient *c);
-int dontWaitForSwappedKey(redisClient *c, robj *key);
-void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
-vmpointer *vmSwapObjectBlocking(robj *val);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

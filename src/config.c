@@ -30,7 +30,6 @@ void loadServerConfig(char *filename) {
     char buf[REDIS_CONFIGLINE_MAX+1], *err = NULL;
     int linenum = 0;
     sds line = NULL;
-    int really_use_vm = 0;
 
     if (filename[0] == '-' && filename[1] == '\0')
         fp = stdin;
@@ -270,25 +269,6 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.dbfilename);
             server.dbfilename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"vm-enabled") && argc == 2) {
-            if ((server.vm_enabled = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"really-use-vm") && argc == 2) {
-            if ((really_use_vm = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"vm-swap-file") && argc == 2) {
-            zfree(server.vm_swap_file);
-            server.vm_swap_file = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"vm-max-memory") && argc == 2) {
-            server.vm_max_memory = memtoll(argv[1],NULL);
-        } else if (!strcasecmp(argv[0],"vm-page-size") && argc == 2) {
-            server.vm_page_size = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"vm-pages") && argc == 2) {
-            server.vm_pages = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
-            server.vm_max_threads = strtoll(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
             server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {
@@ -342,7 +322,6 @@ void loadServerConfig(char *filename) {
         sdsfree(line);
     }
     if (fp != stdin) fclose(fp);
-    if (server.vm_enabled && !really_use_vm) goto vm_warning;
     return;
 
 loaderr:
@@ -352,14 +331,6 @@ loaderr:
     fprintf(stderr, "%s\n", err);
     exit(1);
 
-vm_warning:
-    fprintf(stderr, "\nARE YOU SURE YOU WANT TO USE VM?\n\n");
-    fprintf(stderr, "Redis Virtual Memory is going to be deprecated soon,\n");
-    fprintf(stderr, "we think you should NOT use it, but use Redis only if\n");
-    fprintf(stderr, "your data is suitable for an in-memory database.\n");
-    fprintf(stderr, "If you *really* want VM add this in the config file:\n");
-    fprintf(stderr, "\n    really-use-vm yes\n\n");
-    exit(1);
 }
 
 /*-----------------------------------------------------------------------------
