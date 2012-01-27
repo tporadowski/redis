@@ -184,7 +184,7 @@ void flushallCommand(redisClient *c) {
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
+        long long saved_dirty = server.dirty;
         rdbSave(server.dbfilename);
         server.dirty = saved_dirty;
     }
@@ -542,7 +542,7 @@ void expireCommand(redisClient *c) {
 }
 
 void expireatCommand(redisClient *c) {
-    expireGenericCommand(c,c->argv[1],c->argv[2],time(NULL));
+    expireGenericCommand(c,c->argv[1],c->argv[2],(long)time(NULL));
 }
 
 void ttlCommand(redisClient *c) {

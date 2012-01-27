@@ -5,7 +5,11 @@
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
+#ifndef _WIN32
 #include <sys/time.h>
+#else
+#include "win32fixes.h"
+#endif
 
 #include "util.h"
 
@@ -133,7 +137,7 @@ int stringmatchlen(const char *pattern, int patternLen,
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
-    return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+    return stringmatchlen(pattern,(int)strlen(pattern),string,(int)strlen(string),nocase);
 }
 
 /* Convert a string representing an amount of memory into the number of
@@ -172,7 +176,7 @@ long long memtoll(const char *p, int *err) {
         if (err) *err = 1;
         mul = 1;
     }
-    digits = u-p;
+    digits = (unsigned int)(u-p);
     if (digits >= sizeof(buf)) {
         if (err) *err = 1;
         return LLONG_MAX;
@@ -190,21 +194,37 @@ int ll2string(char *s, size_t len, long long value) {
     char buf[32], *p;
     unsigned long long v;
     size_t l;
+#ifdef _WIN32
+    /* if value fits, use 32 bit div for performance */
+    unsigned long vl;
+#endif
 
     if (len == 0) return 0;
     v = (value < 0) ? -value : value;
     p = buf+31; /* point to the last character */
+#ifdef _WIN32
+    vl = (unsigned long)v;
+    if ((unsigned long long)vl == v) {
+        do {
+            *p-- = '0'+(vl%10);
+            vl /= 10;
+        } while(vl);
+    } else {
+#endif
     do {
         *p-- = '0'+(v%10);
         v /= 10;
     } while(v);
+#ifdef _WIN32
+    }
+#endif
     if (value < 0) *p-- = '-';
     p++;
     l = 32-(p-buf);
     if (l+1 > len) l = len-1; /* Make sure it fits, including the nul term */
     memcpy(s,p,l);
     s[l] = '\0';
-    return l;
+    return (int)l;
 }
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
@@ -318,7 +338,7 @@ int d2string(char *buf, size_t len, double value) {
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && value == ((double)((long long)value)))
+        if (value > min && value < max && value == ((double)((long long)value)))
             len = ll2string(buf,len,(long long)value);
         else
 #endif

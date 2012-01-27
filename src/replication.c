@@ -1,9 +1,12 @@
 #include "redis.h"
 
+#ifndef _WIN32
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <string.h>
 
 /* ---------------------------------- MASTER -------------------------------- */
 
@@ -83,6 +86,36 @@ void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc) 
     decrRefCount(cmdobj);
 }
 
+#ifdef _WIN32
+/* Win32 may fail in renaming file while it is being read for sending */
+/* if some client is doing bulk transfer, try again when it completes */
+int DelayBkgdSaveForReplication() {
+    listIter li;
+    int sending = 0;
+    listNode *ln;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        redisClient *slave = ln->value;
+        if (slave->repldbfd != -1) {
+            sending++;
+        }
+    }
+    if (sending > 0) {
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
+                slave->replstate = REDIS_REPL_WAIT_BGSAVE_START;
+            }
+        }
+        redisLog(REDIS_VERBOSE,"Delay starting bgsave for replication");
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 void syncCommand(redisClient *c) {
     /* ignore SYNC if aleady slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
@@ -132,6 +165,11 @@ void syncCommand(redisClient *c) {
             redisLog(REDIS_NOTICE,"Waiting for next BGSAVE for SYNC");
         }
     } else {
+#ifdef _WIN32
+        if (DelayBkgdSaveForReplication() > 0) {
+            c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
+        } else {
+#endif
         /* Ok we don't have a BGSAVE in progress, let's start one */
         redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC");
         if (rdbSaveBackground(server.dbfilename) != REDIS_OK) {
@@ -140,14 +178,101 @@ void syncCommand(redisClient *c) {
             return;
         }
         c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+#ifdef _WIN32
+        }
+#endif
     }
     c->repldbfd = -1;
     c->flags |= REDIS_SLAVE;
     c->slaveseldb = 0;
     listAddNodeTail(server.slaves,c);
+#ifdef _WIN32
+    /* Since WIN32 won't fork(),  but instead do Save() we must manualy call this */
+    updateSlavesWaitingBgsave(REDIS_OK);
+#endif
     return;
 }
 
+#ifdef _WIN32
+void sendBulkToSlaveLenDone(aeEventLoop *el, int fd, void *privdata, int written) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(fd);
+
+    sdsfree((sds)req->buf);
+}
+
+void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    redisClient *slave = (redisClient *)req->client;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(fd);
+
+    zfree(req->data);
+    slave->repldboff += nwritten;
+    if (slave->repldboff == slave->repldbsize) {
+        close(slave->repldbfd);
+        slave->repldbfd = -1;
+        aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
+        slave->replstate = REDIS_REPL_ONLINE;
+        if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
+            sendReplyToClient, slave) == AE_ERR) {
+            freeClient(slave);
+            return;
+        }
+        addReplySds(slave,sdsempty());
+        redisLog(REDIS_NOTICE,"Synchronization with slave succeeded");
+        /* we have have delayed other clients. */
+        updateSlavesWaitingBgsave(REDIS_OK);
+    }
+}
+void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisClient *slave = privdata;
+    char *buf;
+    ssize_t result, buflen;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+
+    if (slave->repldboff == 0) {
+        /* Write the bulk write count before to transfer the DB. In theory here
+         * we don't know how much room there is in the output buffer of the
+         * socket, but in pratice SO_SNDLOWAT (the minimum count for output
+         * operations) will never be smaller than the few bytes we need. */
+        sds bulkcount;
+
+        bulkcount = sdscatprintf(sdsempty(),"$%lld\r\n",(unsigned long long)
+            slave->repldbsize);
+
+        result = aeWinSocketSend(fd,bulkcount,(int)sdslen(bulkcount),0,
+                            el, slave, bulkcount, sendBulkToSlaveLenDone);
+        if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+            sdsfree(bulkcount);
+            freeClient(slave);
+            return;
+        }
+    }
+    lseek64(slave->repldbfd,slave->repldboff,SEEK_SET);
+    buf = (char *)zmalloc(REDIS_IOBUF_LEN);
+    buflen = read(slave->repldbfd,buf,REDIS_IOBUF_LEN);
+    if (buflen <= 0) {
+        redisLog(REDIS_WARNING,"Read error sending DB to slave: %s",
+            (buflen == 0) ? "premature EOF" : strerror(errno));
+        freeClient(slave);
+        return;
+    }
+
+    result = aeWinSocketSend((SOCKET)fd,buf,(int)buflen,0,
+                                el, slave, buf, sendBulkToSlaveDataDone);
+    if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+        redisLog(REDIS_VERBOSE,"Write error sending DB to slave: %s",
+            strerror(errno));
+        freeClient(slave);
+        return;
+    }
+
+}
+
+#else
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *slave = privdata;
     REDIS_NOTUSED(el);
@@ -201,6 +326,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_NOTICE,"Synchronization with slave succeeded");
     }
 }
+#endif
 
 /* This function is called at the end of every backgrond saving.
  * The argument bgsaveerr is REDIS_OK if the background saving succeeded
@@ -228,7 +354,11 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
                 redisLog(REDIS_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
             }
+#ifdef _WIN32
+            if ((slave->repldbfd = open(server.dbfilename,O_RDONLY|_O_BINARY)) == -1 ||
+#else
             if ((slave->repldbfd = open(server.dbfilename,O_RDONLY)) == -1 ||
+#endif
                 redis_fstat(slave->repldbfd,&buf) == -1) {
                 freeClient(slave);
                 redisLog(REDIS_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
@@ -245,6 +375,11 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
         }
     }
     if (startbgsave) {
+#ifdef _WIN32
+        if (DelayBkgdSaveForReplication() > 0) {
+            return;
+        }
+#endif
         if (rdbSaveBackground(server.dbfilename) != REDIS_OK) {
             listIter li;
 
@@ -267,7 +402,12 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.replstate == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
+#ifdef _WIN32
+    aeWinSocketDetach(server.repl_transfer_s, 1);
+    closesocket(server.repl_transfer_s);
+#else
     close(server.repl_transfer_s);
+#endif
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
@@ -292,6 +432,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
 
+#ifdef _WIN32
+        aeWinReceiveDone(fd);
+#endif
         if (buf[0] == '-') {
             redisLog(REDIS_WARNING,
                 "MASTER aborted replication with an error: %s",
@@ -317,6 +460,20 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* Read bulk data */
     readlen = (server.repl_transfer_left < (signed)sizeof(buf)) ?
         server.repl_transfer_left : (signed)sizeof(buf);
+#ifdef _WIN32
+    nread = recv((SOCKET)fd,buf,readlen,0);
+    if (nread <= 0) {
+        if (server.repl_transfer_left) {
+            errno = WSAGetLastError();
+            redisLog(REDIS_WARNING,"I/O error %d (left %d) trying to sync with MASTER: %s",
+                errno, server.repl_transfer_left,
+                (nread == -1) ? strerror(errno) : "connection lost");
+        }
+        replicationAbortSyncTransfer();
+        return;
+    }
+    aeWinReceiveDone(fd);
+#else
     nread = read(fd,buf,readlen);
     if (nread <= 0) {
         redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
@@ -324,6 +481,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         replicationAbortSyncTransfer();
         return;
     }
+#endif
     server.repl_transfer_lastio = time(NULL);
     if (write(server.repl_transfer_fd,buf,nread) != nread) {
         redisLog(REDIS_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchrnonization: %s", strerror(errno));
@@ -332,6 +490,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     server.repl_transfer_left -= nread;
     /* Check if the transfer is now complete */
     if (server.repl_transfer_left == 0) {
+#ifdef _WIN32
+        /* Close temp, since rename is unable to delete open file */
+        close(server.repl_transfer_fd);
+#endif
         if (rename(server.repl_transfer_tmpfile,server.dbfilename) == -1) {
             redisLog(REDIS_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", strerror(errno));
             replicationAbortSyncTransfer();
@@ -351,7 +513,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
+#ifndef _WIN32
+        /* Moved before rename tmp->db in windows */
         close(server.repl_transfer_fd);
+#endif
         server.master = createClient(server.repl_transfer_s);
         server.master->flags |= REDIS_MASTER;
         server.master->authenticated = 1;
@@ -420,9 +585,15 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Prepare a suitable temp file for bulk transfer */
     while(maxtries--) {
+#ifdef _WIN32
+        snprintf(tmpfile,256,
+            "temp-%lld.%lld.rdb",(long long)time(NULL),(long long)getpid());
+        dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL|O_BINARY,_S_IREAD|_S_IWRITE);
+#else
         snprintf(tmpfile,256,
             "temp-%d.%ld.rdb",(int)time(NULL),(long int)getpid());
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
+#endif
         if (dfd != -1) break;
         sleep(1);
     }
@@ -448,7 +619,12 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 error:
     server.replstate = REDIS_REPL_CONNECT;
+#ifdef _WIN32
+    aeWinSocketDetach(fd, 1);
+    closesocket(fd);
+#else
     close(fd);
+#endif
     return;
 }
 
@@ -483,7 +659,12 @@ void undoConnectWithMaster(void) {
 
     redisAssert(server.replstate == REDIS_REPL_CONNECTING);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+#ifdef _WIN32
+    aeWinSocketDetach(fd, 1);
+    closesocket(fd);
+#else
     close(fd);
+#endif
     server.repl_transfer_s = -1;
     server.replstate = REDIS_REPL_CONNECT;
 }

@@ -93,8 +93,8 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
     int retval = 0;
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
-        retval = 1;
         pubsubPattern *pat;
+        retval = 1;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));

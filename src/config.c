@@ -1,4 +1,8 @@
 #include "redis.h"
+#include <string.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 /*-----------------------------------------------------------------------------
  * Config file parsing
@@ -34,7 +38,11 @@ void loadServerConfig(char *filename) {
     if (filename[0] == '-' && filename[1] == '\0')
         fp = stdin;
     else {
+#ifdef _WIN32
+        if ((fp = fopen(filename,"rb")) == NULL) {
+#else
         if ((fp = fopen(filename,"r")) == NULL) {
+#endif
             redisLog(REDIS_WARNING, "Fatal error, can't open config file '%s'", filename);
             exit(1);
         }
@@ -128,6 +136,11 @@ void loadServerConfig(char *filename) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
+#ifdef _WIN32
+            // Skip error - just ignore Syslog
+            // err "Syslog is not supported on Windows platform.";
+            // goto loaderr;
+#else
             struct {
                 const char     *name;
                 const int       value;
@@ -156,6 +169,7 @@ void loadServerConfig(char *filename) {
                 err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
                 goto loaderr;
             }
+#endif
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
@@ -260,7 +274,7 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
                    argc == 2)
         {
-            server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
+            server.auto_aofrewrite_min_size = (off_t)memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
@@ -270,19 +284,19 @@ void loadServerConfig(char *filename) {
             zfree(server.dbfilename);
             server.dbfilename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
-            server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
+            server.hash_max_zipmap_entries = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {
-            server.hash_max_zipmap_value = memtoll(argv[1], NULL);
+            server.hash_max_zipmap_value = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
-            server.list_max_ziplist_entries = memtoll(argv[1], NULL);
+            server.list_max_ziplist_entries = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
-            server.list_max_ziplist_value = memtoll(argv[1], NULL);
+            server.list_max_ziplist_value = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
-            server.set_max_intset_entries = memtoll(argv[1], NULL);
+            server.set_max_intset_entries = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
-            server.zset_max_ziplist_entries = memtoll(argv[1], NULL);
+            server.zset_max_ziplist_entries = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"zset-max-ziplist-value") && argc == 2) {
-            server.zset_max_ziplist_value = memtoll(argv[1], NULL);
+            server.zset_max_ziplist_value = (size_t)memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommand(argv[1]);
             int retval;
@@ -312,7 +326,7 @@ void loadServerConfig(char *filename) {
         {
             server.slowlog_log_slower_than = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = strtoll(argv[1],NULL,10);
+            server.slowlog_max_len = (unsigned long)strtoll(argv[1],NULL,10);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -377,11 +391,11 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-samples")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
-        server.maxmemory_samples = ll;
+        server.maxmemory_samples = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
-        server.maxidletime = ll;
+        server.maxidletime = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.appendfsync = APPENDFSYNC_NO;
@@ -415,10 +429,10 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.auto_aofrewrite_perc = ll;
+        server.auto_aofrewrite_perc = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.auto_aofrewrite_min_size = ll;
+        server.auto_aofrewrite_min_size = (off_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -434,7 +448,7 @@ void configSetCommand(redisClient *c) {
             char *eptr;
             long val;
 
-            val = strtoll(v[j], &eptr, 10);
+            val = (long)strtoll(v[j], &eptr, 10);
             if (eptr[0] != '\0' ||
                 ((j & 1) == 0 && val < 1) ||
                 ((j & 1) == 1 && val < 0)) {
@@ -449,7 +463,7 @@ void configSetCommand(redisClient *c) {
             int changes;
 
             seconds = strtoll(v[j],NULL,10);
-            changes = strtoll(v[j+1],NULL,10);
+            changes = (int)strtoll(v[j+1],NULL,10);
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
@@ -465,25 +479,25 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-zipmap-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.hash_max_zipmap_entries = ll;
+        server.hash_max_zipmap_entries = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-zipmap-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.hash_max_zipmap_value = ll;
+        server.hash_max_zipmap_value = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.list_max_ziplist_entries = ll;
+        server.list_max_ziplist_entries = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.list_max_ziplist_value = ll;
+        server.list_max_ziplist_value = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.set_max_intset_entries = ll;
+        server.set_max_intset_entries = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.zset_max_ziplist_entries = ll;
+        server.zset_max_ziplist_entries = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.zset_max_ziplist_value = ll;
+        server.zset_max_ziplist_value = (size_t)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-log-slower-than")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR) goto badfmt;
         server.slowlog_log_slower_than = ll;

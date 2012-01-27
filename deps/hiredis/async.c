@@ -30,13 +30,20 @@
  */
 
 #include <string.h>
-#include <strings.h>
+#ifndef _WIN32
+  #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include "async.h"
 #include "dict.c"
 #include "sds.h"
 #include "util.h"
+
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
 
 /* Forward declaration of function in hiredis.c */
 void __redisAppendCommand(redisContext *c, char *cmd, size_t len);
@@ -47,8 +54,8 @@ static unsigned int callbackHash(const void *key) {
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
-    ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+    ((void) privdata);
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }

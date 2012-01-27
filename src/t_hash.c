@@ -49,7 +49,7 @@ int hashTypeGet(robj *o, robj *key, robj **objval, unsigned char **v,
         int found;
 
         key = getDecodedObject(key);
-        found = zipmapGet(o->ptr,key->ptr,sdslen(key->ptr),v,vlen);
+        found = zipmapGet(o->ptr,key->ptr,(unsigned int)sdslen(key->ptr),v,vlen);
         decrRefCount(key);
         if (!found) return -1;
     } else {
@@ -88,7 +88,7 @@ robj *hashTypeGetObject(robj *o, robj *key) {
 int hashTypeExists(robj *o, robj *key) {
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
         key = getDecodedObject(key);
-        if (zipmapExists(o->ptr,key->ptr,sdslen(key->ptr))) {
+        if (zipmapExists(o->ptr,key->ptr,(unsigned int)sdslen(key->ptr))) {
             decrRefCount(key);
             return 1;
         }
@@ -109,8 +109,8 @@ int hashTypeSet(robj *o, robj *key, robj *value) {
         key = getDecodedObject(key);
         value = getDecodedObject(value);
         o->ptr = zipmapSet(o->ptr,
-            key->ptr,sdslen(key->ptr),
-            value->ptr,sdslen(value->ptr), &update);
+            key->ptr,(unsigned int)sdslen(key->ptr),
+            value->ptr,(unsigned int)sdslen(value->ptr), &update);
         decrRefCount(key);
         decrRefCount(value);
 
@@ -136,7 +136,7 @@ int hashTypeDelete(robj *o, robj *key) {
     int deleted = 0;
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
         key = getDecodedObject(key);
-        o->ptr = zipmapDel(o->ptr,key->ptr,sdslen(key->ptr), &deleted);
+        o->ptr = zipmapDel(o->ptr,key->ptr,(unsigned int)sdslen(key->ptr), &deleted);
         decrRefCount(key);
     } else {
         deleted = dictDelete((dict*)o->ptr,key) == DICT_OK;

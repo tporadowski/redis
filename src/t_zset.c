@@ -1,6 +1,9 @@
 #include "redis.h"
 
 #include <math.h>
+#ifdef _WIN32
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0) 
+#endif
 
 /*-----------------------------------------------------------------------------
  * Sorted set API
@@ -423,7 +426,7 @@ double zzlGetScore(unsigned char *sptr) {
         buf[vlen] = '\0';
         score = strtod(buf,NULL);
     } else {
-        score = vlong;
+        score = (double)vlong;
     }
 
     return score;
@@ -457,39 +460,39 @@ unsigned int zzlLength(unsigned char *zl) {
 /* Move to next entry based on the values in eptr and sptr. Both are set to
  * NULL when there is no next entry. */
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *_eptr, *_sptr;
+    unsigned char *l_eptr, *l_sptr;
     redisAssert(*eptr != NULL && *sptr != NULL);
 
-    _eptr = ziplistNext(zl,*sptr);
-    if (_eptr != NULL) {
-        _sptr = ziplistNext(zl,_eptr);
-        redisAssert(_sptr != NULL);
+    l_eptr = ziplistNext(zl,*sptr);
+    if (l_eptr != NULL) {
+        l_sptr = ziplistNext(zl,l_eptr);
+        redisAssert(l_sptr != NULL);
     } else {
         /* No next entry. */
-        _sptr = NULL;
+        l_sptr = NULL;
     }
 
-    *eptr = _eptr;
-    *sptr = _sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
  * set to NULL when there is no next entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *_eptr, *_sptr;
+    unsigned char *l_eptr, *l_sptr;
     redisAssert(*eptr != NULL && *sptr != NULL);
 
-    _sptr = ziplistPrev(zl,*eptr);
-    if (_sptr != NULL) {
-        _eptr = ziplistPrev(zl,_sptr);
-        redisAssert(_eptr != NULL);
+    l_sptr = ziplistPrev(zl,*eptr);
+    if (l_sptr != NULL) {
+        l_eptr = ziplistPrev(zl,l_sptr);
+        redisAssert(l_eptr != NULL);
     } else {
         /* No previous entry. */
-        _eptr = NULL;
+        l_eptr = NULL;
     }
 
-    *eptr = _eptr;
-    *sptr = _sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
 
 /* Returns if there is a part of the zset is in range. Should only be used
@@ -1937,7 +1940,7 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     }
 
     if (justcount) {
-        addReplyLongLong(c,(long)rangelen);
+        addReplyLongLong(c,(long long)rangelen);
     } else {
         if (withscores) rangelen *= 2;
         setDeferredMultiBulkLength(c,replylen,rangelen);

@@ -75,5 +75,8 @@ size_t zmalloc_used_memory(void);
 void zmalloc_enable_thread_safeness(void);
 float zmalloc_get_fragmentation_ratio(void);
 size_t zmalloc_get_rss(void);
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void);
+#endif
 
 #endif /* __ZMALLOC_H */

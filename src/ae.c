@@ -31,9 +31,11 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
+#include <sys/time.h>
 #include <unistd.h>
+#endif
 #include <stdlib.h>
 
 #include "ae.h"
@@ -48,7 +50,11 @@
     #ifdef HAVE_KQUEUE
     #include "ae_kqueue.c"
     #else
-    #include "ae_select.c"
+        #ifdef _WIN32
+        #include "ae_wsiocp.c"
+        #else
+        #include "ae_select.c"
+        #endif
     #endif
 #endif
 
@@ -86,8 +92,9 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    aeFileEvent *fe;
     if (fd >= AE_SETSIZE) return AE_ERR;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -102,8 +109,9 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
+    aeFileEvent *fe;
     if (fd >= AE_SETSIZE) return;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
     fe->mask = fe->mask & (~mask);
@@ -119,8 +127,9 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
+    aeFileEvent *fe;
     if (fd >= AE_SETSIZE) return 0;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     return fe->mask;
 }
@@ -138,7 +147,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     long cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
+    when_sec = (long)(cur_sec + milliseconds/1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -235,7 +244,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
+#ifdef _WIN32
+            long long retval;
+#else
             int retval;
+#endif
 
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
@@ -362,7 +375,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     fd_set rfds, wfds, efds;
     int retmask = 0, retval;
 
-    tv.tv_sec = milliseconds/1000;
+    tv.tv_sec = (long)(milliseconds/1000);
     tv.tv_usec = (milliseconds%1000)*1000;
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);

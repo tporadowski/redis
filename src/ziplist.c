@@ -275,11 +275,11 @@ static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encodi
     int32_t i32;
     int64_t i64;
     if (encoding == ZIP_INT_16B) {
-        i16 = value;
+        i16 = (int16_t)value;
         memcpy(p,&i16,sizeof(i16));
         memrev16ifbe(p);
     } else if (encoding == ZIP_INT_32B) {
-        i32 = value;
+        i32 = (int32_t)value;
         memcpy(p,&i32,sizeof(i32));
         memrev32ifbe(p);
     } else if (encoding == ZIP_INT_64B) {
@@ -391,14 +391,14 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
         if (next.prevrawlensize < rawlensize) {
             /* The "prevlen" field of "next" needs more bytes to hold
              * the raw length of "cur". */
-            offset = p-zl;
+            offset = (unsigned int)(p-zl);
             extra = rawlensize-next.prevrawlensize;
             zl = ziplistResize(zl,curlen+extra);
             p = zl+offset;
 
             /* Current pointer and offset for next element. */
             np = p+rawlen;
-            noffset = np-zl;
+            noffset = (unsigned int)(np-zl);
 
             /* Update tail offset when next element is not the tail element. */
             if ((zl+ZIPLIST_TAIL_OFFSET(zl)) != np)
@@ -442,7 +442,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
         deleted++;
     }
 
-    totlen = p-first.p;
+    totlen = (unsigned int)(p-first.p);
     if (totlen > 0) {
         if (p[0] != ZIP_END) {
             /* Tricky: storing the prevlen in this entry might reduce or
@@ -470,7 +470,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
         }
 
         /* Resize and update length */
-        offset = first.p-zl;
+        offset = (int)(first.p-zl);
         zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-totlen+nextdiff);
         ZIPLIST_INCR_LENGTH(zl,-deleted);
         p = zl+offset;
@@ -523,7 +523,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0;
 
     /* Store offset because a realloc may change the address of zl. */
-    offset = p-zl;
+    offset = (unsigned int)(p-zl);
     zl = ziplistResize(zl,curlen+reqlen+nextdiff);
     p = zl+offset;
 
@@ -552,7 +552,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     /* When nextdiff != 0, the raw length of the next entry has changed, so
      * we need to cascade the update throughout the ziplist */
     if (nextdiff != 0) {
-        offset = p-zl;
+        offset = (unsigned int)(p-zl);
         zl = __ziplistCascadeUpdate(zl,p+reqlen);
         p = zl+offset;
     }
@@ -771,7 +771,7 @@ void ziplistRepr(unsigned char *zl) {
             entry.headersize,
             entry.prevrawlen,
             entry.prevrawlensize,
-            entry.len);
+            (unsigned int)entry.len);
         p += entry.headersize;
         if (ZIP_IS_STR(entry.encoding)) {
             if (entry.len > 40) {

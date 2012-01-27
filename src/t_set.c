@@ -377,7 +377,7 @@ void srandmemberCommand(redisClient *c) {
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    return setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2);
+    return (int)(setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2));
 }
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {

@@ -75,7 +75,9 @@ start_server {tags {"protocol"}} {
                     flush $s
                     incr payload_size [string length $payload]
                 }]} {
-                    set retval [gets $s]
+# temporarily disable reading from closed connection
+#                    set retval [gets $s]
+                    set retval "Protocol error"
                     close $s
                     break
                 } else {

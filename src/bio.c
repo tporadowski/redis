@@ -30,6 +30,9 @@
 
 #include "redis.h"
 #include "bio.h"
+#ifdef _WIN32
+#include "win32fixes.h"
+#endif
 
 static pthread_mutex_t bio_mutex[REDIS_BIO_NUM_OPS];
 static pthread_cond_t bio_condvar[REDIS_BIO_NUM_OPS];
@@ -107,7 +110,11 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
+#ifdef _WIN32
+    size_t type = (size_t) arg;
+#else
     unsigned long type = (unsigned long) arg;
+#endif
 
     pthread_detach(pthread_self());
     pthread_mutex_lock(&bio_mutex[type]);
@@ -128,9 +135,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == REDIS_BIO_CLOSE_FILE) {
-            close((long)job->arg1);
+            close((long)(size_t)job->arg1);
         } else if (type == REDIS_BIO_AOF_FSYNC) {
-            aof_fsync((long)job->arg1);
+            aof_fsync((long)(size_t)job->arg1);
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
@@ -156,7 +163,7 @@ unsigned long long bioPendingJobsOfType(int type) {
 #if 0 /* We don't use the following code for now, and bioWaitPendingJobsLE
          probably needs a rewrite using conditional variables instead of the
          current implementation. */
-         
+
 
 /* Wait until the number of pending jobs of the specified type are
  * less or equal to the specified number.

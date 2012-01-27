@@ -13,11 +13,17 @@
 #include <string.h>
 #include <time.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <errno.h>
 #include <inttypes.h>
+#endif
+#include <errno.h>
 #include <pthread.h>
+#ifdef _WIN32
+#include "win32fixes.h"
+#else
 #include <syslog.h>
+#endif
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -301,6 +307,10 @@ typedef struct redisClient {
     long bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
     int sentlen;
+#ifdef _WIN32
+    int sentobjlen;
+    robj *sentobj;          /* keep track of last sent reply object */
+#endif
     time_t lastinteraction; /* time of the last interaction, used for timeout */
     int flags;              /* REDIS_SLAVE | REDIS_MONITOR | REDIS_MULTI ... */
     int slaveseldb;         /* slave selected db, if this client is a slave */
@@ -485,7 +495,11 @@ struct redisCommand {
 
 struct redisFunctionSym {
     char *name;
+#ifdef _WIN32
+    size_t pointer;
+#else    
     unsigned long pointer;
+#endif
 };
 
 typedef struct _redisSortObject {

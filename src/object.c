@@ -282,9 +282,9 @@ robj *getDecodedObject(robj *o) {
  * sdscmp() from sds.c will apply memcmp() so this function ca be considered
  * binary safe. */
 int compareStringObjects(robj *a, robj *b) {
-    redisAssert(a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     int bothsds = 1;
+    redisAssert(a->type == REDIS_STRING && b->type == REDIS_STRING);
 
     if (a == b) return 0;
     if (a->encoding != REDIS_ENCODING_RAW) {
@@ -416,7 +416,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
         return REDIS_ERR;
     }
 
-    *target = value;
+    *target = (long) value;
     return REDIS_OK;
 }
 

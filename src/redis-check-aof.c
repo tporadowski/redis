@@ -2,9 +2,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include "config.h"
+
+#ifdef _WIN32
+#include "win32fixes.h"
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
 
 #define ERROR(...) { \
     char __buf[1024]; \
@@ -118,6 +126,20 @@ long process(FILE *fp) {
 int main(int argc, char **argv) {
     char *filename;
     int fix = 0;
+    FILE *fp;
+    struct redis_stat sb;
+    long size;
+    long pos;
+    long diff;
+#ifdef _WIN32
+    LARGE_INTEGER l;
+    HANDLE h;
+
+    _fmode = _O_BINARY;
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
 
     if (argc < 2) {
         printf("Usage: %s [--fix] <file.aof>\n", argv[0]);
@@ -136,26 +158,29 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    FILE *fp = fopen(filename,"r+");
+#ifdef _WIN32
+    fp = fopen(filename,"r+b");
+#else
+    fp = fopen(filename,"r+");
+#endif
     if (fp == NULL) {
         printf("Cannot open file: %s\n", filename);
         exit(1);
     }
 
-    struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s\n", filename);
         exit(1);
     }
 
-    long size = sb.st_size;
+    size = sb.st_size;
     if (size == 0) {
         printf("Empty file: %s\n", filename);
         exit(1);
     }
 
-    long pos = process(fp);
-    long diff = size-pos;
+    pos = process(fp);
+    diff = size-pos;
     if (diff > 0) {
         if (fix) {
             char buf[2];
@@ -166,12 +191,27 @@ int main(int argc, char **argv) {
                     printf("Aborting...\n");
                     exit(1);
             }
+#ifdef _WIN32
+            h = (HANDLE) _get_osfhandle(fileno(fp));
+            l.QuadPart = pos;
+
+            fflush(fp);
+
+            if (!SetFilePointerEx(h, l, &l, FILE_BEGIN) || !SetEndOfFile(h)) {
+                printf("Failed to truncate AOF\n");
+                exit(1);
+            } else {
+                printf("Successfully truncated AOF\n");
+            }
+#else
             if (ftruncate(fileno(fp), pos) == -1) {
                 printf("Failed to truncate AOF\n");
                 exit(1);
             } else {
                 printf("Successfully truncated AOF\n");
             }
+#endif
+
         } else {
             printf("AOF is not valid\n");
             exit(1);

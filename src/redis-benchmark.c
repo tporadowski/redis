@@ -33,11 +33,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <errno.h>
 #include <sys/time.h>
+#endif
+#include <errno.h>
 #include <signal.h>
 #include <assert.h>
+
+#ifdef _WIN32
+#include "win32fixes.h"
+int fmode = _O_BINARY;
+#endif
 
 #include "ae.h"
 #include "hiredis.h"
@@ -111,6 +118,9 @@ static void freeClient(client c) {
     listNode *ln;
     aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
+#ifdef _WIN32
+    aeWinSocketDetach(c->context->fd, 1);
+#endif
     redisFree(c->context);
     sdsfree(c->obuf);
     zfree(c);
@@ -143,7 +153,11 @@ static void randomizeClientKey(client c) {
 
     for (i = 0; i < c->randlen; i++) {
         r = random() % config.randomkeys_keyspacelen;
+#ifdef _WIN32
+        snprintf(buf,sizeof(buf),"%012llu",(unsigned long long)r);
+#else
         snprintf(buf,sizeof(buf),"%012zu",r);
+#endif
         memcpy(c->randptr[i],buf,12);
     }
 }
@@ -167,6 +181,10 @@ static void clientDone(client c) {
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
+#ifdef _WIN32
+    int nread;
+    char buf[2048];
+#endif
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
     REDIS_NOTUSED(mask);
@@ -176,7 +194,22 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
     if (c->latency < 0) c->latency = ustime()-(c->start);
 
+#ifdef _WIN32
+    nread = recv((SOCKET)c->context->fd,buf,sizeof(buf),0);
+    if (nread == -1) {
+        errno = WSAGetLastError();
+        if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
+            errno = EAGAIN;
+            aeWinReceiveDone(c->context->fd);
+            return;
+        } else {
+            fprintf(stderr,"Error: %s\n",c->context->errstr);
+            exit(1);
+        }
+    } else if (redisBufferReadDone(c->context, buf, nread) != REDIS_OK) {
+#else
     if (redisBufferRead(c->context) != REDIS_OK) {
+#endif
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
@@ -184,6 +217,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             fprintf(stderr,"Error: %s\n",c->context->errstr);
             exit(1);
         }
+        aeWinReceiveDone(c->context->fd);
         if (reply != NULL) {
             if (reply == (void*)REDIS_REPLY_ERROR) {
                 fprintf(stderr,"Unexpected error reply, exiting...\n");
@@ -196,6 +230,19 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 }
+
+#ifdef _WIN32
+static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    client c = (client)req->client;
+
+    c->written += nwritten;
+    if (sdslen(c->obuf) == c->written) {
+        aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
+        aeCreateFileEvent(config.el,c->context->fd,AE_READABLE,readHandler,c);
+    }
+}
+#endif
 
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
@@ -219,6 +266,16 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
+#ifdef _WIN32
+        int result = aeWinSocketSend(c->context->fd,ptr,sdslen(c->obuf)-c->written, 0,
+                                        el, c, NULL, writeHandlerDone);
+        if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+            if (errno != EPIPE)
+                fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
+            freeClient(c);
+            return;
+        }
+#else
         int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
         if (nwritten == -1) {
             if (errno != EPIPE)
@@ -231,6 +288,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
             aeCreateFileEvent(config.el,c->context->fd,AE_READABLE,readHandler,c);
         }
+#endif
     }
 }
 
@@ -265,6 +323,9 @@ static client createClient(const char *cmd, size_t len) {
         }
     }
 
+#ifdef _WIN32
+    aeWinSocketAttach(c->context->fd);
+#endif
     redisSetReplyObjectFunctions(c->context,NULL);
     aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
     listAddNodeTail(config.clients,c);
@@ -287,7 +348,7 @@ static void createMissingClients(client c) {
 }
 
 static int compareLatency(const void *a, const void *b) {
-    return (*(long long*)a)-(*(long long*)b);
+    return (int)((*(long long*)a)-(*(long long*)b));
 }
 
 static void showLatencyReport(void) {
@@ -307,7 +368,7 @@ static void showLatencyReport(void) {
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
         for (i = 0; i < config.requests; i++) {
             if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
-                curlat = config.latency[i]/1000;
+                curlat = (int)(config.latency[i]/1000);
                 perc = ((float)(i+1)*100)/config.requests;
                 printf("%.2f%% <= %d milliseconds\n", perc, curlat);
             }
@@ -420,12 +481,14 @@ usage:
 }
 
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    float dt;
+    float rps ;
     REDIS_NOTUSED(eventLoop);
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
 
-    float dt = (float)(mstime()-config.start)/1000.0;
-    float rps = (float)config.requests_finished/dt;
+    dt = (float)((float)(mstime()-config.start)/1000.0);
+    rps = (float)config.requests_finished/dt;
     printf("%s: %.2f\r", config.title, rps);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -437,6 +500,10 @@ int main(int argc, const char **argv) {
     int len;
 
     client c;
+
+#ifdef _WIN32
+    w32initWinSock();
+#endif
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
@@ -496,6 +563,7 @@ int main(int argc, const char **argv) {
 
     /* Run default benchmark suite. */
     do {
+        const char *argv[21];
         data = zmalloc(config.datasize+1);
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
@@ -506,7 +574,6 @@ int main(int argc, const char **argv) {
         benchmark("PING",cmd,len);
         free(cmd);
 
-        const char *argv[21];
         argv[0] = "MSET";
         for (i = 1; i < 21; i += 2) {
             argv[i] = "foo:rand:000000000000";
@@ -567,5 +634,8 @@ int main(int argc, const char **argv) {
         printf("\n");
     } while(config.loop);
 
+#ifdef _WIN32
+    WSACleanup();
+#endif
     return 0;
 }

@@ -3,10 +3,12 @@
 
 #include <math.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#endif
 #include <sys/stat.h>
 
 /* Convenience wrapper around fwrite, that returns the number of bytes written
@@ -239,7 +241,7 @@ int rdbSaveDoubleValue(FILE *fp, double val) {
         else
 #endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
-        buf[0] = strlen((char*)buf+1);
+        buf[0] = (unsigned char)strlen((char*)buf+1);
         len = buf[0]+1;
     }
     return rdbWriteRaw(fp,buf,len);
@@ -367,7 +369,7 @@ int rdbSaveObject(FILE *fp, robj *o) {
 off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
     redisAssert(len != -1);
-    return len;
+    return (off_t)len;
 }
 
 int getObjectSaveType(robj *o) {
@@ -394,7 +396,11 @@ int rdbSave(char *filename) {
     time_t now = time(NULL);
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+#ifdef _WIN32
+    fp = fopen(tmpfile,"wb");
+#else
     fp = fopen(tmpfile,"w");
+#endif
     if (!fp) {
         redisLog(REDIS_WARNING, "Failed saving the DB: %s", strerror(errno));
         return REDIS_ERR;
@@ -419,6 +425,7 @@ int rdbSave(char *filename) {
             sds keystr = dictGetEntryKey(de);
             robj key, *o = dictGetEntryVal(de);
             time_t expiretime;
+            int otype;
             
             initStaticStringObject(key,keystr);
             expiretime = getExpire(db,&key);
@@ -430,7 +437,7 @@ int rdbSave(char *filename) {
                 if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) goto werr;
                 if (rdbSaveTime(fp,expiretime) == -1) goto werr;
             }
-            int otype = getObjectSaveType(o);
+            otype = getObjectSaveType(o);
 
             /* Save type, key, value */
             if (rdbSaveType(fp,otype) == -1) goto werr;
@@ -476,7 +483,14 @@ int rdbSaveBackground(char *filename) {
     start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
+#ifdef _WIN32
+        if (server.ipfd > 0) {
+            aeWinSocketDetach(server.ipfd, 0);
+            closesocket(server.ipfd);
+        }
+#else
         if (server.ipfd > 0) close(server.ipfd);
+#endif
         if (server.sofd > 0) close(server.sofd);
         if (rdbSave(filename) == REDIS_OK) {
             _exit(0);
@@ -487,9 +501,27 @@ int rdbSaveBackground(char *filename) {
         /* Parent */
         server.stat_fork_time = ustime()-start;
         if (childpid == -1) {
+#ifdef _WIN32
+            /* On WIN32 fork() is empty function which always return -1 */
+            /* So, on WIN32, let's just save in foreground. */
+            redisLog(REDIS_NOTICE,"Foregroud saving started by pid %d", getpid());
+            server.bgsavechildpid = getpid();
+            updateDictResizePolicy();
+
+            if (rdbSave(filename) == REDIS_OK) {
+                backgroundSaveDoneHandler(0);
+                return REDIS_OK;
+            } else {
+                redisLog(REDIS_WARNING,"Can't save in background: spoon err: %s",
+                    strerror(errno));
+                backgroundSaveDoneHandler(0xff);
+                return REDIS_ERR;
+            }
+#else
             redisLog(REDIS_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
             return REDIS_ERR;
+#endif
         }
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
         server.bgsavechildpid = childpid;
@@ -904,7 +936,11 @@ int rdbLoad(char *filename) {
     time_t expiretime, now = time(NULL);
     long loops = 0;
 
+#ifdef _WIN32
+    fp = fopen(filename,"rb");
+#else
     fp = fopen(filename,"r");
+#endif
     if (!fp) {
         errno = ENOENT;
         return REDIS_ERR;
@@ -933,7 +969,7 @@ int rdbLoad(char *filename) {
 
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
-            loadingProgress(ftello(fp));
+            loadingProgress((off_t)ftello(fp));
             aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
         }
 

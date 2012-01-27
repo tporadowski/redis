@@ -82,24 +82,31 @@
  * 
  */
 
+#ifndef _WIN32
 #include <termios.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 #include "linenoise.h"
+#ifdef _WIN32
+  #include "../../src/win32fixes.h"
+  #define REDIS_NOTUSED(V) ((void) V)
+#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 static char *unsupported_term[] = {"dumb","cons25",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 
+#ifndef _WIN32
 static struct termios orig_termios; /* in order to restore at exit */
+#endif
 static int rawmode = 0; /* for atexit() function to check if restore is needed*/
 static int atexit_registered = 0; /* register atexit just 1 time */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
@@ -109,13 +116,141 @@ char **history = NULL;
 static void linenoiseAtExit(void);
 int linenoiseHistoryAdd(const char *line);
 
+#ifdef _WIN32
+#ifndef STDIN_FILENO
+  #define STDIN_FILENO (_fileno(stdin))
+#endif
+
+HANDLE hOut;
+HANDLE hIn;
+DWORD consolemode;
+
+static int win32read(char *c) {
+
+    DWORD foo;
+    INPUT_RECORD b;
+    KEY_EVENT_RECORD e;
+
+    while (1) {
+        if (!ReadConsoleInput(hIn, &b, 1, &foo)) return 0;
+        if (!foo) return 0;
+
+        if (b.EventType == KEY_EVENT && b.Event.KeyEvent.bKeyDown) {
+
+            e = b.Event.KeyEvent;
+            *c = b.Event.KeyEvent.uChar.AsciiChar;
+
+            //if (e.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) {
+                /* Alt+key ignored */
+            //} else
+            if (e.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+
+                /* Ctrl+Key */
+                switch (*c) {
+                    case 'D':
+                        *c = 4;
+                        return 1;
+                    case 'C':
+                        *c = 3;
+                        return 1;
+                    case 'H':
+                        *c = 8;
+                        return 1;
+                    case 'T':
+                        *c = 20;
+                        return 1;
+                    case 'B': /* ctrl-b, left_arrow */
+                        *c = 2;
+                        return 1;
+                    case 'F': /* ctrl-f right_arrow*/
+                        *c = 6;
+                        return 1;
+                    case 'P': /* ctrl-p up_arrow*/
+                        *c = 16;
+                        return 1;
+                    case 'N': /* ctrl-n down_arrow*/
+                        *c = 14;
+                        return 1;
+                    case 'U': /* Ctrl+u, delete the whole line. */
+                        *c = 21;
+                        return 1;
+                    case 'K': /* Ctrl+k, delete from current to end of line. */
+                        *c = 11;
+                        return 1;
+                    case 'A': /* Ctrl+a, go to the start of the line */
+                        *c = 1;
+                        return 1;
+                    case 'E': /* ctrl+e, go to the end of the line */
+                        *c = 5;
+                        return 1;
+                }
+
+                /* Other Ctrl+KEYs ignored */
+            } else {
+
+                switch (e.wVirtualKeyCode) {
+
+                    case VK_ESCAPE: /* ignore - send ctrl-c, will return -1 */
+                        *c = 3;
+                        return 1;
+                    case VK_RETURN:  /* enter */
+                        *c = 13;
+                        return 1;
+                    case VK_LEFT:   /* left */
+                        *c = 2;
+                        return 1;
+                    case VK_RIGHT: /* right */
+                        *c = 6;
+                        return 1;
+                    case VK_UP:   /* up */
+                        *c = 16;
+                        return 1;
+                    case VK_DOWN:  /* down */
+                        *c = 14;
+                        return 1;
+                    case VK_HOME:
+                        *c = 1;
+                        return 1;
+                    case VK_END:
+                        *c = 5;
+                        return 1;
+                    case VK_BACK:
+                        *c = 8;
+                        return 1;
+                    case VK_DELETE:
+                        *c = 127;
+                        return 1;
+                    default:
+                        if (*c) return 1;
+                }
+            }
+        }
+    }
+
+    return -1; /* Makes compiler happy */
+}
+
+#ifdef __STRICT_ANSI__
+char *strdup(const char *s) {
+    size_t l = strlen(s)+1;
+    char *p = malloc(l);
+
+    memcpy(p,s,l);
+    return p;
+}
+#endif /*   __STRICT_ANSI__   */
+
+#endif /*   _WIN32    */
+
 static int isUnsupportedTerm(void) {
+#ifndef _WIN32
     char *term = getenv("TERM");
     int j;
 
     if (term == NULL) return 0;
     for (j = 0; unsupported_term[j]; j++)
         if (!strcasecmp(term,unsupported_term[j])) return 1;
+#endif
     return 0;
 }
 
@@ -130,6 +265,7 @@ static void freeHistory(void) {
 }
 
 static int enableRawMode(int fd) {
+#ifndef _WIN32
     struct termios raw;
 
     if (!isatty(STDIN_FILENO)) goto fatal;
@@ -157,6 +293,37 @@ static int enableRawMode(int fd) {
     /* put terminal in raw mode after flushing */
     if (tcsetattr(fd,TCSAFLUSH,&raw) < 0) goto fatal;
     rawmode = 1;
+#else
+    REDIS_NOTUSED(fd);
+
+    if (!atexit_registered) {
+        /* Init windows console handles only once */
+        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut==INVALID_HANDLE_VALUE) goto fatal;
+
+        if (!GetConsoleMode(hOut, &consolemode)) {
+            CloseHandle(hOut);
+            errno = ENOTTY;
+            return -1;
+        };
+
+        hIn = GetStdHandle(STD_INPUT_HANDLE);
+        if (hIn == INVALID_HANDLE_VALUE) {
+            CloseHandle(hOut);
+            errno = ENOTTY;
+            return -1;
+        }
+
+        GetConsoleMode(hIn, &consolemode);
+        SetConsoleMode(hIn, ENABLE_PROCESSED_INPUT);
+
+        /* Cleanup them at exit */
+        atexit(linenoiseAtExit);
+        atexit_registered = 1;
+    }
+
+    rawmode = 1;
+#endif
     return 0;
 
 fatal:
@@ -165,26 +332,49 @@ fatal:
 }
 
 static void disableRawMode(int fd) {
+#ifdef _WIN32
+    REDIS_NOTUSED(fd);
+    rawmode = 0;
+#else
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
         rawmode = 0;
+#endif
 }
 
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void linenoiseAtExit(void) {
+#ifdef _WIN32
+    SetConsoleMode(hIn, consolemode);
+    CloseHandle(hOut);
+    CloseHandle(hIn);
+#else
     disableRawMode(STDIN_FILENO);
+#endif
     freeHistory();
 }
 
 static int getColumns(void) {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO b;
+
+    if (!GetConsoleScreenBufferInfo(hOut, &b)) return 80;
+    return b.srWindow.Right - b.srWindow.Left;
+#else
     struct winsize ws;
 
     if (ioctl(1, TIOCGWINSZ, &ws) == -1) return 80;
     return ws.ws_col;
+#endif
 }
 
 static void refreshLine(int fd, const char *prompt, char *buf, size_t len, size_t pos, size_t cols) {
     char seq[64];
+#ifdef _WIN32
+    DWORD pl, bl, w;
+    CONSOLE_SCREEN_BUFFER_INFO b;
+    COORD coord;
+#endif
     size_t plen = strlen(prompt);
     
     while((plen+pos) >= cols) {
@@ -196,6 +386,7 @@ static void refreshLine(int fd, const char *prompt, char *buf, size_t len, size_
         len--;
     }
 
+#ifndef _WIN32
     /* Cursor to left edge */
     snprintf(seq,64,"\x1b[0G");
     if (write(fd,seq,strlen(seq)) == -1) return;
@@ -208,6 +399,27 @@ static void refreshLine(int fd, const char *prompt, char *buf, size_t len, size_
     /* Move cursor to original position. */
     snprintf(seq,64,"\x1b[0G\x1b[%dC", (int)(pos+plen));
     if (write(fd,seq,strlen(seq)) == -1) return;
+#else
+
+    REDIS_NOTUSED(seq);
+    REDIS_NOTUSED(fd);
+
+    /* Get buffer console info */
+    if (!GetConsoleScreenBufferInfo(hOut, &b)) return;
+    /* Erase Line */
+    coord.X = 0;
+    coord.Y = b.dwCursorPosition.Y;
+	FillConsoleOutputCharacterA(hOut, ' ', b.dwSize.X, coord, &w);
+    /*  Cursor to the left edge */
+    SetConsoleCursorPosition(hOut, coord);
+    /* Write the prompt and the current buffer content */
+    WriteConsole(hOut, prompt, plen, &pl, NULL);
+    WriteConsole(hOut, buf, len, &bl, NULL);
+    /* Move cursor to original position. */
+    coord.X = (int)(pos+plen);
+    coord.Y = b.dwCursorPosition.Y;
+    SetConsoleCursorPosition(hOut, coord);
+#endif
 }
 
 static void beep() {
@@ -290,6 +502,9 @@ static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt)
     size_t len = 0;
     size_t cols = getColumns();
     int history_index = 0;
+#ifdef _WIN32
+    DWORD foo;
+#endif
 
     buf[0] = '\0';
     buflen--; /* Make sure there is always space for the nulterm */
@@ -298,13 +513,21 @@ static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt)
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
     
+#ifdef _WIN32
+    if (!WriteConsole(hOut, prompt, plen, &foo, NULL)) return -1;
+#else
     if (write(fd,prompt,plen) == -1) return -1;
+#endif
     while(1) {
         char c;
         int nread;
         char seq[2], seq2[2];
 
+#ifdef _WIN32
+        nread = win32read(&c);
+#else
         nread = read(fd,&c,1);
+#endif
         if (nread <= 0) return len;
 
         /* Only autocomplete when the callback is set. It returns < 0 when
@@ -327,6 +550,17 @@ static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt)
             errno = EAGAIN;
             return -1;
         case 127:   /* backspace */
+#ifdef _WIN32
+            /* delete in _WIN32*/
+            /* win32read() will send 127 for DEL and 8 for BS and Ctrl-H */
+            if (pos < len && len > 0) {
+                memmove(buf+pos,buf+pos+1,len-pos);
+                len--;
+                buf[len] = '\0';
+                refreshLine(fd,prompt,buf,len,pos,cols);
+            }
+            break;
+#endif
         case 8:     /* ctrl-h */
             if (pos > 0 && len > 0) {
                 memmove(buf+pos-1,buf+pos,len-pos);
@@ -430,7 +664,11 @@ up_down_arrow:
                     if (plen+len < cols) {
                         /* Avoid a full update of the line in the
                          * trivial case. */
+#ifdef _WIN32
+                        if (!WriteConsole(hOut, &c, 1, &foo, NULL)) return -1;
+#else
                         if (write(fd,&c,1) == -1) return -1;
+#endif
                     } else {
                         refreshLine(fd,prompt,buf,len,pos,cols);
                     }
@@ -575,7 +813,11 @@ int linenoiseHistorySetMaxLen(int len) {
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
 int linenoiseHistorySave(char *filename) {
+#ifdef _WIN32
+    FILE *fp = fopen(filename,"wb");
+#else
     FILE *fp = fopen(filename,"w");
+#endif
     int j;
     
     if (fp == NULL) return -1;

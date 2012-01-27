@@ -45,7 +45,11 @@ int syncWrite(int fd, char *ptr, ssize_t size, int timeout) {
     timeout++;
     while(size) {
         if (aeWait(fd,AE_WRITABLE,1000) & AE_WRITABLE) {
+#ifdef _WIN32
+            nwritten = send((SOCKET)fd,ptr,size,0);
+#else
             nwritten = write(fd,ptr,size);
+#endif
             if (nwritten == -1) return -1;
             ptr += nwritten;
             size -= nwritten;
@@ -65,7 +69,11 @@ int syncRead(int fd, char *ptr, ssize_t size, int timeout) {
     timeout++;
     while(size) {
         if (aeWait(fd,AE_READABLE,1000) & AE_READABLE) {
+#ifdef _WIN32
+            nread = recv((SOCKET)fd,ptr,size,0);
+#else
             nread = read(fd,ptr,size);
+#endif
             if (nread <= 0) return -1;
             ptr += nread;
             size -= nread;
@@ -150,5 +158,4 @@ int fwriteBulkObject(FILE *fp, robj *obj) {
         redisPanic("Unknown string encoding");
     }
 }
-
 

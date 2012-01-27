@@ -34,6 +34,10 @@
 #include <sys/types.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#define inline __inline
+#endif
+
 typedef char *sds;
 
 struct sdshdr {

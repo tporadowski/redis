@@ -84,11 +84,20 @@
 
 static size_t used_memory = 0;
 static int zmalloc_thread_safe = 0;
+#ifdef _WIN32
+pthread_mutex_t used_memory_mutex;
+#else
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static void zmalloc_oom(size_t size) {
+#ifdef _WIN32
+    fprintf(stderr, "zmalloc: Out of memory trying to allocate %llu bytes\n",
+        (unsigned long long)size);
+#else
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
+#endif
     fflush(stderr);
     abort();
 }
@@ -185,9 +194,23 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void) {
+    /* Windows fix: Callabe mutex destroy.  */
+    if (zmalloc_thread_safe)
+        pthread_mutex_destroy(&used_memory_mutex);
+}
+void zmalloc_enable_thread_safeness(void) {
+    if (!zmalloc_thread_safe)
+        pthread_mutex_init(&used_memory_mutex,0);
+
+    zmalloc_thread_safe = 1;
+}
+#else
 void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
+#endif
 
 /* Get the RSS information in an OS-specific way.
  *

@@ -1,7 +1,9 @@
 #include "redis.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 
+#ifndef _WIN32
 #include <arpa/inet.h>
+#endif
 
 /* ================================= Debugging ============================== */
 
@@ -238,6 +240,7 @@ void debugCommand(redisClient *c) {
         redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
+        char *strenc;
         dictEntry *de = dictFind(c->db->dict,c->argv[2]->ptr);
         robj *val;
 
@@ -246,7 +249,6 @@ void debugCommand(redisClient *c) {
             return;
         }
         val = dictGetEntryVal(de);
-        char *strenc;
 
         strenc = strEncoding(val->encoding);
         addReplyStatusFormat(c,
@@ -293,7 +295,7 @@ void debugCommand(redisClient *c) {
         sdsfree(d);
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
-        long long utime = dtime*1000000;
+        long long utime = (long long)(dtime*1000000);
 
         usleep(utime);
         addReply(c,shared.ok);
@@ -304,7 +306,9 @@ void debugCommand(redisClient *c) {
 }
 
 void _redisAssert(char *estr, char *file, int line) {
+#ifdef HAVE_BACKTRACE
     bugReportStart();
+#endif
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
     redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
@@ -317,7 +321,9 @@ void _redisAssert(char *estr, char *file, int line) {
 }
 
 void _redisPanic(char *msg, char *file, int line) {
+#ifdef HAVE_BACKTRACE
     bugReportStart();
+#endif
     redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
     redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
 #ifdef HAVE_BACKTRACE
