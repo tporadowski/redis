@@ -33,8 +33,19 @@
 #include <mswsock.h>
 #include <Guiddef.h>
 
-
+/* Use GetQueuedCompletionStatusEx if possible.
+ * Try to load the function pointer dynamically.
+ * If it is not available, use GetQueuedCompletionStatus */
 #define MAX_COMPLETE_PER_POLL       100
+typedef BOOL (WINAPI *sGetQueuedCompletionStatusEx)
+             (HANDLE CompletionPort,
+              LPOVERLAPPED_ENTRY lpCompletionPortEntries,
+              ULONG ulCount,
+              PULONG ulNumEntriesRemoved,
+              DWORD dwMilliseconds,
+              BOOL fAlertable);
+sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
+
 
 /* structure that keeps state of sockets and Completion port handle */
 typedef struct aeApiState {
@@ -56,6 +67,7 @@ aeSockState *aeGetSockState(void *apistate, int fd) {
 
 /* Called by ae to initialize state */
 static int aeApiCreate(aeEventLoop *eventLoop) {
+    HMODULE kernel32_module;
     aeApiState *state = (aeApiState *)zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
@@ -72,6 +84,19 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
                                          NULL,
                                          0,
                                          1);
+    if (state->iocp == NULL) {
+        zfree(state->sockstate);
+        zfree(state);
+        return -1;
+    }
+
+    pGetQueuedCompletionStatusEx = NULL;
+    kernel32_module = GetModuleHandleA("kernel32.dll");
+    if (kernel32_module != NULL) {
+        pGetQueuedCompletionStatusEx = (sGetQueuedCompletionStatusEx) GetProcAddress(
+                                        kernel32_module,
+                                        "GetQueuedCompletionStatusEx");
+    }
 
     state->setsize = AE_SETSIZE;
     eventLoop->apidata = state;
@@ -153,13 +178,24 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     int rc;
     int mswait = (tvp->tv_sec * 1000) + (tvp->tv_usec / 1000);
 
-    /* first get an array of completion notifications */
-    rc = GetQueuedCompletionStatusEx(state->iocp,
-                                    state->entries,
-                                    MAX_COMPLETE_PER_POLL,
-                                    &numComplete,
-                                    mswait,
-                                    FALSE);
+    if (pGetQueuedCompletionStatusEx != NULL) {
+        /* first get an array of completion notifications */
+        rc = pGetQueuedCompletionStatusEx(state->iocp,
+                                        state->entries,
+                                        MAX_COMPLETE_PER_POLL,
+                                        &numComplete,
+                                        mswait,
+                                        FALSE);
+    } else {
+        /* need to get one at a time. Use first array element */
+        rc = GetQueuedCompletionStatus(state->iocp,
+                                        &state->entries[0].dwNumberOfBytesTransferred,
+                                        &state->entries[0].lpCompletionKey,
+                                        &state->entries[0].lpOverlapped,
+                                        mswait);
+        numComplete = 1;
+    }
+
     if (rc && numComplete > 0) {
         LPOVERLAPPED_ENTRY entry = state->entries;
         for (j = 0; j < numComplete && numevents < AE_SETSIZE; j++, entry++) {
@@ -181,8 +217,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 }
             } else {
                 /* check if event is read complete (may be 0 length read) */
-                if (entry->lpOverlapped == &sockstate->ov_read &&
-                    entry->lpOverlapped->Internal != STATUS_PENDING) {
+                if (entry->lpOverlapped == &sockstate->ov_read) {
                     sockstate->masks &= ~READ_QUEUED;
                    if (sockstate->masks & AE_READABLE) {
                         eventLoop->fired[numevents].fd = sock;
@@ -206,7 +241,6 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         eventLoop->fired[numevents].fd = sock;
                         eventLoop->fired[numevents].mask = AE_WRITABLE;
                         numevents++;
-                    } else {
                     }
                 }
             }

@@ -30,19 +30,8 @@
 #include <process.h>
 #include <sys/types.h>
 
-//Misc
-#ifdef __STRICT_ANSI__
-#define _exit exit
-#define fileno(__F) ((__F)->_file)
-
-#define strcasecmp lstrcmpiA
-
-#define fseeko(stream, offset, origin) fseek(stream, offset, origin)
-#define ftello(stream) ftell(stream)
-#else
 #define fseeko fseeko64
 #define ftello ftello64
-#endif
 
 #define inline __inline
 
@@ -209,14 +198,6 @@ struct sigaction {
 int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 
 /* Sockets */
-/* #define EMSGSIZE WSAEMSGSIZE */
-/* #define EAFNOSUPPORT WSAEAFNOSUPPORT */
-/* #define EWOULDBLOCK WSAEWOULDBLOCK */
-/* #define ENOBUFS WSAENOBUFS */
-/* #define EPROTONOSUPPORT WSAEPROTONOSUPPORT */
-/* #define ECONNREFUSED WSAECONNREFUSED */
-/* #define EBADFD WSAENOTSOCK */
-/* #define EOPNOTSUPP WSAEOPNOTSUPP */
 
 #ifndef ECONNRESET
 #define ECONNRESET WSAECONNRESET

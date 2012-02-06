@@ -756,7 +756,12 @@ void replicationCron(void) {
                  * connection last interaction time, and at the same time
                  * we'll be sure that being a single char there are no
                  * short-write problems. */
+#ifdef _WIN32
+                if (aeWinSocketSend(slave->fd, "\n", 1, 0,
+                                    server.el, NULL, NULL, NULL) == -1) {
+#else
                 if (write(slave->fd, "\n", 1) == -1) {
+#endif
                     /* Don't worry, it's just a ping. */
                 }
             }

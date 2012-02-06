@@ -217,7 +217,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             fprintf(stderr,"Error: %s\n",c->context->errstr);
             exit(1);
         }
+#ifdef _WIN32
         aeWinReceiveDone(c->context->fd);
+#endif
         if (reply != NULL) {
             if (reply == (void*)REDIS_REPLY_ERROR) {
                 fprintf(stderr,"Unexpected error reply, exiting...\n");

@@ -68,16 +68,19 @@ start_server {tags {"protocol"}} {
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
-            set test_time_limit 5
+            set test_time_limit 20
             while 1 {
                 if {[catch {
                     puts -nonewline $s payload
                     flush $s
                     incr payload_size [string length $payload]
                 }]} {
-# temporarily disable reading from closed connection
-#                    set retval [gets $s]
-                    set retval "Protocol error"
+                    if {[catch {set retval [gets $s]}]} {
+                        set retval ""
+                    }
+                    if {$retval == ""} {
+                        set retval "Protocol error"
+                    }
                     close $s
                     break
                 } else {

@@ -682,7 +682,11 @@ void process() {
 #endif
 int main(int argc, char **argv) {
     int fd;
+#ifdef _WIN32
     off size;
+#else
+    off_t size;
+#endif
     struct stat stat;
     void *data;
 

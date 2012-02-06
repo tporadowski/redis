@@ -183,8 +183,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
-{
+static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
     int s;
     struct sockaddr_in sa;
     unsigned long inAddress;
@@ -519,7 +518,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     SOCKET fd;
     while(1) {
         fd = aeWinAccept((SOCKET)s,sa,len);
-        if (fd == INVALID_SOCKET) {
+        if (fd == SOCKET_ERROR) {
             if (errno == WSAEINTR)
                 continue;
             else {

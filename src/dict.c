@@ -590,11 +590,7 @@ static size_t _dictNextPower(size_t size)
 {
     size_t i = DICT_HT_INITIAL_SIZE;
 
-#ifdef _WIN64
-    if (size >= LONG_LONG_MAX) return LONG_LONG_MAX;
-#else
     if (size >= LONG_MAX) return LONG_MAX;
-#endif
 
     while(1) {
         if (i >= size)

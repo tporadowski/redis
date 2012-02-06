@@ -11,6 +11,16 @@ start_server {tags {"repl"}} {
             $rd brpoplpush a b 5
             r lpush a foo
             after 1000
+            set digest [r debug digest]
+            set retry 10
+            while {$retry} {
+                after 500
+                set digest0 [r -1 debug digest]
+                if {$digest0 eq $digest} {
+                    break
+                }
+                incr retry -1
+            }
             assert_equal [r debug digest] [r -1 debug digest]
         }
 
@@ -21,6 +31,16 @@ start_server {tags {"repl"}} {
             r lpush c 3
             $rd brpoplpush c d 5
             after 1000
+            set digest [r debug digest]
+            set retry 10
+            while {$retry} {
+                after 500
+                set digest0 [r -1 debug digest]
+                if {$digest0 eq $digest} {
+                    break
+                }
+                incr retry -1
+            }
             assert_equal [r debug digest] [r -1 debug digest]
         }
     }
@@ -54,13 +74,13 @@ start_server {tags {"repl"}} {
         
         test {SET on the master should immediately propagate} {
             r -1 set mykey bar
-            if {$::valgrind} {after 2000}
+            if {$::valgrind} {after 2000} else {after 100}
             r  0 get mykey
         } {bar}
 
         test {FLUSHALL should replicate} {
             r -1 flushall
-            if {$::valgrind} {after 2000}
+            if {$::valgrind} {after 2000} else {after 100}
             list [r -1 dbsize] [r 0 dbsize]
         } {0 0}
     }
@@ -116,7 +136,16 @@ start_server {tags {"repl"}} {
                     stop_write_load $load_handle3
                     stop_write_load $load_handle4
                     after 1000
-                    set digest [$master debug digest]
+                    set retry 20
+                    while {$retry} {
+                        set digest [$master debug digest]
+                        set digest0 [[lindex $slaves 0] debug digest]
+                        if {$digest0 eq $digest} {
+                            break
+                        }
+                        after 500
+                        incr retry -1
+                    }
                     set digest0 [[lindex $slaves 0] debug digest]
                     set digest1 [[lindex $slaves 1] debug digest]
                     set digest2 [[lindex $slaves 2] debug digest]

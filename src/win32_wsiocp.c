@@ -170,7 +170,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     areq = sockstate->reqs;
     if (areq == NULL) {
         errno = WSAEINVAL;
-        return -1;
+        return SOCKET_ERROR;
     }
 
     sockstate->reqs = areq->next;
@@ -182,6 +182,10 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
                         SO_UPDATE_ACCEPT_CONTEXT,
                         (char*)&fd,
                         sizeof(fd));
+    if (result == SOCKET_ERROR) {
+        errno = WSAGetLastError();
+        return SOCKET_ERROR;
+    }
 
     locallen = *len;
     getaddrs(areq->buf,
@@ -201,7 +205,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     /* queue another accept */
     if (aeWinQueueAccept(fd) == -1) {
-        return -1;
+        return SOCKET_ERROR;
     }
 
     return acceptsock;
@@ -349,6 +353,7 @@ int aeWinSocketDetach(int fd, int shutd) {
 
     if (shutd == 1) {
         if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
+            /* read data until no more or error to ensure shutdown completed */
             while (1) {
                 int rc = recv(fd, rbuf, 100, 0);
                 if (rc == 0 || rc == SOCKET_ERROR) break;
