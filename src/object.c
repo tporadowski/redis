@@ -28,12 +28,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/win32fixes.h"
+#endif
+
 #include "server.h"
 #include <math.h>
 #include <ctype.h>
 
+
 #ifdef __CYGWIN__
-#define strtold(a,b) ((long double)strtod((a),(b)))
+#define strtold(a,b) ((PORT_LONGDOUBLE)strtod((a),(b)))
 #endif
 
 robj *createObject(int type, void *ptr) {
@@ -67,7 +72,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->refcount = 1;
     o->lru = LRU_CLOCK();
 
-    sh->len = len;
+    sh->len = (unsigned int)len;                                                WIN_PORT_FIX /* cast (unsigned int) */
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
     if (ptr) {
@@ -93,16 +98,16 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+robj *createStringObjectFromLongLong(PORT_LONGLONG value) {
     robj *o;
     if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
-        if (value >= LONG_MIN && value <= LONG_MAX) {
+        if (value >= PORT_LONG_MIN && value <= PORT_LONG_MAX) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
-            o->ptr = (void*)((long)value);
+            o->ptr = (void*)(value);                                            /* WIN_PORT_FIX: (PORT_LONG) cast removed */
         } else {
             o = createObject(OBJ_STRING,sdsfromlonglong(value));
         }
@@ -110,13 +115,13 @@ robj *createStringObjectFromLongLong(long long value) {
     return o;
 }
 
-/* Create a string object from a long double. If humanfriendly is non-zero
+/* Create a string object from a PORT_LONGDOUBLE. If humanfriendly is non-zero
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
  * and the output of snprintf() is not modified.
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
-robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
+robj *createStringObjectFromLongDouble(PORT_LONGDOUBLE value, int humanfriendly) {
     char buf[256];
     int len;
 
@@ -136,7 +141,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
          * way that is "non surprising" for the user (that is, most small
          * decimal numbers will be represented in a way that when converted
          * back into a string are exactly the same as what the user typed.) */
-        len = snprintf(buf,sizeof(buf),"%.17Lf", value);
+        len = snprintf(buf,sizeof(buf),"%.15Lf",value);                         WIN_PORT_FIX /* %.17 -> %.15 on Windows the magic number is 15 */
         /* Now remove trailing zeroes after the '.' */
         if (strchr(buf,'.') != NULL) {
             char *p = buf+len-1;
@@ -147,7 +152,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
             if (*p == '.') len--;
         }
     } else {
-        len = snprintf(buf,sizeof(buf),"%.17Lg", value);
+        len = snprintf(buf,sizeof(buf),"%.17Lg", value);    /* TODO: verify if it needs to be changed to %.15 as well*/
     }
     return createStringObject(buf,len);
 }
@@ -347,10 +352,10 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
-int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
+int isObjectRepresentableAsLongLong(robj *o, PORT_LONGLONG *llval) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (o->encoding == OBJ_ENCODING_INT) {
-        if (llval) *llval = (long) o->ptr;
+        if (llval) *llval = (PORT_LONG) o->ptr;
         return C_OK;
     } else {
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? C_OK : C_ERR;
@@ -359,7 +364,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
-    long value;
+    PORT_LONG value;
     sds s = o->ptr;
     size_t len;
 
@@ -384,7 +389,7 @@ robj *tryObjectEncoding(robj *o) {
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
     if (len <= 21 && string2l(s,len,&value)) {
-        /* This object is encodable as a long. Try to use a shared object.
+        /* This object is encodable as a PORT_LONG. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
@@ -449,7 +454,7 @@ robj *getDecodedObject(robj *o) {
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
         char buf[32];
 
-        ll2string(buf,32,(long)o->ptr);
+        ll2string(buf,32,(PORT_LONG)o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
@@ -478,14 +483,14 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         astr = a->ptr;
         alen = sdslen(astr);
     } else {
-        alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        alen = ll2string(bufa,sizeof(bufa),(PORT_LONG) a->ptr);
         astr = bufa;
     }
     if (sdsEncodedObject(b)) {
         bstr = b->ptr;
         blen = sdslen(bstr);
     } else {
-        blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        blen = ll2string(bufb,sizeof(bufb),(PORT_LONG) b->ptr);
         bstr = bufb;
     }
     if (flags & REDIS_COMPARE_COLL) {
@@ -495,7 +500,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
         minlen = (alen < blen) ? alen : blen;
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return alen-blen;
+        if (cmp == 0) return (int)(alen-blen);                                  WIN_PORT_FIX /* cast (int) */
         return cmp;
     }
 }
@@ -518,7 +523,7 @@ int equalStringObjects(robj *a, robj *b) {
     if (a->encoding == OBJ_ENCODING_INT &&
         b->encoding == OBJ_ENCODING_INT){
         /* If both strings are integer encoded just check if the stored
-         * long is the same. */
+         * PORT_LONG is the same. */
         return a->ptr == b->ptr;
     } else {
         return compareStringObjects(a,b) == 0;
@@ -530,7 +535,7 @@ size_t stringObjectLen(robj *o) {
     if (sdsEncodedObject(o)) {
         return sdslen(o->ptr);
     } else {
-        return sdigits10((long)o->ptr);
+        return sdigits10((PORT_LONG)o->ptr);
     }
 }
 
@@ -553,7 +558,7 @@ int getDoubleFromObject(robj *o, double *target) {
                 isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             serverPanic("Unknown string encoding");
         }
@@ -576,8 +581,8 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
     return C_OK;
 }
 
-int getLongDoubleFromObject(robj *o, long double *target) {
-    long double value;
+int getLongDoubleFromObject(robj *o, PORT_LONGDOUBLE *target) {
+    PORT_LONGDOUBLE value;
     char *eptr;
 
     if (o == NULL) {
@@ -586,12 +591,12 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = strtold(o->ptr, &eptr);
+            value = IF_WIN32(wstrtod,strtold)(o->ptr,&eptr);                    // TODO: verify for 32-bit
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             serverPanic("Unknown string encoding");
         }
@@ -600,8 +605,8 @@ int getLongDoubleFromObject(robj *o, long double *target) {
     return C_OK;
 }
 
-int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg) {
-    long double value;
+int getLongDoubleFromObjectOrReply(client *c, robj *o, PORT_LONGDOUBLE *target, const char *msg) {
+    PORT_LONGDOUBLE value;
     if (getLongDoubleFromObject(o, &value) != C_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -614,8 +619,8 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
     return C_OK;
 }
 
-int getLongLongFromObject(robj *o, long long *target) {
-    long long value;
+int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
+    PORT_LONGLONG value;
     char *eptr;
 
     if (o == NULL) {
@@ -624,12 +629,12 @@ int getLongLongFromObject(robj *o, long long *target) {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = strtoll(o->ptr, &eptr, 10);
+            value = PORT_STRTOL(o->ptr, &eptr, 10);
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             serverPanic("Unknown string encoding");
         }
@@ -638,8 +643,8 @@ int getLongLongFromObject(robj *o, long long *target) {
     return C_OK;
 }
 
-int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
-    long long value;
+int getLongLongFromObjectOrReply(client *c, robj *o, PORT_LONGLONG *target, const char *msg) {
+    PORT_LONGLONG value;
     if (getLongLongFromObject(o, &value) != C_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -652,11 +657,11 @@ int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const ch
     return C_OK;
 }
 
-int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    long long value;
+int getLongFromObjectOrReply(client *c, robj *o, PORT_LONG *target, const char *msg) {
+    PORT_LONGLONG value;
 
     if (getLongLongFromObjectOrReply(c, o, &value, msg) != C_OK) return C_ERR;
-    if (value < LONG_MIN || value > LONG_MAX) {
+    if (value < PORT_LONG_MIN || value > PORT_LONG_MAX) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
         } else {
@@ -664,7 +669,7 @@ int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) 
         }
         return C_ERR;
     }
-    *target = value;
+    *target = (PORT_LONG)value;                                                 WIN_PORT_FIX /* cast (PORT_LONG) */
     return C_OK;
 }
 
@@ -684,8 +689,8 @@ char *strEncoding(int encoding) {
 
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
-unsigned long long estimateObjectIdleTime(robj *o) {
-    unsigned long long lruclock = LRU_CLOCK();
+PORT_ULONGLONG estimateObjectIdleTime(robj *o) {
+    PORT_ULONGLONG lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     } else {

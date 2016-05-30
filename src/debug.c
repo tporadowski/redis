@@ -31,7 +31,11 @@
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 
+#ifndef _WIN32
 #include <arpa/inet.h>
+#else
+#include "Win32_Interop/Win32_Portability.h"
+#endif
 #include <signal.h>
 
 #ifdef HAVE_BACKTRACE
@@ -49,7 +53,7 @@
 
 /* ================================= Debugging ============================== */
 
-/* Compute the sha1 of string at 's' with 'len' bytes long.
+/* Compute the sha1 of string at 's' with 'len' bytes PORT_LONG.
  * The SHA1 is then xored against the string pointed by digest.
  * Since xor is commutative, this operation is used in order to
  * "add" digests relative to unordered elements.
@@ -61,7 +65,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,s,(u_int32_t)len);                                          WIN_PORT_FIX /* cast (u_int32_t) */
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -135,7 +139,7 @@ void computeDatasetDigest(unsigned char *final) {
         while((de = dictNext(di)) != NULL) {
             sds key;
             robj *keyobj, *o;
-            long long expiretime;
+            PORT_LONGLONG expiretime;
 
             memset(digest,0,20); /* This key-val digest */
             key = dictGetKey(de);
@@ -177,7 +181,7 @@ void computeDatasetDigest(unsigned char *final) {
                     unsigned char *eptr, *sptr;
                     unsigned char *vstr;
                     unsigned int vlen;
-                    long long vll;
+                    PORT_LONGLONG vll;
                     double score;
 
                     eptr = ziplistIndex(zl,0);
@@ -313,7 +317,7 @@ void debugCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
                !strcasecmp(c->argv[1]->ptr,"crash-and-recover"))
     {
-        long long delay = 0;
+        PORT_LONGLONG delay = 0;
         if (c->argc >= 3) {
             if (getLongLongFromObjectOrReply(c, c->argv[2], &delay, NULL)
                 != C_OK) return;
@@ -325,7 +329,7 @@ void debugCommand(client *c) {
         restartServer(flags,delay);
         addReplyError(c,"failed to restart the server. Check server logs.");
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(PORT_ULONG_MAX); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
@@ -389,7 +393,7 @@ void debugCommand(client *c) {
             nextra += used;
             remaining -= used;
             /* Add total uncompressed size */
-            unsigned long sz = 0;
+            PORT_ULONG sz = 0;
             for (quicklistNode *node = ql->head; node; node = node->next) {
                 sz += node->sz;
             }
@@ -400,10 +404,10 @@ void debugCommand(client *c) {
 
         addReplyStatusFormat(c,
             "Value at:%p refcount:%d "
-            "encoding:%s serializedlength:%zu "
+            "encoding:%s serializedlength:%Iu "                                 WIN_PORT_FIX /* %zu -> %Iu */
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)val, val->refcount,
-            strenc, rdbSavedObjectLen(val),
+            strenc, (PORT_LONGLONG) rdbSavedObjectLen(val),
             val->lru, estimateObjectIdleTime(val)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;
@@ -423,14 +427,14 @@ void debugCommand(client *c) {
             addReplyStatusFormat(c,
                 "key_sds_len:%lld, key_sds_avail:%lld, "
                 "val_sds_len:%lld, val_sds_avail:%lld",
-                (long long) sdslen(key),
-                (long long) sdsavail(key),
-                (long long) sdslen(val->ptr),
-                (long long) sdsavail(val->ptr));
+                (PORT_LONGLONG) sdslen(key),
+                (PORT_LONGLONG) sdsavail(key),
+                (PORT_LONGLONG) sdslen(val->ptr),
+                (PORT_LONGLONG) sdsavail(val->ptr));
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
                (c->argc == 3 || c->argc == 4)) {
-        long keys, j;
+        PORT_LONG keys, j;
         robj *key, *val;
         char buf[128];
 
@@ -438,14 +442,14 @@ void debugCommand(client *c) {
             return;
         dictExpand(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
-            snprintf(buf,sizeof(buf),"%s:%lu",
+            snprintf(buf,sizeof(buf),"%s:%Iu",                                  WIN_PORT_FIX /* %lu -> %Iu */
                 (c->argc == 3) ? "key" : (char*)c->argv[3]->ptr, j);
             key = createStringObject(buf,strlen(buf));
             if (lookupKeyWrite(c->db,key) != NULL) {
                 decrRefCount(key);
                 continue;
             }
-            snprintf(buf,sizeof(buf),"value:%lu",j);
+            snprintf(buf,sizeof(buf),"value:%Iu",j);                            WIN_PORT_FIX /* %lu -> %Iu */
             val = createStringObject(buf,strlen(buf));
             dbAdd(c->db,key,val);
             signalModifiedKey(c->db,key);
@@ -464,12 +468,16 @@ void debugCommand(client *c) {
         sdsfree(d);
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
-        long long utime = dtime*1000000;
+        PORT_LONGLONG utime = (PORT_LONGLONG)(dtime*1000000);                   WIN_PORT_FIX /* cast (PORT_LONGLONG) */
+#ifdef _WIN32
+        usleep(utime);
+#else
         struct timespec tv;
 
         tv.tv_sec = utime / 1000000;
         tv.tv_nsec = (utime % 1000000) * 1000;
         nanosleep(&tv, NULL);
+#endif
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)
@@ -500,7 +508,7 @@ void debugCommand(client *c) {
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc == 3) {
-        long dbid;
+        PORT_LONG dbid;
         sds stats = sdsempty();
         char buf[4096];
 
@@ -594,7 +602,7 @@ void serverLogObjectDebugInfo(robj *o) {
     serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
     if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
-        serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
+        serverLog(LL_WARNING,"Object raw string len: %Iu", sdslen(o->ptr));   WIN_PORT_FIX /* %zu -> %Iu */
         if (sdslen(o->ptr) < 4096) {
             sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
@@ -628,8 +636,12 @@ void _serverAssertWithInfo(client *c, robj *o, char *estr, char *file, int line)
 void _serverPanic(char *msg, char *file, int line) {
     bugReportStart();
     serverLog(LL_WARNING,"------------------------------------------------");
+#ifdef _WIN32
+    serverLog(LL_WARNING, "Fatal Error: %s #%s:%d", msg, file, line);
+#else
     serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
     serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
+#endif
 #ifdef HAVE_BACKTRACE
     serverLog(LL_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
 #endif
@@ -642,6 +654,7 @@ void bugReportStart(void) {
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         server.bug_report_start = 1;
+        WIN32_ONLY(serverLog(LL_WARNING|LL_RAW, "Redis version: %s\n", REDIS_VERSION);)
     }
 }
 
@@ -680,10 +693,10 @@ static void *getMcontextEip(ucontext_t *uc) {
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
-        unsigned long addr = (unsigned long) sp+i;
-        unsigned long val = (unsigned long) sp[i];
+        PORT_ULONG addr = (PORT_ULONG) sp+i;
+        PORT_ULONG val = (PORT_ULONG) sp[i];
 
-        if (sizeof(long) == 4)
+        if (sizeof(PORT_LONG) == 4)
             serverLog(LL_WARNING, "(%08lx) -> %08lx", addr, val);
         else
             serverLog(LL_WARNING, "(%016lx) -> %016lx", addr, val);
@@ -704,27 +717,27 @@ void logRegisters(ucontext_t *uc) {
     "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
     "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
     "RIP:%016lx EFL:%016lx\nCS :%016lx FS:%016lx  GS:%016lx",
-        (unsigned long) uc->uc_mcontext->__ss.__rax,
-        (unsigned long) uc->uc_mcontext->__ss.__rbx,
-        (unsigned long) uc->uc_mcontext->__ss.__rcx,
-        (unsigned long) uc->uc_mcontext->__ss.__rdx,
-        (unsigned long) uc->uc_mcontext->__ss.__rdi,
-        (unsigned long) uc->uc_mcontext->__ss.__rsi,
-        (unsigned long) uc->uc_mcontext->__ss.__rbp,
-        (unsigned long) uc->uc_mcontext->__ss.__rsp,
-        (unsigned long) uc->uc_mcontext->__ss.__r8,
-        (unsigned long) uc->uc_mcontext->__ss.__r9,
-        (unsigned long) uc->uc_mcontext->__ss.__r10,
-        (unsigned long) uc->uc_mcontext->__ss.__r11,
-        (unsigned long) uc->uc_mcontext->__ss.__r12,
-        (unsigned long) uc->uc_mcontext->__ss.__r13,
-        (unsigned long) uc->uc_mcontext->__ss.__r14,
-        (unsigned long) uc->uc_mcontext->__ss.__r15,
-        (unsigned long) uc->uc_mcontext->__ss.__rip,
-        (unsigned long) uc->uc_mcontext->__ss.__rflags,
-        (unsigned long) uc->uc_mcontext->__ss.__cs,
-        (unsigned long) uc->uc_mcontext->__ss.__fs,
-        (unsigned long) uc->uc_mcontext->__ss.__gs
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rax,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rbx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rcx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rdx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rdi,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rsi,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rbp,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rsp,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r8,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r9,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r10,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r11,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r12,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r13,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r14,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__r15,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rip,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__rflags,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__cs,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__fs,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
     #else
@@ -735,22 +748,22 @@ void logRegisters(ucontext_t *uc) {
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
     "SS:%08lx  EFL:%08lx EIP:%08lx CS :%08lx\n"
     "DS:%08lx  ES:%08lx  FS :%08lx GS :%08lx",
-        (unsigned long) uc->uc_mcontext->__ss.__eax,
-        (unsigned long) uc->uc_mcontext->__ss.__ebx,
-        (unsigned long) uc->uc_mcontext->__ss.__ecx,
-        (unsigned long) uc->uc_mcontext->__ss.__edx,
-        (unsigned long) uc->uc_mcontext->__ss.__edi,
-        (unsigned long) uc->uc_mcontext->__ss.__esi,
-        (unsigned long) uc->uc_mcontext->__ss.__ebp,
-        (unsigned long) uc->uc_mcontext->__ss.__esp,
-        (unsigned long) uc->uc_mcontext->__ss.__ss,
-        (unsigned long) uc->uc_mcontext->__ss.__eflags,
-        (unsigned long) uc->uc_mcontext->__ss.__eip,
-        (unsigned long) uc->uc_mcontext->__ss.__cs,
-        (unsigned long) uc->uc_mcontext->__ss.__ds,
-        (unsigned long) uc->uc_mcontext->__ss.__es,
-        (unsigned long) uc->uc_mcontext->__ss.__fs,
-        (unsigned long) uc->uc_mcontext->__ss.__gs
+        (PORT_ULONG) uc->uc_mcontext->__ss.__eax,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__ebx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__ecx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__edx,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__edi,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__esi,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__ebp,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__esp,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__ss,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__eflags,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__eip,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__cs,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__ds,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__es,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__fs,
+        (PORT_ULONG) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
     #endif
@@ -764,22 +777,22 @@ void logRegisters(ucontext_t *uc) {
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
     "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
     "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
-        (unsigned long) uc->uc_mcontext.gregs[11],
-        (unsigned long) uc->uc_mcontext.gregs[8],
-        (unsigned long) uc->uc_mcontext.gregs[10],
-        (unsigned long) uc->uc_mcontext.gregs[9],
-        (unsigned long) uc->uc_mcontext.gregs[4],
-        (unsigned long) uc->uc_mcontext.gregs[5],
-        (unsigned long) uc->uc_mcontext.gregs[6],
-        (unsigned long) uc->uc_mcontext.gregs[7],
-        (unsigned long) uc->uc_mcontext.gregs[18],
-        (unsigned long) uc->uc_mcontext.gregs[17],
-        (unsigned long) uc->uc_mcontext.gregs[14],
-        (unsigned long) uc->uc_mcontext.gregs[15],
-        (unsigned long) uc->uc_mcontext.gregs[3],
-        (unsigned long) uc->uc_mcontext.gregs[2],
-        (unsigned long) uc->uc_mcontext.gregs[1],
-        (unsigned long) uc->uc_mcontext.gregs[0]
+        (PORT_ULONG) uc->uc_mcontext.gregs[11],
+        (PORT_ULONG) uc->uc_mcontext.gregs[8],
+        (PORT_ULONG) uc->uc_mcontext.gregs[10],
+        (PORT_ULONG) uc->uc_mcontext.gregs[9],
+        (PORT_ULONG) uc->uc_mcontext.gregs[4],
+        (PORT_ULONG) uc->uc_mcontext.gregs[5],
+        (PORT_ULONG) uc->uc_mcontext.gregs[6],
+        (PORT_ULONG) uc->uc_mcontext.gregs[7],
+        (PORT_ULONG) uc->uc_mcontext.gregs[18],
+        (PORT_ULONG) uc->uc_mcontext.gregs[17],
+        (PORT_ULONG) uc->uc_mcontext.gregs[14],
+        (PORT_ULONG) uc->uc_mcontext.gregs[15],
+        (PORT_ULONG) uc->uc_mcontext.gregs[3],
+        (PORT_ULONG) uc->uc_mcontext.gregs[2],
+        (PORT_ULONG) uc->uc_mcontext.gregs[1],
+        (PORT_ULONG) uc->uc_mcontext.gregs[0]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[7]);
     #elif defined(__X86_64__) || defined(__x86_64__)
@@ -791,25 +804,25 @@ void logRegisters(ucontext_t *uc) {
     "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
     "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
     "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
-        (unsigned long) uc->uc_mcontext.gregs[13],
-        (unsigned long) uc->uc_mcontext.gregs[11],
-        (unsigned long) uc->uc_mcontext.gregs[14],
-        (unsigned long) uc->uc_mcontext.gregs[12],
-        (unsigned long) uc->uc_mcontext.gregs[8],
-        (unsigned long) uc->uc_mcontext.gregs[9],
-        (unsigned long) uc->uc_mcontext.gregs[10],
-        (unsigned long) uc->uc_mcontext.gregs[15],
-        (unsigned long) uc->uc_mcontext.gregs[0],
-        (unsigned long) uc->uc_mcontext.gregs[1],
-        (unsigned long) uc->uc_mcontext.gregs[2],
-        (unsigned long) uc->uc_mcontext.gregs[3],
-        (unsigned long) uc->uc_mcontext.gregs[4],
-        (unsigned long) uc->uc_mcontext.gregs[5],
-        (unsigned long) uc->uc_mcontext.gregs[6],
-        (unsigned long) uc->uc_mcontext.gregs[7],
-        (unsigned long) uc->uc_mcontext.gregs[16],
-        (unsigned long) uc->uc_mcontext.gregs[17],
-        (unsigned long) uc->uc_mcontext.gregs[18]
+        (PORT_ULONG) uc->uc_mcontext.gregs[13],
+        (PORT_ULONG) uc->uc_mcontext.gregs[11],
+        (PORT_ULONG) uc->uc_mcontext.gregs[14],
+        (PORT_ULONG) uc->uc_mcontext.gregs[12],
+        (PORT_ULONG) uc->uc_mcontext.gregs[8],
+        (PORT_ULONG) uc->uc_mcontext.gregs[9],
+        (PORT_ULONG) uc->uc_mcontext.gregs[10],
+        (PORT_ULONG) uc->uc_mcontext.gregs[15],
+        (PORT_ULONG) uc->uc_mcontext.gregs[0],
+        (PORT_ULONG) uc->uc_mcontext.gregs[1],
+        (PORT_ULONG) uc->uc_mcontext.gregs[2],
+        (PORT_ULONG) uc->uc_mcontext.gregs[3],
+        (PORT_ULONG) uc->uc_mcontext.gregs[4],
+        (PORT_ULONG) uc->uc_mcontext.gregs[5],
+        (PORT_ULONG) uc->uc_mcontext.gregs[6],
+        (PORT_ULONG) uc->uc_mcontext.gregs[7],
+        (PORT_ULONG) uc->uc_mcontext.gregs[16],
+        (PORT_ULONG) uc->uc_mcontext.gregs[17],
+        (PORT_ULONG) uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
     #endif
@@ -949,8 +962,8 @@ int memtest_test_linux_anonymous_maps(void) {
         size_vect[regions] = size;
         snprintf(logbuf,sizeof(logbuf),
             "*** Preparing to test memory region %lx (%lu bytes)\n",
-                (unsigned long) start_vect[regions],
-                (unsigned long) size_vect[regions]);
+                (PORT_ULONG) start_vect[regions],
+                (PORT_ULONG) size_vect[regions]);
         if (write(fd,logbuf,strlen(logbuf)) == -1) { /* Nothing to do. */ }
         regions++;
     }
@@ -1073,6 +1086,17 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 }
 
 /* =========================== Software Watchdog ============================ */
+#ifdef _WIN32
+/* No support for debug watchdog */
+void watchdogScheduleSignal(int period) {
+    UNUSED(period);
+}
+void enableWatchdog(int period) {
+    UNUSED(period);
+}
+void disableWatchdog(void) {
+}
+#else
 #include <sys/time.h>
 
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
@@ -1143,3 +1167,4 @@ void disableWatchdog(void) {
     sigaction(SIGALRM, &act, NULL);
     server.watchdog_period = 0;
 }
+#endif

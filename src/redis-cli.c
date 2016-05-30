@@ -28,23 +28,46 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Time.h"
+#endif
+
 #include "fmacros.h"
 #include "version.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <signal.h>
 #include <unistd.h>
+#endif
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
 #include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+
+#ifdef _WIN32
+#ifndef STDIN_FILENO
+#define STDIN_FILENO (_fileno(stdin))
+#endif
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Signal_Process.h"
+#include "Win32_Interop/Win32_ANSI.h"
+#include <windows.h>
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define strtoull _strtoui64
+#endif
 
 #include <hiredis.h>
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
@@ -82,8 +105,8 @@ static struct config {
     char *hostip;
     int hostport;
     char *hostsocket;
-    long repeat;
-    long interval;
+    PORT_LONG repeat;
+    PORT_LONG interval;
     int dbnum;
     int interactive;
     int shutdown;
@@ -93,7 +116,7 @@ static struct config {
     int latency_dist_mode;
     int latency_history;
     int lru_test_mode;
-    long long lru_test_sample_size;
+    PORT_LONGLONG lru_test_sample_size;
     int cluster_mode;
     int cluster_reissue_command;
     int slave_mode;
@@ -135,17 +158,21 @@ char *redisGitDirty(void);
  * Utility functions
  *--------------------------------------------------------------------------- */
 
-static long long ustime(void) {
+static PORT_LONGLONG ustime(void) {
+#ifdef _WIN32
+    return GetHighResRelativeTime(1000000);
+#else
     struct timeval tv;
-    long long ust;
+    PORT_LONGLONG ust;
 
     gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
+    ust = ((PORT_LONGLONG)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
+#endif
 }
 
-static long long mstime(void) {
+static PORT_LONGLONG mstime(void) {
     return ustime()/1000;
 }
 
@@ -222,9 +249,9 @@ static sds cliVersion(void) {
     version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
 
     /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
+    if (PORT_STRTOL(redisGitSHA1(),NULL,16)) {
         version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
+        if (PORT_STRTOL(redisGitDirty(),NULL,10))
             version = sdscatprintf(version, "-dirty");
         version = sdscat(version, ")");
     }
@@ -367,7 +394,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int i, argc, buflen = strlen(buf);
+    int i, argc, buflen = (int)strlen(buf);                                     WIN_PORT_FIX /* cast int */
     sds *argv = sdssplitargs(buf,&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
 
@@ -473,7 +500,7 @@ static int cliConnect(int force) {
         }
 
         /* Set aggressive KEEP_ALIVE socket option in the Redis context socket
-         * in order to prevent timeouts caused by the execution of long
+         * in order to prevent timeouts caused by the execution of PORT_LONG
          * commands. At the same time this improves the detection of real
          * errors. */
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
@@ -525,7 +552,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             sds tmp;
 
             /* Calculate chars needed to represent the largest index */
-            i = r->elements;
+            i = (unsigned int)r->elements;
             do {
                 idxlen++;
                 i /= 10;
@@ -764,7 +791,12 @@ static int cliReadReply(int output_raw_strings) {
                 out = sdscat(out,"\n");
             }
         }
+#ifdef _WIN32
+        /* if size is too large, fwrite fails. Use fprintf */
+        fprintf(stdout, "%s", out);
+#else
         fwrite(out,sdslen(out),1,stdout);
+#endif
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -933,10 +965,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
-            config.repeat = strtoll(argv[++i],NULL,10);
+            config.repeat = (PORT_LONG) PORT_STRTOL(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"-i") && !lastarg) {
             double seconds = atof(argv[++i]);
-            config.interval = seconds*1000000;
+            config.interval = (PORT_LONG) (seconds*1000000);
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
@@ -959,7 +991,7 @@ static int parseOptions(int argc, char **argv) {
             config.latency_history = 1;
         } else if (!strcmp(argv[i],"--lru-test") && !lastarg) {
             config.lru_test_mode = 1;
-            config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
+            config.lru_test_sample_size = PORT_STRTOL(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
         } else if (!strcmp(argv[i],"--stat")) {
@@ -1026,7 +1058,7 @@ static sds readArgFromStdin(void) {
     sds arg = sdsempty();
 
     while(1) {
-        int nread = read(fileno(stdin),buf,1024);
+        int nread = (int)read(fileno(stdin),buf,1024);                          WIN_PORT_FIX /* cast (int) */
 
         if (nread == 0) break;
         else if (nread == -1) {
@@ -1115,15 +1147,15 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
-static int issueCommandRepeat(int argc, char **argv, long repeat) {
+static int issueCommandRepeat(int argc, char **argv, PORT_LONG repeat) {
     while (1) {
         config.cluster_reissue_command = 0;
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        if (cliSendCommand(argc,argv,(int)repeat) != REDIS_OK) {                WIN_PORT_FIX /* cast (int) */
             cliConnect(1);
 
             /* If we still cannot send the command print error.
              * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            if (cliSendCommand(argc,argv,(int)repeat) != REDIS_OK) {            WIN_PORT_FIX /* cast (int) */
                 cliPrintContextError();
                 return REDIS_ERR;
             }
@@ -1154,7 +1186,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
     {
         sds *argv = sds_malloc(sizeof(sds)*2);
         *argc = 2;
-        int len = strlen(line);
+        int len = (int)strlen(line);                                            WIN_PORT_FIX /* cast int */
         int elen = line[1] == ' ' ? 2 : 5; /* "e " or "eval "? */
         argv[0] = sdsnewlen(line,elen-1);
         argv[1] = sdsnewlen(line+elen,len-elen);
@@ -1262,7 +1294,7 @@ static void repl(void) {
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
                 } else {
-                    long long start_time = mstime(), elapsed;
+                    PORT_LONGLONG start_time = mstime(), elapsed;
                     int repeat, skipargs = 0;
 
                     repeat = atoi(argv[0]);
@@ -1406,12 +1438,12 @@ static int evalMode(int argc, char **argv) {
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
 static void latencyMode(void) {
     redisReply *reply;
-    long long start, latency, min = 0, max = 0, tot = 0, count = 0;
-    long long history_interval =
+    PORT_LONGLONG start, latency, min = 0, max = 0, tot = 0, count = 0;
+    PORT_LONGLONG history_interval =
         config.interval ? config.interval/1000 :
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
-    long long history_start = mstime();
+    PORT_LONGLONG history_start = mstime();
 
     if (!context) exit(1);
     while(1) {
@@ -1454,8 +1486,8 @@ static void latencyMode(void) {
 
 /* Structure to store samples distribution. */
 struct distsamples {
-    long long max;   /* Max latency to fit into this interval (usec). */
-    long long count; /* Number of samples in this interval. */
+    PORT_LONGLONG max;   /* Max latency to fit into this interval (usec). */
+    PORT_LONGLONG count; /* Number of samples in this interval. */
     int character;   /* Associated character in visualization. */
 };
 
@@ -1470,7 +1502,7 @@ struct distsamples {
  * is the SUM(samples[i].conut) for i to 0 up to the max sample.
  *
  * As a side effect the function sets all the buckets count to 0. */
-void showLatencyDistSamples(struct distsamples *samples, long long tot) {
+void showLatencyDistSamples(struct distsamples *samples, PORT_LONGLONG tot) {
     int j;
 
      /* We convert samples into a index inside the palette
@@ -1481,7 +1513,7 @@ void showLatencyDistSamples(struct distsamples *samples, long long tot) {
     printf("\033[38;5;0m"); /* Set foreground color to black. */
     for (j = 0; ; j++) {
         int coloridx =
-            ceil((float) samples[j].count / tot * (spectrum_palette_size-1));
+            (int)ceil((float) samples[j].count / tot * (spectrum_palette_size-1));  WIN_PORT_FIX /* cast (int) */
         int color = spectrum_palette[coloridx];
         printf("\033[48;5;%dm%c", (int)color, samples[j].character);
         samples[j].count = 0;
@@ -1512,11 +1544,11 @@ void showLatencyDistLegend(void) {
 
 static void latencyDistMode(void) {
     redisReply *reply;
-    long long start, latency, count = 0;
-    long long history_interval =
+    PORT_LONGLONG start, latency, count = 0;
+    PORT_LONGLONG history_interval =
         config.interval ? config.interval/1000 :
                           LATENCY_DIST_DEFAULT_INTERVAL;
-    long long history_start = ustime();
+    PORT_LONGLONG history_start = ustime();
     int j, outputs = 0;
 
     struct distsamples samples[] = {
@@ -1594,7 +1626,7 @@ static void latencyDistMode(void) {
 
 /* Sends SYNC and reads the number of bytes in the payload. Used both by
  * slaveMode() and getRDB(). */
-unsigned long long sendSync(int fd) {
+PORT_ULONGLONG sendSync(int fd) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
      * and we don't want to mess with its buffers, so everything is performed
@@ -1629,7 +1661,7 @@ unsigned long long sendSync(int fd) {
 
 static void slaveMode(void) {
     int fd = context->fd;
-    unsigned long long payload = sendSync(fd);
+    PORT_ULONGLONG payload = sendSync(fd);
     char buf[1024];
     int original_output = config.output;
 
@@ -1664,7 +1696,7 @@ static void slaveMode(void) {
 static void getRDB(void) {
     int s = context->fd;
     int fd;
-    unsigned long long payload = sendSync(s);
+    PORT_ULONGLONG payload = sendSync(s);
     char buf[4096];
 
     fprintf(stderr,"SYNC sent to master, writing %llu bytes to '%s'\n",
@@ -1710,8 +1742,8 @@ static void getRDB(void) {
 
 #define PIPEMODE_WRITE_LOOP_MAX_BYTES (128*1024)
 static void pipeMode(void) {
-    int fd = context->fd;
-    long long errors = 0, replies = 0, obuf_len = 0, obuf_pos = 0;
+    int fd = (int)context->fd;
+    PORT_LONGLONG errors = 0, replies = 0, obuf_len = 0, obuf_pos = 0;
     char ibuf[1024*16], obuf[1024*16]; /* Input and output buffers */
     char aneterr[ANET_ERR_LEN];
     redisReader *reader = redisReaderCreate();
@@ -1721,7 +1753,12 @@ static void pipeMode(void) {
     char magic[20]; /* Special reply we recognize. */
     time_t last_read_time = time(NULL);
 
-    srand(time(NULL));
+#ifdef _WIN32
+    /* Prevent translation or CRLF sequences. */
+    setmode(STDIN_FILENO,_O_BINARY);
+#endif
+
+    srand((unsigned int)time(NULL));                                            WIN_PORT_FIX /* cast unsigned int */
 
     /* Use non blocking I/O. */
     if (anetNonBlock(aneterr,fd) == ANET_ERR) {
@@ -1790,7 +1827,7 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
-                    ssize_t nwritten = write(fd,obuf+obuf_pos,obuf_len);
+                    ssize_t nwritten = write(fd,obuf+obuf_pos,(unsigned int)obuf_len);
 
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
@@ -1875,7 +1912,7 @@ static void pipeMode(void) {
 #define TYPE_ZSET   4
 #define TYPE_NONE   5
 
-static redisReply *sendScan(unsigned long long *it) {
+static redisReply *sendScan(PORT_ULONGLONG *it) {
     redisReply *reply = redisCommand(context, "SCAN %llu", *it);
 
     /* Handle any error conditions */
@@ -1915,7 +1952,7 @@ static int getDbSize(void) {
     }
 
     /* Grab the number of keys and free our reply */
-    size = reply->integer;
+    size = (int)reply->integer;
     freeReplyObject(reply);
 
     return size;
@@ -1967,7 +2004,7 @@ static void getKeyTypes(redisReply *keys, int *types) {
 }
 
 static void getKeySizes(redisReply *keys, int *types,
-                        unsigned long long *sizes)
+                        PORT_ULONGLONG *sizes)
 {
     redisReply *reply;
     char *sizecmds[] = {"STRLEN","LLEN","SCARD","HLEN","ZCARD"};
@@ -2012,8 +2049,8 @@ static void getKeySizes(redisReply *keys, int *types,
 }
 
 static void findBigKeys(void) {
-    unsigned long long biggest[5] = {0}, counts[5] = {0}, totalsize[5] = {0};
-    unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
+    PORT_ULONGLONG biggest[5] = {0}, counts[5] = {0}, totalsize[5] = {0};
+    PORT_ULONGLONG sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
     sds maxkeys[5] = {0};
     char *typename[] = {"string","list","set","hash","zset"};
     char *typeunit[] = {"bytes","items","members","fields","members"};
@@ -2051,14 +2088,14 @@ static void findBigKeys(void) {
         /* Reallocate our type and size array if we need to */
         if(keys->elements > arrsize) {
             types = zrealloc(types, sizeof(int)*keys->elements);
-            sizes = zrealloc(sizes, sizeof(unsigned long long)*keys->elements);
+            sizes = zrealloc(sizes, sizeof(PORT_ULONGLONG)*keys->elements);
 
             if(!types || !sizes) {
                 fprintf(stderr, "Failed to allocate storage for keys!\n");
                 exit(1);
             }
 
-            arrsize = keys->elements;
+            arrsize = (int)keys->elements;
         }
 
         /* Retreive types and then sizes */
@@ -2166,20 +2203,20 @@ static char *getInfoField(char *info, char *field) {
 }
 
 /* Like the above function but automatically convert the result into
- * a long. On error (missing field) LONG_MIN is returned. */
-static long getLongInfoField(char *info, char *field) {
+ * a PORT_LONG. On error (missing field) LONG_MIN is returned. */
+static PORT_LONG getLongInfoField(char *info, char *field) {
     char *value = getInfoField(info,field);
-    long l;
+    PORT_LONG l;
 
-    if (!value) return LONG_MIN;
-    l = strtol(value,NULL,10);
+    if (!value) return PORT_LONG_MIN;
+    l = PORT_STRTOL(value,NULL,10);
     free(value);
     return l;
 }
 
 /* Convert number of bytes into a human readable string of the form:
  * 100B, 2G, 100M, 4K, and so forth. */
-void bytesToHuman(char *s, long long n) {
+void bytesToHuman(char *s, PORT_LONGLONG n) {
     double d;
 
     if (n < 0) {
@@ -2205,7 +2242,7 @@ void bytesToHuman(char *s, long long n) {
 
 static void statMode(void) {
     redisReply *reply;
-    long aux, requests = 0;
+    PORT_LONG aux, requests = 0;
     int i = 0;
 
     while(1) {
@@ -2227,11 +2264,11 @@ static void statMode(void) {
         /* Keys */
         aux = 0;
         for (j = 0; j < 20; j++) {
-            long k;
+            PORT_LONG k;
 
             sprintf(buf,"db%d:keys",j);
             k = getLongInfoField(reply->str,buf);
-            if (k == LONG_MIN) continue;
+            if (k == PORT_LONG_MIN) continue;
             aux += k;
         }
         sprintf(buf,"%ld",aux);
@@ -2295,7 +2332,7 @@ static void statMode(void) {
 
 static void scanMode(void) {
     redisReply *reply;
-    unsigned long long cur = 0;
+    PORT_ULONGLONG cur = 0;
 
     do {
         if (config.pattern)
@@ -2332,15 +2369,15 @@ static void scanMode(void) {
  *
  * With alpha = 6.2 the output follows the 80-20 rule where 20% of
  * the returned numbers will account for 80% of the frequency. */
-long long powerLawRand(long long min, long long max, double alpha) {
+PORT_LONGLONG powerLawRand(PORT_LONGLONG min, PORT_LONGLONG max, double alpha) {
     double pl, r;
 
     max += 1;
     r = ((double)rand()) / RAND_MAX;
     pl = pow(
-        ((pow(max,alpha+1) - pow(min,alpha+1))*r + pow(min,alpha+1)),
+        ((pow((double)max,alpha+1) - pow((double)min,alpha+1))*r + pow((double)min,alpha+1)),   WIN_PORT_FIX /* cast (double) */
         (1.0/(alpha+1)));
-    return (max-1-(long long)pl)+min;
+    return (max-1-(PORT_LONGLONG)pl)+min;
 }
 
 /* Generates a key name among a set of lru_test_sample_size keys, using
@@ -2355,16 +2392,16 @@ void LRUTestGenKey(char *buf, size_t buflen) {
 static void LRUTestMode(void) {
     redisReply *reply;
     char key[128];
-    long long start_cycle;
+    PORT_LONGLONG start_cycle;
     int j;
 
-    srand(time(NULL)^getpid());
+    srand((unsigned int)(time(NULL)^getpid()));                                   WIN_PORT_FIX /* cast (unsigned int) */
     while(1) {
         /* Perform cycles of 1 second with 50% writes and 50% reads.
          * We use pipelining batching writes / reads N times per cycle in order
          * to fill the target instance easily. */
         start_cycle = mstime();
-        long long hits = 0, misses = 0;
+        PORT_LONGLONG hits = 0, misses = 0;
         while(mstime() - start_cycle < 1000) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
@@ -2421,10 +2458,10 @@ static void LRUTestMode(void) {
 /* This is just some computation the compiler can't optimize out.
  * Should run in less than 100-200 microseconds even using very
  * slow hardware. Runs in less than 10 microseconds in modern HW. */
-unsigned long compute_something_fast(void) {
+PORT_ULONG compute_something_fast(void) {
     unsigned char s[256], i, j, t;
     int count = 1000, k;
-    unsigned long output = 0;
+    PORT_ULONG output = 0;
 
     for (k = 0; k < 256; k++) s[k] = k;
 
@@ -2447,14 +2484,14 @@ static void intrinsicLatencyModeStop(int s) {
 }
 
 static void intrinsicLatencyMode(void) {
-    long long test_end, run_time, max_latency = 0, runs = 0;
+    PORT_LONGLONG test_end, run_time, max_latency = 0, runs = 0;
 
     run_time = config.intrinsic_latency_duration*1000000;
     test_end = ustime() + run_time;
     signal(SIGINT, intrinsicLatencyModeStop);
 
     while(1) {
-        long long start, end, latency;
+        PORT_LONGLONG start, end, latency;
 
         start = ustime();
         compute_something_fast();

@@ -33,7 +33,11 @@
 #define __HIREDIS_H
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
+#ifndef _WIN32
 #include <sys/time.h> /* for struct timeval */
+#else
+#include "../../src/Win32_Interop/win32_types_hiredis.h"
+#endif
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 11
@@ -97,7 +101,7 @@ extern "C" {
 /* This is the reply object returned by redisCommand() */
 typedef struct redisReply {
     int type; /* REDIS_REPLY_* */
-    long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
+    PORT_LONGLONG integer; /* The integer when type is REDIS_REPLY_INTEGER */
     int len; /* Length of string */
     char *str; /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
     size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
@@ -116,7 +120,7 @@ typedef struct redisReadTask {
 typedef struct redisReplyObjectFunctions {
     void *(*createString)(const redisReadTask*, char*, size_t);
     void *(*createArray)(const redisReadTask*, int);
-    void *(*createInteger)(const redisReadTask*, long long);
+    void *(*createInteger)(const redisReadTask*, PORT_LONGLONG);
     void *(*createNil)(const redisReadTask*);
     void (*freeObject)(void*);
 } redisReplyObjectFunctions;

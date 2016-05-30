@@ -65,7 +65,7 @@ void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2) {
 int hashTypeGetFromZiplist(robj *o, robj *field,
                            unsigned char **vstr,
                            unsigned int *vlen,
-                           long long *vll)
+                           PORT_LONGLONG *vll)
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int ret;
@@ -77,7 +77,7 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
     if (fptr != NULL) {
-        fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+        fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
             vptr = ziplistNext(zl, fptr);
@@ -121,7 +121,7 @@ robj *hashTypeGetObject(robj *o, robj *field) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) {
             if (vstr) {
@@ -151,7 +151,7 @@ size_t hashTypeGetValueLength(robj *o, robj *field) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
             len = vstr ? vlen : sdigits10(vll);
@@ -172,7 +172,7 @@ int hashTypeExists(robj *o, robj *field) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -201,7 +201,7 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = ziplistNext(zl, fptr);
@@ -212,14 +212,14 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
                 zl = ziplistDelete(zl, &vptr);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
+                zl = ziplistInsert(zl, vptr, value->ptr, (unsigned int)sdslen(value->ptr)); WIN_PORT_FIX /* cast (unsigned int) */
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL); WIN_PORT_FIX /* cast (unsigned int) */
+            zl = ziplistPush(zl, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL); WIN_PORT_FIX /* cast (unsigned int) */
         }
         o->ptr = zl;
         decrRefCount(field);
@@ -254,7 +254,7 @@ int hashTypeDelete(robj *o, robj *field) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
             if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
                 zl = ziplistDelete(zl,&fptr);
@@ -281,13 +281,13 @@ int hashTypeDelete(robj *o, robj *field) {
 }
 
 /* Return the number of elements in a hash. */
-unsigned long hashTypeLength(robj *o) {
-    unsigned long length = ULONG_MAX;
+PORT_ULONG hashTypeLength(robj *o) {
+    PORT_ULONG length = PORT_ULONG_MAX;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         length = ziplistLen(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        length = dictSize((dict*)o->ptr);
+        length = (PORT_ULONG)dictSize((dict*)o->ptr);                           WIN_PORT_FIX /* cast (PORT_ULONG) */
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -362,7 +362,7 @@ int hashTypeNext(hashTypeIterator *hi) {
 void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 unsigned char **vstr,
                                 unsigned int *vlen,
-                                long long *vll)
+                                PORT_LONGLONG *vll)
 {
     int ret;
 
@@ -398,7 +398,7 @@ robj *hashTypeCurrentObject(hashTypeIterator *hi, int what) {
     if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
         if (vstr) {
@@ -536,7 +536,7 @@ void hmsetCommand(client *c) {
 }
 
 void hincrbyCommand(client *c) {
-    long long value, incr, oldvalue;
+    PORT_LONGLONG value, incr, oldvalue;
     robj *o, *current, *new;
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
@@ -570,7 +570,7 @@ void hincrbyCommand(client *c) {
 }
 
 void hincrbyfloatCommand(client *c) {
-    double long value, incr;
+    PORT_LONGDOUBLE value, incr;
     robj *o, *current, *new, *aux;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
@@ -616,7 +616,7 @@ static void addHashFieldToReply(client *c, robj *o, robj *field) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
         if (ret < 0) {
@@ -720,7 +720,7 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
     if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+        PORT_LONGLONG vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
         if (vstr) {
@@ -752,7 +752,7 @@ void genericHgetallCommand(client *c, int flags) {
     if (flags & OBJ_HASH_KEY) multiplier++;
     if (flags & OBJ_HASH_VALUE) multiplier++;
 
-    length = hashTypeLength(o) * multiplier;
+    length = (int)(hashTypeLength(o) * multiplier);                             WIN_PORT_FIX /* cast (int) */
     addReplyMultiBulkLen(c, length);
 
     hi = hashTypeInitIterator(o);
@@ -793,7 +793,7 @@ void hexistsCommand(client *c) {
 
 void hscanCommand(client *c) {
     robj *o;
-    unsigned long cursor;
+    PORT_ULONG cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||

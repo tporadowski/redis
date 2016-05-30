@@ -30,6 +30,10 @@
  */
 #include "geohash.h"
 
+#ifdef _WIN32
+#define inline __inline
+#endif
+
 /**
  * Hashing works like this:
  * Divide the world into 4 buckets.  Label each one as such:

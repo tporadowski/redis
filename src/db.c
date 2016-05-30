@@ -28,6 +28,9 @@
  */
 
 #include "server.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 #include "cluster.h"
 
 #include <signal.h>
@@ -234,9 +237,9 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
-long long emptyDb(void(callback)(void*)) {
+PORT_LONGLONG emptyDb(void(callback)(void*)) {
     int j;
-    long long removed = 0;
+    PORT_LONGLONG removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         removed += dictSize(server.db[j].dict);
@@ -289,13 +292,17 @@ void flushallCommand(client *c) {
     server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
+#ifdef _WIN32
+        AbortForkOperation();
+#else
         kill(server.rdb_child_pid,SIGUSR1);
+#endif
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
+        PORT_LONGLONG saved_dirty = server.dirty;                               /* UPSTREAM_FIX: server.dirty is a PORT_LONGLONG not an int */
         rdbSave(server.rdb_filename);
         server.dirty = saved_dirty;
     }
@@ -321,7 +328,7 @@ void delCommand(client *c) {
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
 void existsCommand(client *c) {
-    long long count = 0;
+    PORT_LONGLONG count = 0;
     int j;
 
     for (j = 1; j < c->argc; j++) {
@@ -332,7 +339,7 @@ void existsCommand(client *c) {
 }
 
 void selectCommand(client *c) {
-    long id;
+    PORT_LONG id;
 
     if (getLongFromObjectOrReply(c, c->argv[1], &id,
         "invalid DB index") != C_OK)
@@ -342,7 +349,7 @@ void selectCommand(client *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
-    if (selectDb(c,id) == C_ERR) {
+    if (selectDb(c,(int)id) == C_ERR) {                                     WIN_PORT_FIX /* cast (int) */
         addReplyError(c,"invalid DB index");
     } else {
         addReply(c,shared.ok);
@@ -365,8 +372,8 @@ void keysCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
-    unsigned long numkeys = 0;
+    int plen = (int)sdslen(pattern), allkeys;
+    PORT_ULONG numkeys = 0;
     void *replylen = addDeferredMultiBulkLength(c);
 
     di = dictGetSafeIterator(c->db->dict);
@@ -375,7 +382,7 @@ void keysCommand(client *c) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+        if (allkeys || stringmatchlen(pattern,plen,key,(int)sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);
@@ -423,10 +430,10 @@ void scanCallback(void *privdata, const dictEntry *de) {
  * if the cursor is valid, store it as unsigned integer into *cursor and
  * returns C_OK. Otherwise return C_ERR and send an error to the
  * client. */
-int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
+int parseScanCursorOrReply(client *c, robj *o, PORT_ULONG *cursor) {
     char *eptr;
 
-    /* Use strtoul() because we need an *unsigned* long, so
+    /* Use strtoul() because we need an *unsigned* PORT_LONG, so
      * getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
     *cursor = strtoul(o->ptr, &eptr, 10);
@@ -449,11 +456,11 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
+void scanGenericCommand(client *c, robj *o, PORT_ULONG cursor) {
     int i, j;
     list *keys = listCreate();
     listNode *node, *nextnode;
-    long count = 10;
+    PORT_LONG count = 10;
     sds pat = NULL;
     int patlen = 0, use_pattern = 0;
     dict *ht;
@@ -484,7 +491,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
-            patlen = sdslen(pat);
+            patlen = (int)sdslen(pat);                                          WIN_PORT_FIX /* cast (int) */
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
@@ -526,7 +533,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        PORT_LONG maxiterations = count*10;
 
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
@@ -537,7 +544,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+              listLength(keys) < (PORT_ULONG)count);
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
@@ -549,7 +556,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         unsigned char *p = ziplistIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
-        long long vll;
+        PORT_LONGLONG vll;
 
         while(p) {
             ziplistGet(p,&vstr,&vlen,&vll);
@@ -573,14 +580,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
             if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                if (!stringmatchlen(pat, patlen, kobj->ptr, (int)sdslen(kobj->ptr), 0)) WIN_PORT_FIX /* cast (int) */
                     filter = 1;
             } else {
                 char buf[LONG_STR_SIZE];
                 int len;
 
                 serverAssert(kobj->encoding == OBJ_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
+                len = ll2string(buf,sizeof(buf),(PORT_LONG)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
         }
@@ -628,7 +635,7 @@ cleanup:
 
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(client *c) {
-    unsigned long cursor;
+    PORT_ULONG cursor;
     if (parseScanCursorOrReply(c,c->argv[1],&cursor) == C_ERR) return;
     scanGenericCommand(c,NULL,cursor);
 }
@@ -691,7 +698,7 @@ void shutdownCommand(client *c) {
 
 void renameGenericCommand(client *c, int nx) {
     robj *o;
-    long long expire;
+    PORT_LONGLONG expire;
     int samekey = 0;
 
     /* When source and dest key is the same, no operation is performed,
@@ -743,7 +750,7 @@ void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    long long dbid, expire;
+    PORT_LONGLONG dbid, expire;
 
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
@@ -756,7 +763,7 @@ void moveCommand(client *c) {
 
     if (getLongLongFromObject(c->argv[2],&dbid) == C_ERR ||
         dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,dbid) == C_ERR)
+        selectDb(c,(int)dbid) == C_ERR)                                     WIN_PORT_FIX /* cast (int) */
     {
         addReply(c,shared.outofrangeerr);
         return;
@@ -805,7 +812,7 @@ int removeExpire(redisDb *db, robj *key) {
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
-void setExpire(redisDb *db, robj *key, long long when) {
+void setExpire(redisDb *db, robj *key, PORT_LONGLONG when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
@@ -817,7 +824,7 @@ void setExpire(redisDb *db, robj *key, long long when) {
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
-long long getExpire(redisDb *db, robj *key) {
+PORT_LONGLONG getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
@@ -901,9 +908,9 @@ int expireIfNeeded(redisDb *db, robj *key) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(client *c, long long basetime, int unit) {
+void expireGenericCommand(client *c, PORT_LONGLONG basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
-    long long when; /* unix time in milliseconds when the key will expire. */
+    PORT_LONGLONG when; /* unix time in milliseconds when the key will expire. */
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
@@ -964,7 +971,7 @@ void pexpireatCommand(client *c) {
 }
 
 void ttlGenericCommand(client *c, int output_ms) {
-    long long expire, ttl = -1;
+    PORT_LONGLONG expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
     if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
@@ -1191,14 +1198,14 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
 void slotToKeyAdd(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot(key->ptr,(int)sdslen(key->ptr));        WIN_PORT_FIX /* cast (int) */
 
     zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
 void slotToKeyDel(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot(key->ptr,(int)sdslen(key->ptr));        WIN_PORT_FIX /* cast (int) */
 
     zslDelete(server.cluster->slots_to_keys,hashslot,key);
 }
@@ -1260,16 +1267,16 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
     /* Use rank of first element, if any, to determine preliminary count */
     if (zn != NULL) {
-        rank = zslGetRank(zsl, zn->score, zn->obj);
-        count = (zsl->length - (rank - 1));
+        rank = (int) zslGetRank(zsl, zn->score, zn->obj);                       WIN_PORT_FIX /* cast (int) */
+        count = (int) (zsl->length - (rank - 1));                               WIN_PORT_FIX /* cast (int) */
 
         /* Find last element in range */
         zn = zslLastInRange(zsl, &range);
 
         /* Use rank of last element, if any, to determine the actual count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->obj);
-            count -= (zsl->length - rank);
+            rank = (int) zslGetRank(zsl, zn->score, zn->obj);                   WIN_PORT_FIX /* cast (int) */
+            count -= (int) (zsl->length - rank);                                WIN_PORT_FIX /* cast (int) */
         }
     }
     return count;

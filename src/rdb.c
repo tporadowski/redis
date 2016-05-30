@@ -27,6 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/win32_types.h"
+#endif
+
 #include "server.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
@@ -34,12 +38,21 @@
 
 #include <math.h>
 #include <sys/types.h>
+#ifdef _WIN32
+#include <stdio.h>
+#include "Win32_Interop/Win32_QFork.h"
+#include <direct.h>
+#define MAXPATHLEN 1024
+#else
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#endif
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/param.h>
+#endif
 
 #define RDB_LOAD_NONE   0
 #define RDB_LOAD_ENC    (1<<0)
@@ -58,7 +71,7 @@ void rdbCheckThenExit(char *reason, int where) {
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
-    return len;
+    return (int)len;                                                            WIN_PORT_FIX /* cast (int) */
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -80,15 +93,15 @@ time_t rdbLoadTime(rio *rdb) {
     return (time_t)t32;
 }
 
-int rdbSaveMillisecondTime(rio *rdb, long long t) {
+int rdbSaveMillisecondTime(rio *rdb, PORT_LONGLONG t) {
     int64_t t64 = (int64_t) t;
     return rdbWriteRaw(rdb,&t64,8);
 }
 
-long long rdbLoadMillisecondTime(rio *rdb) {
+PORT_LONGLONG rdbLoadMillisecondTime(rio *rdb) {
     int64_t t64;
     if (rioRead(rdb,&t64,8) == 0) return -1;
-    return (long long)t64;
+    return (PORT_LONGLONG)t64;
 }
 
 /* Saves an encoded length. The first two bits in the first byte are used to
@@ -117,7 +130,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
         if (rdbWriteRaw(rdb,&len,4) == -1) return -1;
         nwritten = 1+4;
     }
-    return nwritten;
+    return (int)nwritten;                                                       WIN_PORT_FIX /* cast (int) */
 }
 
 /* Load an encoded length. The "isencoded" argument is set to 1 if the length
@@ -153,7 +166,7 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
  * for encoded types. If the function successfully encodes the integer, the
  * representation is stored in the buffer pointer to by "enc" and the string
  * length is returned. Otherwise 0 is returned. */
-int rdbEncodeInteger(long long value, unsigned char *enc) {
+int rdbEncodeInteger(PORT_LONGLONG value, unsigned char *enc) {
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT8;
         enc[1] = value&0xFF;
@@ -163,7 +176,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
         return 3;
-    } else if (value >= -((long long)1<<31) && value <= ((long long)1<<31)-1) {
+    } else if (value >= -((PORT_LONGLONG)1<<31) && value <= ((PORT_LONGLONG)1<<31)-1) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT32;
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
@@ -182,7 +195,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
     int plain = flags & RDB_LOAD_PLAIN;
     int encode = flags & RDB_LOAD_ENC;
     unsigned char enc[4];
-    long long val;
+    PORT_LONGLONG val;
 
     if (enctype == RDB_ENC_INT8) {
         if (rioRead(rdb,enc,1) == 0) return NULL;
@@ -218,11 +231,11 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
  * range of values that can fit in an 8, 16 or 32 bit signed value can be
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
-    long long value;
+    PORT_LONGLONG value;
     char *endptr, buf[32];
 
     /* Check if it's possible to encode this value as a number */
-    value = strtoll(s, &endptr, 10);
+    value = PORT_STRTOL(s, &endptr, 10);
     if (endptr[0] != '\0') return 0;
     ll2string(buf,32,value);
 
@@ -339,7 +352,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     }
 
     /* Store verbatim */
-    if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) return -1;                   WIN_PORT_FIX /* cast (uint32_t) */
     nwritten += n;
     if (len > 0) {
         if (rdbWriteRaw(rdb,s,len) == -1) return -1;
@@ -348,8 +361,8 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     return nwritten;
 }
 
-/* Save a long long value as either an encoded string or a string. */
-ssize_t rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
+/* Save a PORT_LONGLONG value as either an encoded string or a string. */
+ssize_t rdbSaveLongLongAsStringObject(rio *rdb, PORT_LONGLONG value) {
     unsigned char buf[32];
     ssize_t n, nwritten = 0;
     int enclen = rdbEncodeInteger(value,buf);
@@ -372,7 +385,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
      * object is already integer encoded. */
     if (obj->encoding == OBJ_ENCODING_INT) {
-        return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
+        return rdbSaveLongLongAsStringObject(rdb,(PORT_LONG)obj->ptr);
     } else {
         serverAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
@@ -458,22 +471,22 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
     } else {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
+         * PORT_LONGLONG. We are assuming that PORT_LONGLONG is 64 bit here.
          * Also we are assuming that there are no implementations around where
          * double has precision < 52 bit.
          *
          * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
+         * where casting to PORT_LONGLONG is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && val == ((double)((long long)val)))
-            ll2string((char*)buf+1,sizeof(buf)-1,(long long)val);
+        if (val > min && val < max && val == ((double)((PORT_LONGLONG)val)))
+            ll2string((char*)buf+1,sizeof(buf)-1,(PORT_LONGLONG)val);
         else
 #endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
-        buf[0] = strlen((char*)buf+1);
+        buf[0] = (unsigned char)strlen((char*)buf+1);                           WIN_PORT_FIX /* cast (unsigned char) */
         len = buf[0]+1;
     }
     return rdbWriteRaw(rdb,buf,len);
@@ -483,6 +496,11 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
 int rdbLoadDoubleValue(rio *rdb, double *val) {
     char buf[256];
     unsigned char len;
+#ifdef _WIN32
+    double scannedVal = 0;
+    int assigned = 0;
+    memset(buf, 0, sizeof(buf));
+#endif
 
     if (rioRead(rdb,&len,1) == 0) return -1;
     switch(len) {
@@ -492,8 +510,18 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     default:
         if (rioRead(rdb,buf,len) == 0) return -1;
         buf[len] = '\0';
+#ifdef _WIN32
+        assigned = sscanf_s(buf, "%lg", &scannedVal);
+        if( assigned != 0 ) {
+            (*val) = scannedVal;
+            return 0;
+        } else {
+            return -1;
+        }
+#else
         sscanf(buf, "%lg", val);
         return 0;
+#endif
     }
 }
 
@@ -581,7 +609,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(set);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(set))) == -1) return -1; WIN_PORT_FIX /* cast (uint32_t) */
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -610,7 +638,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(zs->dict);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(zs->dict))) == -1) return -1;    WIN_PORT_FIX /* cast (uint32_t) */
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -638,7 +666,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize((dict*)o->ptr))) == -1) return -1;   WIN_PORT_FIX /* cast (uint32_t) */
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -677,7 +705,7 @@ size_t rdbSavedObjectLen(robj *o) {
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
-                        long long expiretime, long long now)
+                        PORT_LONGLONG expiretime, PORT_LONGLONG now)
 {
     /* Save the expire time */
     if (expiretime != -1) {
@@ -708,8 +736,8 @@ int rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
     return rdbSaveAuxField(rdb,key,strlen(key),val,strlen(val));
 }
 
-/* Wrapper for strlen(key) + integer type (up to long long range). */
-int rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
+/* Wrapper for strlen(key) + integer type (up to PORT_LONGLONG range). */
+int rdbSaveAuxFieldStrInt(rio *rdb, char *key, PORT_LONGLONG val) {
     char buf[LONG_STR_SIZE];
     int vlen = ll2string(buf,sizeof(buf),val);
     return rdbSaveAuxField(rdb,key,strlen(key),buf,vlen);
@@ -740,7 +768,7 @@ int rdbSaveRio(rio *rdb, int *error) {
     dictEntry *de;
     char magic[10];
     int j;
-    long long now = mstime();
+    PORT_LONGLONG now = mstime();
     uint64_t cksum;
 
     if (server.rdb_checksum)
@@ -779,7 +807,7 @@ int rdbSaveRio(rio *rdb, int *error) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
-            long long expire;
+            PORT_LONGLONG expire;
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
@@ -840,9 +868,9 @@ int rdbSave(char *filename) {
     int error = 0;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
-    fp = fopen(tmpfile,"w");
+    fp = fopen(tmpfile,IF_WIN32("wb","w"));
     if (!fp) {
-        char *cwdp = getcwd(cwd,MAXPATHLEN);
+        char *cwdp = IF_WIN32(_getcwd, getcwd)(cwd, MAXPATHLEN);
         serverLog(LL_WARNING,
             "Failed opening the RDB file %s (in server root dir %s) "
             "for saving: %s",
@@ -893,7 +921,7 @@ werr:
 
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
-    long long start;
+    PORT_LONGLONG start;
 
     if (server.rdb_child_pid != -1) return C_ERR;
 
@@ -901,6 +929,9 @@ int rdbSaveBackground(char *filename) {
     server.lastbgsave_try = time(NULL);
 
     start = ustime();
+#ifdef _WIN32
+    childpid = BeginForkOperation_Rdb(filename, &server, sizeof(server), dictGetHashFunctionSeed());
+#else
     if ((childpid = fork()) == 0) {
         int retval;
 
@@ -919,6 +950,7 @@ int rdbSaveBackground(char *filename) {
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
+#endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
@@ -935,7 +967,9 @@ int rdbSaveBackground(char *filename) {
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
         updateDictResizePolicy();
         return C_OK;
+#ifndef _WIN32
     }
+#endif
     return C_OK; /* unreached */
 }
 
@@ -991,7 +1025,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* Load every single element of the list/set */
         for (i = 0; i < len; i++) {
-            long long llval;
+            PORT_LONGLONG llval;
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
 
@@ -1073,8 +1107,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             serverAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL);   WIN_PORT_FIX /* cast (unsigned int) */
+            o->ptr = ziplistPush(o->ptr, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL);   WIN_PORT_FIX /* cast (unsigned int) */
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
@@ -1204,7 +1238,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
 void startLoading(FILE *fp) {
-    struct stat sb;
+    struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
 
     /* Load the DB */
     server.loading = 1;
@@ -1243,7 +1277,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         updateCachedTime();
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
+        loadingProgress((off_t)r->processed_bytes);                             WIN_PORT_FIX /* cast (off_t) */
         processEventsWhileBlocked();
     }
 }
@@ -1253,7 +1287,7 @@ int rdbLoad(char *filename) {
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
-    long long expiretime, now = mstime();
+    PORT_LONGLONG expiretime, now = mstime();
     FILE *fp;
     rio rdb;
 
@@ -1474,7 +1508,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
-            readlen = ok_slaves[0]*sizeof(uint64_t)*2;
+            readlen = (int)(ok_slaves[0]*sizeof(uint64_t)*2);                   WIN_PORT_FIX /* cast (int) */
 
             /* Make space for enough elements as specified by the first
              * uint64_t element in the array. */
@@ -1509,7 +1543,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
              * and it must have an error code set to 0 (which means success). */
             for (j = 0; j < ok_slaves[0]; j++) {
                 if (slave->id == ok_slaves[2*j+1]) {
-                    errorcode = ok_slaves[2*j+2];
+                    errorcode = (int)(ok_slaves[2*j+2]);                        WIN_PORT_FIX /* cast (int) */
                     break; /* Found in slaves list. */
                 }
             }
@@ -1559,7 +1593,7 @@ int rdbSaveToSlavesSockets(void) {
     listNode *ln;
     listIter li;
     pid_t childpid;
-    long long start;
+    PORT_LONGLONG start;
     int pipefds[2];
 
     if (server.rdb_child_pid != -1) return C_ERR;
@@ -1598,6 +1632,10 @@ int rdbSaveToSlavesSockets(void) {
 
     /* Create the child process. */
     start = ustime();
+
+#ifdef _WIN32
+    childpid = BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), dictGetHashFunctionSeed());
+#else
     if ((childpid = fork()) == 0) {
         /* Child */
         int retval;
@@ -1665,6 +1703,7 @@ int rdbSaveToSlavesSockets(void) {
         rioFreeFdset(&slave_sockets);
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
+#endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
@@ -1701,7 +1740,9 @@ int rdbSaveToSlavesSockets(void) {
         zfree(clientids);
         zfree(fds);
         return (childpid == -1) ? C_ERR : C_OK;
+#ifndef _WIN32
     }
+#endif
     return C_OK; /* Unreached. */
 }
 

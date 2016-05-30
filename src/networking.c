@@ -26,10 +26,20 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/Win32_Error.h"
+#endif
 
 #include "server.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#else
 #include <sys/uio.h>
+#endif
 #include <math.h>
+
+WIN32_ONLY(extern int WSIOCP_QueueAccept(int listenfd);)
 
 static void setProtocolError(client *c, int pos);
 
@@ -222,7 +232,7 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     if (len > available) return C_ERR;
 
     memcpy(c->buf+c->bufpos,s,len);
-    c->bufpos+=len;
+    c->bufpos+=(int)len;                                                        WIN_PORT_FIX /* cast (int) */
     return C_OK;
 }
 
@@ -346,7 +356,7 @@ void addReply(client *c, robj *obj) {
             char buf[32];
             int len;
 
-            len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+            len = ll2string(buf,sizeof(buf),(PORT_LONG)obj->ptr);
             if (_addReplyToBuffer(c,buf,len) == C_OK)
                 return;
             /* else... continue with the normal code path, but should never
@@ -438,7 +448,7 @@ void *addDeferredMultiBulkLength(client *c) {
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
-void setDeferredMultiBulkLength(client *c, void *node, long length) {
+void setDeferredMultiBulkLength(client *c, void *node, PORT_LONG length) {
     listNode *ln = (listNode*)node;
     robj *len, *next;
 
@@ -479,18 +489,18 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
-/* Add a long double as a bulk reply, but uses a human readable formatting
+/* Add a PORT_LONGDOUBLE as a bulk reply, but uses a human readable formatting
  * of the double instead of exposing the crude behavior of doubles to the
  * dear user. */
-void addReplyHumanLongDouble(client *c, long double d) {
+void addReplyHumanLongDouble(client *c, PORT_LONGDOUBLE d) {
     robj *o = createStringObjectFromLongDouble(d,1);
     addReplyBulk(c,o);
     decrRefCount(o);
 }
 
-/* Add a long long as integer reply or bulk len / multi bulk count.
- * Basically this is used to output <prefix><long long><crlf>. */
-void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
+/* Add a PORT_LONGLONG as integer reply or bulk len / multi bulk count.
+ * Basically this is used to output <prefix><PORT_LONGLONG><crlf>. */
+void addReplyLongLongWithPrefix(client *c, PORT_LONGLONG ll, char prefix) {
     char buf[128];
     int len;
 
@@ -512,7 +522,7 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     addReplyString(c,buf,len+3);
 }
 
-void addReplyLongLong(client *c, long long ll) {
+void addReplyLongLong(client *c, PORT_LONGLONG ll) {
     if (ll == 0)
         addReply(c,shared.czero);
     else if (ll == 1)
@@ -521,7 +531,7 @@ void addReplyLongLong(client *c, long long ll) {
         addReplyLongLongWithPrefix(c,ll,':');
 }
 
-void addReplyMultiBulkLen(client *c, long length) {
+void addReplyMultiBulkLen(client *c, PORT_LONG length) {
     if (length < OBJ_SHARED_BULKHDR_LEN)
         addReply(c,shared.mbulkhdr[length]);
     else
@@ -535,7 +545,7 @@ void addReplyBulkLen(client *c, robj *obj) {
     if (sdsEncodedObject(obj)) {
         len = sdslen(obj->ptr);
     } else {
-        long n = (long)obj->ptr;
+        PORT_LONG n = (PORT_LONG)obj->ptr;
 
         /* Compute how many bytes will take this integer as a radix 10 string */
         len = 1;
@@ -571,7 +581,7 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
     addReplySds(c,sdscatfmt(sdsempty(),"$%u\r\n",
-        (unsigned long)sdslen(s)));
+        (PORT_ULONG)sdslen(s)));
     addReplySds(c,s);
     addReply(c,shared.crlf);
 }
@@ -585,8 +595,8 @@ void addReplyBulkCString(client *c, const char *s) {
     }
 }
 
-/* Add a long long as a bulk reply */
-void addReplyBulkLongLong(client *c, long long ll) {
+/* Add a PORT_LONGLONG as a bulk reply */
+void addReplyBulkLongLong(client *c, PORT_LONGLONG ll) {
     char buf[64];
     int len;
 
@@ -625,7 +635,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
-    if (listLength(server.clients) > server.maxclients) {
+    if (listLength(server.clients) > (PORT_ULONG) server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
@@ -692,9 +702,16 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
+            if (errno != EWOULDBLOCK) {
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
+#ifdef _WIN32
+                if (WSIOCP_QueueAccept(fd) == -1) {
+                    serverLog(LL_WARNING,
+                        "acceptTcpHandler: failed to queue another accept.");
+                }
+#endif
+            }
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
@@ -839,6 +856,12 @@ void freeClient(client *c) {
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
         if (c->replstate == SLAVE_STATE_SEND_BULK) {
+#ifdef _WIN32
+            if (c->repldbfd != -1) {
+                DeleteFileA(c->replFileCopy);
+                memset(c->replFileCopy, 0, MAX_PATH);
+            }
+#endif
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
@@ -896,6 +919,124 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+#ifdef _WIN32
+void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    client *c = (client *) req->client;
+    int offset = (int) (req->buf - (char *) req->data + written);
+    UNUSED(el);
+    UNUSED(fd);
+
+    if (c->bufpos == offset) {
+        c->bufpos = 0;
+        c->sentlen = 0;
+    }
+    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+        aeDeleteFileEvent(server.el, c->fd, AE_WRITABLE);
+
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+            freeClientAsync(c);
+        }
+    }
+}
+
+void sendReplyListDone(aeEventLoop *el, int fd, void *privdata, int written) {
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    client *c = (client *) req->client;
+    robj *o = (robj *) req->data;
+    UNUSED(el);
+    UNUSED(fd);
+
+    decrRefCount(o);
+
+    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+        c->sentlen = 0;
+        aeDeleteFileEvent(server.el, c->fd, AE_WRITABLE);
+
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY){
+            freeClientAsync(c);
+        }
+    }
+}
+
+int writeToClient(int fd, client *c, int handler_installed) {
+    ssize_t nwritten = 0, totwritten = 0;
+    size_t objlen;
+    size_t objmem;
+    robj *o;
+    listIter li;
+    listNode *ln;
+
+    /* move list pointer to last one sent or first in list */
+    listRewind(c->reply, &li);
+    ln = listNext(&li);
+
+    while(c->bufpos > c->sentlen || ln != NULL) {
+        if (c->bufpos > c->sentlen) {
+            nwritten = c->bufpos - c->sentlen;
+            int result = WSIOCP_SocketSend(fd, c->buf + c->sentlen, nwritten,
+                                           server.el, c, c->buf, sendReplyBufferDone);
+            if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+                serverLog(LL_VERBOSE, "Error writing to client: %s", wsa_strerror(errno));
+                freeClient(c);
+                return C_ERR;
+            }
+            c->sentlen += nwritten;
+            totwritten += nwritten;
+
+        } else {
+            o = listNodeValue(ln);
+            objlen = (int)sdslen(o->ptr);
+            objmem = sdsZmallocSize(o->ptr);
+
+            if (objlen == 0) {
+                listDelNode(c->reply,ln);
+                ln = listNext(&li);
+                continue;
+            }
+
+            /* object ref placed in request, release in sendReplyListDone */
+            incrRefCount(o);
+            int result = WSIOCP_SocketSend(fd, ((char*) o->ptr), objlen,
+                                           server.el, c, o, sendReplyListDone);
+            if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+                serverLog(LL_VERBOSE,
+                    "Error writing to client: %s", wsa_strerror(errno));
+                decrRefCount(o);
+                freeClient(c);
+                return C_ERR;
+            }
+            totwritten += objlen;
+            /* remove from list - object kept alive due to incrRefCount */
+            listDelNode(c->reply,listFirst(c->reply));
+            c->reply_bytes -= (PORT_ULONG) objmem;
+            ln = listNext(&li);
+        }
+        /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
+         * bytes, in a single threaded server it's a good idea to serve
+         * other clients as well, even if a very large request comes from
+         * super fast link that is always able to accept data (in real world
+         * scenario think about 'KEYS *' against the loopback interface).
+         *
+         * However if we are over the maxmemory limit we ignore that and
+         * just deliver as much data as it is possible to deliver. */
+        server.stat_net_output_bytes += totwritten;
+        if (totwritten > NET_MAX_WRITES_PER_EVENT &&
+            (server.maxmemory == 0 ||
+             zmalloc_used_memory() < server.maxmemory)) break;
+    }
+    if (totwritten > 0) {
+        /* For clients representing masters we don't count sending data
+        * as an interaction, since we always send REPLCONF ACK commands
+        * that take some time to just fill the socket output buffer.
+        * We just rely on data / pings received for timeout detection. */
+        if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
+    }
+    return C_OK;
+}
+#else
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
 int writeToClient(int fd, client *c, int handler_installed) {
@@ -982,6 +1123,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
     }
     return C_OK;
 }
+#endif
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -1084,7 +1226,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,(int)(querylen+2),-1);                                 WIN_PORT_FIX /* cast (int) */
 
     /* Setup argv array on client structure */
     if (argc) {
@@ -1121,7 +1263,7 @@ static void setProtocolError(client *c, int pos) {
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int pos = 0, ok;
-    long long ll;
+    PORT_LONGLONG ll;
 
     if (c->multibulklen == 0) {
         /* The client should have been reset */
@@ -1151,13 +1293,13 @@ int processMultibulkBuffer(client *c) {
             return C_ERR;
         }
 
-        pos = (newline-c->querybuf)+2;
+        pos = (int)((newline-c->querybuf)+2);                                   WIN_PORT_FIX /* cast (int) */
         if (ll <= 0) {
             sdsrange(c->querybuf,pos,-1);
             return C_OK;
         }
 
-        c->multibulklen = ll;
+        c->multibulklen = (int)ll;                                              WIN_PORT_FIX /* cast (int) */
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
@@ -1198,7 +1340,7 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
-            pos += newline-(c->querybuf+pos)+2;
+            pos += (int)(newline-(c->querybuf+pos)+2);                          WIN_PORT_FIX /* cast (int) */
             if (ll >= PROTO_MBULK_BIG_ARG) {
                 size_t qblen;
 
@@ -1214,7 +1356,7 @@ int processMultibulkBuffer(client *c) {
                 if (qblen < (size_t)ll+2)
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
             }
-            c->bulklen = ll;
+            c->bulklen = (PORT_LONG) ll;                                        WIN_PORT_FIX /* cast (PORT_LONG) */
         }
 
         /* Read bulk argument */
@@ -1239,7 +1381,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+pos,c->bulklen);
-                pos += c->bulklen+2;
+                pos += (int)c->bulklen+2;                                       WIN_PORT_FIX /* cast (int) */
             }
             c->bulklen = -1;
             c->multibulklen--;
@@ -1320,7 +1462,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
-        int remaining = (unsigned)(c->bulklen+2)-sdslen(c->querybuf);
+        int remaining = (int)((unsigned)(c->bulklen+2)-sdslen(c->querybuf));    WIN_PORT_FIX /* cast (int) */
 
         if (remaining < readlen) readlen = remaining;
     }
@@ -1328,12 +1470,12 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    nread = read(fd, c->querybuf+qblen, readlen);
+    nread = (int)read(fd, c->querybuf+qblen, readlen);                          WIN_PORT_FIX /* cast (int) */
     if (nread == -1) {
         if (errno == EAGAIN) {
             return;
         } else {
-            serverLog(LL_VERBOSE, "Reading from client: %s",strerror(errno));
+            serverLog(LL_VERBOSE, "Reading from client: %s",IF_WIN32(wsa_strerror(errno),strerror(errno)));
             freeClient(c);
             return;
         }
@@ -1342,7 +1484,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
-
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->reploff += nread;
@@ -1360,19 +1502,19 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     processInputBuffer(c);
 }
 
-void getClientsMaxBuffers(unsigned long *longest_output_list,
-                          unsigned long *biggest_input_buffer) {
+void getClientsMaxBuffers(PORT_ULONG *longest_output_list,
+                          PORT_ULONG *biggest_input_buffer) {
     client *c;
     listNode *ln;
     listIter li;
-    unsigned long lol = 0, bib = 0;
+    PORT_ULONG lol = 0, bib = 0;
 
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         c = listNodeValue(ln);
 
         if (listLength(c->reply) > lol) lol = listLength(c->reply);
-        if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
+        if (sdslen(c->querybuf) > bib) bib = (PORT_ULONG)sdslen(c->querybuf);   WIN_PORT_FIX /* cast (PORT_ULONG) */
     }
     *longest_output_list = lol;
     *biggest_input_buffer = bib;
@@ -1446,22 +1588,22 @@ sds catClientInfoString(sds s, client *client) {
     *p = '\0';
     return sdscatfmt(s,
         "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
-        (unsigned long long) client->id,
+        (PORT_ULONGLONG) client->id,
         getClientPeerId(client),
         client->fd,
         client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
-        (long long)(server.unixtime - client->lastinteraction),
+        (PORT_LONGLONG)(server.unixtime - client->ctime),
+        (PORT_LONGLONG)(server.unixtime - client->lastinteraction),
         flags,
         client->db->id,
         (int) dictSize(client->pubsub_channels),
         (int) listLength(client->pubsub_patterns),
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply),
-        (unsigned long long) getClientOutputBufferMemoryUsage(client),
+        (PORT_ULONGLONG) sdslen(client->querybuf),
+        (PORT_ULONGLONG) sdsavail(client->querybuf),
+        (PORT_ULONGLONG) client->bufpos,
+        (PORT_ULONGLONG) listLength(client->reply),
+        (PORT_ULONGLONG) getClientOutputBufferMemoryUsage(client),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
@@ -1526,7 +1668,7 @@ void clientCommand(client *c) {
                 int moreargs = c->argc > i+1;
 
                 if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long long tmp;
+                    PORT_LONGLONG tmp;
 
                     if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
                         != C_OK) return;
@@ -1592,7 +1734,7 @@ void clientCommand(client *c) {
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
-        int j, len = sdslen(c->argv[2]->ptr);
+        int j, len = (int)sdslen(c->argv[2]->ptr);                              WIN_PORT_FIX /* cast (int) */
         char *p = c->argv[2]->ptr;
 
         /* Setting the client name to an empty string actually removes
@@ -1625,7 +1767,7 @@ void clientCommand(client *c) {
         else
             addReply(c,shared.nullbulk);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
-        long long duration;
+        PORT_LONGLONG duration;
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,UNIT_MILLISECONDS)
                                         != C_OK) return;
@@ -1720,8 +1862,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
-unsigned long getClientOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode)+sizeof(robj);
+PORT_ULONG getClientOutputBufferMemoryUsage(client *c) {
+    PORT_ULONG list_item_size = sizeof(listNode)+sizeof(robj);
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
@@ -1769,7 +1911,7 @@ char *getClientTypeName(int class) {
  *               Otherwise zero is returned. */
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+    PORT_ULONG used_mem = getClientOutputBufferMemoryUsage(c);
 
     class = getClientType(c);
     /* For the purpose of output buffer limiting, masters are handled
@@ -1813,7 +1955,7 @@ int checkClientOutputBufferLimits(client *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(client *c) {
-    serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
+    POSIX_ONLY(serverAssert(c->reply_bytes < PORT_ULONG_MAX-(1024*64));)
     if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
@@ -1911,7 +2053,7 @@ int clientsArePaused(void) {
  * and so forth.
  *
  * It calls the event loop in order to process a few events. Specifically we
- * try to call the event loop 4 times as long as we receive acknowledge that
+ * try to call the event loop 4 times as PORT_LONG as we receive acknowledge that
  * some event was processed, in order to go forward with the accept, read,
  * write, close sequence needed to serve a client.
  *

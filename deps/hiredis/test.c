@@ -2,15 +2,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
 #include <sys/time.h>
+#else
+#include <WinSock2.h>
+#include "../../src/Win32_Interop/Win32_Time.h"
+#endif
 #include <assert.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
 
 #include "hiredis.h"
+
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define SIGPIPE 13
+#endif
+
 
 enum connection_type {
     CONN_TCP,
@@ -37,10 +51,10 @@ static int tests = 0, fails = 0;
 #define test(_s) { printf("#%02d ", ++tests); printf(_s); }
 #define test_cond(_c) if(_c) printf("\033[0;32mPASSED\033[0;0m\n"); else {printf("\033[0;31mFAILED\033[0;0m\n"); fails++;}
 
-static long long usec(void) {
+static PORT_LONGLONG usec(void) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
 static redisContext *select_database(redisContext *c) {
@@ -83,7 +97,11 @@ static int disconnect(redisContext *c, int keep_fd) {
     return -1;
 }
 
+#ifdef _WIN32
+static redisContext *_connect(struct config config) {
+#else
 static redisContext *connect(struct config config) {
+#endif
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
@@ -183,13 +201,13 @@ static void test_format_commands(void) {
     INTEGER_WIDTH_TEST("d", int);
     INTEGER_WIDTH_TEST("hhd", char);
     INTEGER_WIDTH_TEST("hd", short);
-    INTEGER_WIDTH_TEST("ld", long);
-    INTEGER_WIDTH_TEST("lld", long long);
+    INTEGER_WIDTH_TEST("ld", PORT_LONG);
+    INTEGER_WIDTH_TEST("lld", PORT_LONGLONG);
     INTEGER_WIDTH_TEST("u", unsigned int);
     INTEGER_WIDTH_TEST("hhu", unsigned char);
     INTEGER_WIDTH_TEST("hu", unsigned short);
-    INTEGER_WIDTH_TEST("lu", unsigned long);
-    INTEGER_WIDTH_TEST("llu", unsigned long long);
+    INTEGER_WIDTH_TEST("lu", PORT_ULONG);
+    INTEGER_WIDTH_TEST("llu", PORT_ULONGLONG);
     FLOAT_WIDTH_TEST(float);
     FLOAT_WIDTH_TEST(double);
 
@@ -223,7 +241,7 @@ static void test_append_formatted_commands(struct config config) {
     char *cmd;
     int len;
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
 
     test("Append format command: ");
 
@@ -347,7 +365,7 @@ static void test_blocking_connection(struct config config) {
     redisContext *c;
     redisReply *reply;
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
 
     test("Is able to deliver commands: ");
     reply = redisCommand(c,"PING");
@@ -428,7 +446,7 @@ static void test_blocking_io_errors(struct config config) {
     int major, minor;
 
     /* Connect to target given by config. */
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
     {
         /* Find out Redis version to determine the path for the next test */
         const char *field = "redis_version:";
@@ -463,7 +481,7 @@ static void test_blocking_io_errors(struct config config) {
         strcmp(c->errstr,"Server closed the connection") == 0);
     redisFree(c);
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
     test("Returns I/O error on socket timeout: ");
     struct timeval tv = { 0, 1000 };
     assert(redisSetTimeout(c,tv) == REDIS_OK);
@@ -497,10 +515,10 @@ static void test_invalid_timeout_errors(struct config config) {
 }
 
 static void test_throughput(struct config config) {
-    redisContext *c = connect(config);
+    redisContext *c = IF_WIN32(_connect,connect)(config);
     redisReply **replies;
     int i, num;
-    long long t1, t2;
+    PORT_LONGLONG t1, t2;
 
     test("Throughput:\n");
     for (i = 0; i < 500; i++)
@@ -561,19 +579,19 @@ static void test_throughput(struct config config) {
     disconnect(c, 0);
 }
 
-// static long __test_callback_flags = 0;
+// static PORT_LONG __test_callback_flags = 0;
 // static void __test_callback(redisContext *c, void *privdata) {
 //     ((void)c);
 //     /* Shift to detect execution order */
 //     __test_callback_flags <<= 8;
-//     __test_callback_flags |= (long)privdata;
+//     __test_callback_flags |= (PORT_LONG)privdata;
 // }
 //
 // static void __test_reply_callback(redisContext *c, redisReply *reply, void *privdata) {
 //     ((void)c);
 //     /* Shift to detect execution order */
 //     __test_callback_flags <<= 8;
-//     __test_callback_flags |= (long)privdata;
+//     __test_callback_flags |= (PORT_LONG)privdata;
 //     if (reply) freeReplyObject(reply);
 // }
 //

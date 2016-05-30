@@ -35,12 +35,55 @@
 
 #define SDS_MAX_PREALLOC (1024*1024)
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
+#endif
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
 
 typedef char *sds;
 
+#ifdef _WIN32
+#define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop) )
+
+/* Note: sdshdr5 is never used, we just access the flags byte directly.
+* However is here to document the layout of type 5 SDS strings. */
+PACK(
+struct sdshdr5{
+    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
+    char buf[];
+};)
+PACK(
+struct sdshdr8 {
+    uint8_t len; /* used */
+    uint8_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr16 {
+    uint16_t len; /* used */
+    uint16_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr32 {
+    uint32_t len; /* used */
+    uint32_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr64 {
+    uint64_t len; /* used */
+    uint64_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+#else
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 struct __attribute__ ((__packed__)) sdshdr5 {
@@ -71,6 +114,18 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
+#endif
+
+#define SDS_TYPE_5  0
+#define SDS_TYPE_8  1
+#define SDS_TYPE_16 2
+#define SDS_TYPE_32 3
+#define SDS_TYPE_64 4
+#define SDS_TYPE_MASK 7
+#define SDS_TYPE_BITS 3
+#define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+#define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+#define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 #define SDS_TYPE_5  0
 #define SDS_TYPE_8  1
@@ -132,17 +187,17 @@ static inline void sdssetlen(sds s, size_t newlen) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
-                *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
+                *fp = SDS_TYPE_5 | (unsigned char)(newlen << SDS_TYPE_BITS);    WIN_PORT_FIX /* cast (unsigned char) */
             }
             break;
         case SDS_TYPE_8:
-            SDS_HDR(8,s)->len = newlen;
+            SDS_HDR(8,s)->len = (uint8_t)newlen;                                WIN_PORT_FIX /* cast (uint8_t) */
             break;
         case SDS_TYPE_16:
-            SDS_HDR(16,s)->len = newlen;
+            SDS_HDR(16,s)->len = (uint16_t)newlen;                              WIN_PORT_FIX /* cast (uint16_t) */
             break;
         case SDS_TYPE_32:
-            SDS_HDR(32,s)->len = newlen;
+            SDS_HDR(32,s)->len = (uint32_t)newlen;                              WIN_PORT_FIX /* cast (uint32_t) */
             break;
         case SDS_TYPE_64:
             SDS_HDR(64,s)->len = newlen;
@@ -156,18 +211,18 @@ static inline void sdsinclen(sds s, size_t inc) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
-                unsigned char newlen = SDS_TYPE_5_LEN(flags)+inc;
+                unsigned char newlen = (unsigned char)(SDS_TYPE_5_LEN(flags)+inc); WIN_PORT_FIX /* cast (unsigned char) */
                 *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
             }
             break;
         case SDS_TYPE_8:
-            SDS_HDR(8,s)->len += inc;
+            SDS_HDR(8,s)->len += (uint8_t)inc;                                  WIN_PORT_FIX /* cast (uint8_t) */
             break;
         case SDS_TYPE_16:
-            SDS_HDR(16,s)->len += inc;
+            SDS_HDR(16,s)->len += (uint16_t)inc;                                WIN_PORT_FIX /* cast (uint16_t) */
             break;
         case SDS_TYPE_32:
-            SDS_HDR(32,s)->len += inc;
+            SDS_HDR(32,s)->len += (uint32_t)inc;                                WIN_PORT_FIX /* cast (uint32_t) */
             break;
         case SDS_TYPE_64:
             SDS_HDR(64,s)->len += inc;
@@ -200,13 +255,13 @@ static inline void sdssetalloc(sds s, size_t newlen) {
             /* Nothing to do, this type has no total allocation info. */
             break;
         case SDS_TYPE_8:
-            SDS_HDR(8,s)->alloc = newlen;
+            SDS_HDR(8,s)->alloc = (uint8_t)newlen;                              WIN_PORT_FIX /* cast (uint8_t) */
             break;
         case SDS_TYPE_16:
-            SDS_HDR(16,s)->alloc = newlen;
+            SDS_HDR(16,s)->alloc = (uint16_t)newlen;                            WIN_PORT_FIX /* cast (uint16_t) */
             break;
         case SDS_TYPE_32:
-            SDS_HDR(32,s)->alloc = newlen;
+            SDS_HDR(32,s)->alloc = (uint32_t)newlen;                            WIN_PORT_FIX /* cast (uint32_t) */
             break;
         case SDS_TYPE_64:
             SDS_HDR(64,s)->alloc = newlen;
@@ -244,7 +299,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
 void sdsfreesplitres(sds *tokens, int count);
 void sdstolower(sds s);
 void sdstoupper(sds s);
-sds sdsfromlonglong(long long value);
+sds sdsfromlonglong(PORT_LONGLONG value);
 sds sdscatrepr(sds s, const char *p, size_t len);
 sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);

@@ -107,7 +107,7 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
 }
 
 /* Input Argument Helper */
-/* Decode lat/long from a zset member's score.
+/* Decode lat/PORT_LONG from a zset member's score.
  * Returns C_OK on successful decoding, otherwise C_ERR is returned. */
 int longLatFromMember(robj *zobj, robj *member, double *xy) {
     double score = 0;
@@ -229,7 +229,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
         unsigned int vlen = 0;
-        long long vlong = 0;
+        PORT_LONGLONG vlong = 0;
         double score = 0;
 
         if ((eptr = zzlFirstInRange(zl, &range)) == NULL) {
@@ -270,7 +270,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
                 break;
 
             member = (o->encoding == OBJ_ENCODING_INT) ?
-                        sdsfromlonglong((long)o->ptr) :
+                        sdsfromlonglong((PORT_LONG)o->ptr) :
                         sdsdup(o->ptr);
             if (geoAppendIfWithinRadius(ga,lon,lat,radius,ln->score,member)
                 == C_ERR) sdsfree(member);
@@ -375,7 +375,7 @@ static int sort_gp_desc(const void *a, const void *b) {
  * Commands
  * ==================================================================== */
 
-/* GEOADD key long lat name [long2 lat2 name2 ... longN latN nameN] */
+/* GEOADD key PORT_LONG lat name [long2 lat2 name2 ... longN latN nameN] */
 void geoaddCommand(client *c) {
     /* Check arguments number for sanity. */
     if ((c->argc - 2) % 3 != 0) {
@@ -394,7 +394,7 @@ void geoaddCommand(client *c) {
 
     /* Create the argument vector to call ZADD in order to add all
      * the score,value pairs to the requested zset, where score is actually
-     * an encoded version of lat,long. */
+     * an encoded version of lat,PORT_LONG. */
     int i;
     for (i = 0; i < elements; i++) {
         double xy[2];
@@ -444,7 +444,7 @@ void georadiusGeneric(client *c, int type) {
         return;
     }
 
-    /* Find long/lat to use for radius search based on inquiry type */
+    /* Find PORT_LONG/lat to use for radius search based on inquiry type */
     int base_args;
     double xy[2] = { 0 };
     if (type == RADIUS_COORDS) {
@@ -473,7 +473,7 @@ void georadiusGeneric(client *c, int type) {
     /* Discover and populate all optional parameters. */
     int withdist = 0, withhash = 0, withcoords = 0;
     int sort = SORT_NONE;
-    long long count = 0;
+    PORT_LONGLONG count = 0;
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
@@ -538,10 +538,10 @@ void georadiusGeneric(client *c, int type) {
         return;
     }
 
-    long result_length = ga->used;
-    long returned_items = (count == 0 || result_length < count) ?
+    PORT_LONG result_length = ga->used;
+    PORT_LONG returned_items = (count == 0 || result_length < count) ?
                           result_length : count;
-    long option_length = 0;
+    PORT_LONG option_length = 0;
 
     /* Process [optional] requested sorting */
     if (sort == SORT_ASC) {

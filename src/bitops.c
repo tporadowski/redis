@@ -34,17 +34,17 @@
  * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
 
-/* Count number of bits set in the binary array pointed by 's' and long
+/* Count number of bits set in the binary array pointed by 's' and PORT_LONG
  * 'count' bytes. The implementation of this function is required to
  * work with a input string length up to 512 MB. */
-size_t redisPopcount(void *s, long count) {
+size_t redisPopcount(void *s, PORT_LONG count) {
     size_t bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
     /* Count initial bytes not aligned to 32 bit. */
-    while((unsigned long)p & 3 && count) {
+    while((PORT_ULONG)p & 3 && count) {
         bits += bitsinbyte[*p++];
         count--;
     }
@@ -92,18 +92,18 @@ size_t redisPopcount(void *s, long count) {
 }
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
- * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
+ * zero (if 'bit' is 0) in the bitmap starting at 's' and PORT_LONG 'count' bytes.
  *
  * The function is guaranteed to return a value >= 0 if 'bit' is 0 since if
  * no zero bit is found, it returns count*8 assuming the string is zero
  * padded on the right. However if 'bit' is 1 it is possible that there is
  * not a single set bit in the bitmap. In this special case -1 is returned. */
-long redisBitpos(void *s, unsigned long count, int bit) {
-    unsigned long *l;
+PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
+    PORT_ULONG *l;
     unsigned char *c;
-    unsigned long skipval, word = 0, one;
-    long pos = 0; /* Position of bit, to return to the caller. */
-    unsigned long j;
+    PORT_ULONG skipval, word = 0, one;
+    PORT_LONG pos = 0; /* Position of bit, to return to the caller. */
+    PORT_ULONG j;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -111,13 +111,13 @@ long redisBitpos(void *s, unsigned long count, int bit) {
      * blocks of 1 or 0 bits compared to the vanilla bit per bit processing.
      *
      * Note that if we start from an address that is not aligned
-     * to sizeof(unsigned long) we consume it byte by byte until it is
+     * to sizeof(PORT_ULONG) we consume it byte by byte until it is
      * aligned. */
 
-    /* Skip initial bits not aligned to sizeof(unsigned long) byte by byte. */
+    /* Skip initial bits not aligned to sizeof(PORT_ULONG) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
-    while((unsigned long)c & (sizeof(*l)-1) && count) {
+    while((PORT_ULONG)c & (sizeof(*l)-1) && count) {
         if (*c != skipval) break;
         c++;
         count--;
@@ -125,8 +125,8 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     }
 
     /* Skip bits with full word step. */
-    skipval = bit ? 0 : ULONG_MAX;
-    l = (unsigned long*) c;
+    skipval = bit ? 0 : PORT_ULONG_MAX;
+    l = (PORT_ULONG*) c;
     while (count >= sizeof(*l)) {
         if (*l != skipval) break;
         l++;
@@ -160,9 +160,9 @@ long redisBitpos(void *s, unsigned long count, int bit) {
 
     /* Last word left, scan bit by bit. The first thing we need is to
      * have a single "1" set in the most significant position in an
-     * unsigned long. We don't know the size of the long so we use a
+     * PORT_ULONG. We don't know the size of the PORT_LONG so we use a
      * simple trick. */
-    one = ULONG_MAX; /* All bits set to 1.*/
+    one = PORT_ULONG_MAX; /* All bits set to 1.*/
     one >>= 1;       /* All bits set to 1 but the MSB. */
     one = ~one;      /* All bits set to 0 but the MSB. */
 
@@ -362,8 +362,8 @@ handle_wrap:
 
 /* Debugging function. Just show bits in the specified bitmap. Not used
  * but here for not having to rewrite it when debugging is needed. */
-void printBits(unsigned char *p, unsigned long count) {
-    unsigned long j, i, byte;
+void printBits(unsigned char *p, PORT_ULONG count) {
+    PORT_ULONG j, i, byte;
 
     for (j = 0; j < count; j++) {
         byte = p[j];
@@ -395,7 +395,7 @@ void printBits(unsigned char *p, unsigned long count) {
  * will also parse bit offsets prefixed by "#". In such a case the offset
  * is multiplied by 'bits'. This is useful for the BITFIELD command. */
 int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int bits) {
-    long long loffset;
+    PORT_LONGLONG loffset;
     char *err = "bit offset is not an integer or out of range";
     char *p = o->ptr;
     size_t plen = sdslen(p);
@@ -413,7 +413,7 @@ int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int b
     if (usehash) loffset *= bits;
 
     /* Limit offset to 512MB in bytes */
-    if ((loffset < 0) || ((unsigned long long)loffset >> 3) >= (512*1024*1024))
+    if ((loffset < 0) || ((PORT_ULONGLONG)loffset >> 3) >= (512*1024*1024))
     {
         addReplyError(c,err);
         return C_ERR;
@@ -433,7 +433,7 @@ int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int b
 int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
     char *p = o->ptr;
     char *err = "Invalid bitfield type. Use something like i16 u8. Note that u64 is not supported but i64 is.";
-    long long llbits;
+    PORT_LONGLONG llbits;
 
     if (p[0] == 'i') {
         *sign = 1;
@@ -483,7 +483,7 @@ void setbitCommand(client *c) {
     size_t bitoffset;
     ssize_t byte, bit;
     int byteval, bitval;
-    long on;
+    PORT_LONG on;
 
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
@@ -535,7 +535,7 @@ void getbitCommand(client *c) {
         if (byte < sdslen(o->ptr))
             bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
     } else {
-        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(PORT_LONG)o->ptr))
             bitval = llbuf[byte] & (1 << bit);
     }
 
@@ -546,12 +546,12 @@ void getbitCommand(client *c) {
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
-    unsigned long op, j, numkeys;
+    PORT_ULONG op, j, numkeys;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
-    unsigned long *len, maxlen = 0; /* Array of length of src strings,
+    PORT_ULONG *len, maxlen = 0; /* Array of length of src strings,
                                        and max len. */
-    unsigned long minlen = 0;    /* Min len among the input keys. */
+    PORT_ULONG minlen = 0;    /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
 
     /* Parse the operation name. */
@@ -577,7 +577,7 @@ void bitopCommand(client *c) {
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(long) * numkeys);
+    len = zmalloc(sizeof(PORT_LONG) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         o = lookupKeyRead(c->db,c->argv[j+3]);
@@ -591,7 +591,7 @@ void bitopCommand(client *c) {
         }
         /* Return an error if one of the keys is not a string. */
         if (checkType(c,o,OBJ_STRING)) {
-            unsigned long i;
+            PORT_ULONG i;
             for (i = 0; i < j; i++) {
                 if (objects[i])
                     decrRefCount(objects[i]);
@@ -603,32 +603,32 @@ void bitopCommand(client *c) {
         }
         objects[j] = getDecodedObject(o);
         src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);                           WIN_PORT_FIX /* cast (PORT_LONG) */
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
+        res = (unsigned char*) sdsnewlen(NULL, maxlen);
         unsigned char output, byte;
-        unsigned long i;
+        PORT_ULONG i;
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
          * vanilla algorithm. */
         j = 0;
-        if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
-            unsigned long *lp[16];
-            unsigned long *lres = (unsigned long*) res;
+        if (minlen >= sizeof(PORT_ULONG)*4 && numkeys <= 16) {
+            PORT_ULONG *lp[16];
+            PORT_ULONG *lres = (PORT_ULONG*) res;
 
             /* Note: sds pointer is always aligned to 8 byte boundary. */
-            memcpy(lp,src,sizeof(unsigned long*)*numkeys);
+            memcpy(lp,src,sizeof(PORT_ULONG*)*numkeys);
             memcpy(res,src[0],minlen);
 
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] &= lp[i][0];
                         lres[1] &= lp[i][1];
@@ -637,11 +637,11 @@ void bitopCommand(client *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_OR) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] |= lp[i][0];
                         lres[1] |= lp[i][1];
@@ -650,11 +650,11 @@ void bitopCommand(client *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_XOR) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] ^= lp[i][0];
                         lres[1] ^= lp[i][1];
@@ -663,18 +663,18 @@ void bitopCommand(client *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_NOT) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     lres[0] = ~lres[0];
                     lres[1] = ~lres[1];
                     lres[2] = ~lres[2];
                     lres[3] = ~lres[3];
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             }
         }
@@ -719,7 +719,7 @@ void bitopCommand(client *c) {
 /* BITCOUNT key [start end] */
 void bitcountCommand(client *c) {
     robj *o;
-    long start, end, strlen;
+    PORT_LONG start, end, strlen;
     unsigned char *p;
     char llbuf[32];
 
@@ -731,7 +731,7 @@ void bitcountCommand(client *c) {
      * array if our string was integer encoded. */
     if (o->encoding == OBJ_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(PORT_LONG)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
         strlen = sdslen(o->ptr);
@@ -764,7 +764,7 @@ void bitcountCommand(client *c) {
     if (start > end) {
         addReply(c,shared.czero);
     } else {
-        long bytes = end-start+1;
+        PORT_LONG bytes = end-start+1;
 
         addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
@@ -773,7 +773,7 @@ void bitcountCommand(client *c) {
 /* BITPOS key bit [start [end]] */
 void bitposCommand(client *c) {
     robj *o;
-    long bit, start, end, strlen;
+    PORT_LONG bit, start, end, strlen;
     unsigned char *p;
     char llbuf[32];
     int end_given = 0;
@@ -800,7 +800,7 @@ void bitposCommand(client *c) {
      * array if our string was integer encoded. */
     if (o->encoding == OBJ_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(PORT_LONG)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
         strlen = sdslen(o->ptr);
@@ -838,8 +838,8 @@ void bitposCommand(client *c) {
     if (start > end) {
         addReplyLongLong(c, -1);
     } else {
-        long bytes = end-start+1;
-        long pos = redisBitpos(p+start,bytes,bit);
+        PORT_LONG bytes = end-start+1;
+        PORT_LONG pos = redisBitpos(p+start,(PORT_ULONG)bytes,(int)bit);        WIN_PORT_FIX /* cast (PORT_ULONG), cast (int) */
 
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as
@@ -887,7 +887,7 @@ void bitfieldCommand(client *c) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
         char *subcmd = c->argv[j]->ptr; /* Current command name. */
         int opcode; /* Current operation code. */
-        long long i64 = 0;  /* Signed SET value. */
+        PORT_LONGLONG i64 = 0;  /* Signed SET value. */
         int sign = 0; /* Signed or unsigned type? */
         int bits = 0; /* Bitfield width in bits. */
 

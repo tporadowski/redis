@@ -113,7 +113,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o);
 size_t rdbSavedObjectLen(robj *o);
 robj *rdbLoadObject(int type, rio *rdb);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, PORT_LONGLONG expiretime, PORT_LONGLONG now);
 robj *rdbLoadStringObject(rio *rdb);
 
 #endif

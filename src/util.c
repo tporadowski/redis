@@ -27,6 +27,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Time.h"
+#include <process.h>    // for getpid
+#include <direct.h>     // for getcwd
+#include <shlwapi.h>    // for PathIsRelative
+#endif
+
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -34,8 +43,8 @@
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
-#include <unistd.h>
-#include <sys/time.h>
+POSIX_ONLY(#include <unistd.h>)
+POSIX_ONLY(#include <sys/time.h>)
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
@@ -167,7 +176,7 @@ int stringmatchlen(const char *pattern, int patternLen,
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
-    return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+    return stringmatchlen(pattern,(int)strlen(pattern),string,(int)strlen(string),nocase); WIN_PORT_FIX /* cast (int) */
 }
 
 /* Convert a string representing an amount of memory into the number of
@@ -177,11 +186,11 @@ int stringmatch(const char *pattern, const char *string, int nocase) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+PORT_LONGLONG memtoll(const char *p, int *err) {
     const char *u;
     char buf[128];
-    long mul; /* unit multiplier */
-    long long val;
+    PORT_LONG mul; /* unit multiplier */
+    PORT_LONGLONG val;
     unsigned int digits;
 
     if (err) *err = 0;
@@ -209,9 +218,9 @@ long long memtoll(const char *p, int *err) {
         return 0;
     }
 
-    /* Copy the digits into a buffer, we'll use strtoll() to convert
+    /* Copy the digits into a buffer, we'll use PORT_STRTOL() to convert
      * the digit (without the unit) into a number. */
-    digits = u-p;
+    digits = (unsigned int)(u-p);                                                WIN_PORT_FIX /* cast (unsigned int) */
     if (digits >= sizeof(buf)) {
         if (err) *err = 1;
         return 0;
@@ -221,7 +230,7 @@ long long memtoll(const char *p, int *err) {
 
     char *endptr;
     errno = 0;
-    val = strtoll(buf,&endptr,10);
+    val = PORT_STRTOL(buf,&endptr,10);
     if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
         if (err) *err = 1;
         return 0;
@@ -263,7 +272,7 @@ uint32_t sdigits10(int64_t v) {
     }
 }
 
-/* Convert a long long into a string. Returns the number of
+/* Convert a PORT_LONGLONG into a string. Returns the number of
  * characters needed to represent the number.
  * If the buffer is not big enough to store the string, 0 is returned.
  *
@@ -274,7 +283,7 @@ uint32_t sdigits10(int64_t v) {
  *
  * Modified in order to handle signed integers since the original code was
  * designed for unsigned integers. */
-int ll2string(char* dst, size_t dstlen, long long svalue) {
+int ll2string(char* dst, size_t dstlen, PORT_LONGLONG svalue) {
     static const char digits[201] =
         "0001020304050607080910111213141516171819"
         "2021222324252627282930313233343536373839"
@@ -282,7 +291,7 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
         "6061626364656667686970717273747576777879"
         "8081828384858687888990919293949596979899";
     int negative;
-    unsigned long long value;
+    PORT_ULONGLONG value;
 
     /* The main loop works with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
@@ -290,7 +299,7 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
         if (svalue != LLONG_MIN) {
             value = -svalue;
         } else {
-            value = ((unsigned long long) LLONG_MAX)+1;
+            value = ((PORT_ULONGLONG) LLONG_MAX)+1;
         }
         negative = 1;
     } else {
@@ -328,14 +337,14 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
     return length;
 }
 
-/* Convert a string into a long long. Returns 1 if the string could be parsed
- * into a (non-overflowing) long long, 0 otherwise. The value will be set to
+/* Convert a string into a PORT_LONGLONG. Returns 1 if the string could be parsed
+ * into a (non-overflowing) PORT_LONGLONG, 0 otherwise. The value will be set to
  * the parsed value when appropriate. */
-int string2ll(const char *s, size_t slen, long long *value) {
+int string2ll(const char *s, size_t slen, PORT_LONGLONG *value) {
     const char *p = s;
     size_t plen = 0;
     int negative = 0;
-    unsigned long long v;
+    PORT_ULONGLONG v;
 
     if (plen == slen)
         return 0;
@@ -383,7 +392,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 0;
 
     if (negative) {
-        if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
+        if (v > ((PORT_ULONGLONG)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
         if (value != NULL) *value = -v;
     } else {
@@ -394,19 +403,19 @@ int string2ll(const char *s, size_t slen, long long *value) {
     return 1;
 }
 
-/* Convert a string into a long. Returns 1 if the string could be parsed into a
- * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
+/* Convert a string into a PORT_LONG. Returns 1 if the string could be parsed into a
+ * (non-overflowing) PORT_LONG, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
-int string2l(const char *s, size_t slen, long *lval) {
-    long long llval;
+int string2l(const char *s, size_t slen, PORT_LONG *lval) {
+    PORT_LONGLONG llval;
 
     if (!string2ll(s,slen,&llval))
         return 0;
 
-    if (llval < LONG_MIN || llval > LONG_MAX)
+    if (llval < PORT_LONG_MIN || llval > PORT_LONG_MAX)
         return 0;
 
-    *lval = (long)llval;
+    *lval = (PORT_LONG)llval;
     return 1;
 }
 
@@ -429,24 +438,24 @@ int d2string(char *buf, size_t len, double value) {
     } else {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
+         * PORT_LONGLONG. We are assuming that PORT_LONGLONG is 64 bit here.
          * Also we are assuming that there are no implementations around where
          * double has precision < 52 bit.
          *
          * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
+         * where casting to PORT_LONGLONG is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (value > min && value < max && value == ((double)((long long)value)))
-            len = ll2string(buf,len,(long long)value);
+        if (value > min && value < max && value == ((double)((PORT_LONGLONG)value)))
+            len = ll2string(buf,len,(PORT_LONGLONG)value);
         else
 #endif
             len = snprintf(buf,len,"%.17g",value);
     }
 
-    return len;
+    return (int)len;                                                            WIN_PORT_FIX /* cast (int) */
 }
 
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
@@ -533,6 +542,27 @@ void getRandomHexChars(char *p, unsigned int len) {
  * The function does not try to normalize everything, but only the obvious
  * case of one or more "../" appearning at the start of "filename"
  * relative path. */
+#ifdef _WIN32
+sds getAbsolutePath(char *filename) {
+    char fullPath[MAX_PATH];
+    DWORD gfpnResult;
+    sds abspath;
+    sds relpath = sdsnew(filename);
+
+    relpath = sdstrim(relpath, " \r\n\t");
+
+    if (!PathIsRelative(relpath)) return relpath;
+
+    gfpnResult = GetFullPathNameA(relpath, sizeof(fullPath), fullPath, NULL);
+    sdsfree(relpath);
+
+    if (gfpnResult == 0 || gfpnResult > sizeof(fullPath)) {
+        return NULL;
+    }
+    abspath = sdsnew(fullPath);
+    return abspath;
+}
+#else
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
     sds abspath;
@@ -577,6 +607,7 @@ sds getAbsolutePath(char *filename) {
     sdsfree(relpath);
     return abspath;
 }
+#endif
 
 /* Return true if the specified path is just a file basename without any
  * relative or absolute path. This function just checks that no / or \
@@ -591,7 +622,7 @@ int pathIsBaseName(char *path) {
 
 static void test_string2ll(void) {
     char buf[32];
-    long long v;
+    PORT_LONGLONG v;
 
     /* May not start with +. */
     strcpy(buf,"+1");
@@ -646,7 +677,7 @@ static void test_string2ll(void) {
 
 static void test_string2l(void) {
     char buf[32];
-    long v;
+    PORT_LONG v;
 
     /* May not start with +. */
     strcpy(buf,"+1");
@@ -676,17 +707,17 @@ static void test_string2l(void) {
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == -99);
 
-#if LONG_MAX != LLONG_MAX
+#if PORT_LONG_MAX != LLONG_MAX
     strcpy(buf,"-2147483648");
     assert(string2l(buf,strlen(buf),&v) == 1);
-    assert(v == LONG_MIN);
+    assert(v == PORT_LONG_MIN);
 
     strcpy(buf,"-2147483649"); /* overflow */
     assert(string2l(buf,strlen(buf),&v) == 0);
 
     strcpy(buf,"2147483647");
     assert(string2l(buf,strlen(buf),&v) == 1);
-    assert(v == LONG_MAX);
+    assert(v == PORT_LONG_MAX);
 
     strcpy(buf,"2147483648"); /* overflow */
     assert(string2l(buf,strlen(buf),&v) == 0);
@@ -695,7 +726,7 @@ static void test_string2l(void) {
 
 static void test_ll2string(void) {
     char buf[32];
-    long long v;
+    PORT_LONGLONG v;
     int sz;
 
     v = 0;

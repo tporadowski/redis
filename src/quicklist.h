@@ -31,6 +31,10 @@
 #ifndef __QUICKLIST_H__
 #define __QUICKLIST_H__
 
+#ifdef _WIN32
+#include "Win32_Interop/win32_types_hiredis.h"
+#endif
+
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 
 /* quicklistNode is a 32 byte struct describing a ziplist for a quicklist.
@@ -73,7 +77,7 @@ typedef struct quicklistLZF {
 typedef struct quicklist {
     quicklistNode *head;
     quicklistNode *tail;
-    unsigned long count;        /* total count of all entries in all ziplists */
+    PORT_ULONG count;        /* total count of all entries in all ziplists */
     unsigned int len;           /* number of quicklistNodes */
     int fill : 16;              /* fill factor for individual nodes */
     unsigned int compress : 16; /* depth of end nodes not to compress;0=off */
@@ -83,7 +87,7 @@ typedef struct quicklistIter {
     const quicklist *quicklist;
     quicklistNode *current;
     unsigned char *zi;
-    long offset; /* offset in current ziplist */
+    PORT_LONG offset; /* offset in current ziplist */
     int direction;
 } quicklistIter;
 
@@ -93,7 +97,7 @@ typedef struct quicklistEntry {
     unsigned char *zi;
     unsigned char *value;
     unsigned int sz;
-    long long longval;
+    PORT_LONGLONG longval;
     int offset;
 } quicklistEntry;
 
@@ -135,25 +139,25 @@ void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,
                            void *value, const size_t sz);
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
-int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
+int quicklistReplaceAtIndex(quicklist *quicklist, PORT_LONG index, void *data,
                             int sz);
-int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
+int quicklistDelRange(quicklist *quicklist, const PORT_LONG start, const PORT_LONG stop);
 quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction);
 quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist,
-                                         int direction, const long long idx);
+                                         int direction, const PORT_LONGLONG idx);
 int quicklistNext(quicklistIter *iter, quicklistEntry *node);
 void quicklistReleaseIterator(quicklistIter *iter);
 quicklist *quicklistDup(quicklist *orig);
-int quicklistIndex(const quicklist *quicklist, const long long index,
+int quicklistIndex(const quicklist *quicklist, const PORT_LONGLONG index,
                    quicklistEntry *entry);
 void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
 void quicklistRotate(quicklist *quicklist);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
-                       unsigned int *sz, long long *sval,
+                       unsigned int *sz, PORT_LONGLONG *sval,
                        void *(*saver)(unsigned char *data, unsigned int sz));
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
-                 unsigned int *sz, long long *slong);
+                 unsigned int *sz, PORT_LONGLONG *slong);
 unsigned int quicklistCount(quicklist *ql);
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);

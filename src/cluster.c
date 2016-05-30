@@ -33,13 +33,13 @@
 #include "endianconv.h"
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
+POSIX_ONLY(#include <sys/socket.h>)
+POSIX_ONLY(#include <arpa/inet.h>)
 #include <fcntl.h>
-#include <unistd.h>
-#include <sys/socket.h>
+POSIX_ONLY(#include <unistd.h>)
+POSIX_ONLY(#include <sys/socket.h>)
 #include <sys/stat.h>
-#include <sys/file.h>
+POSIX_ONLY(#include <sys/file.h>)
 #include <math.h>
 
 /* A global reference to myself is handy to make code more clear.
@@ -88,8 +88,8 @@ int clusterBumpConfigEpochWithoutConsensus(void);
  * sake of locking if it does not already exist), C_ERR is returned.
  * If the configuration was loaded from the file, C_OK is returned. */
 int clusterLoadConfig(char *filename) {
-    FILE *fp = fopen(filename,"r");
-    struct stat sb;
+    FILE *fp = fopen(filename,IF_WIN32("rb", "r"));
+    struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
     char *line;
     int maxline, j;
 
@@ -112,7 +112,7 @@ int clusterLoadConfig(char *filename) {
     }
 
     /* Parse the file. Note that single lines of the cluster config file can
-     * be really long as they include all the hash slots of the node.
+     * be really PORT_LONG as they include all the hash slots of the node.
      * This means in the worst possible case, half of the Redis slots will be
      * present in a single line, possibly in importing or migrating state, so
      * together with the node ID of the sender/receiver.
@@ -297,7 +297,7 @@ fmterr:
 int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
-    struct stat sb;
+    struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
     int fd;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_SAVE_CONFIG;
@@ -306,8 +306,8 @@ int clusterSaveConfig(int do_fsync) {
      * save currentEpoch and lastVoteEpoch. */
     ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE);
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
-        (unsigned long long) server.cluster->currentEpoch,
-        (unsigned long long) server.cluster->lastVoteEpoch);
+        (PORT_ULONGLONG) server.cluster->currentEpoch,
+        (PORT_ULONGLONG) server.cluster->lastVoteEpoch);
     content_size = sdslen(ci);
 
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
@@ -373,23 +373,37 @@ int clusterLockConfig(char *filename) {
             filename, strerror(errno));
         return C_ERR;
     }
-
+    
+#ifndef _WIN32
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
+#else
+    HANDLE hFile = (HANDLE) FDAPI_get_osfhandle(fd);
+    OVERLAPPED ovlp;
+    DWORD size_lower, size_upper;
+    // start offset is 0, and also zero the remaining members of the struct
+    memset(&ovlp, 0, sizeof ovlp);
+    // get file size
+    size_lower = GetFileSize(hFile, &size_upper);
+    if (!LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, size_lower, size_upper, &ovlp)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_LOCK_VIOLATION) {
+#endif
             serverLog(LL_WARNING,
-                 "Sorry, the cluster configuration file %s is already used "
-                 "by a different Redis Cluster node. Please make sure that "
-                 "different nodes use different cluster configuration "
-                 "files.", filename);
+                "Sorry, the cluster configuration file %s is already used "
+                "by a different Redis Cluster node. Please make sure that "
+                "different nodes use different cluster configuration "
+                "files.", filename);
+
         } else {
             serverLog(LL_WARNING,
-                "Impossible to lock %s: %s", filename, strerror(errno));
+                "Impossible to lock %s: %d", filename, err);
         }
         close(fd);
         return C_ERR;
     }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
-     * lock to the file as long as the process exists. */
+     * lock to the file as PORT_LONG as the process exists. */
 #endif /* __sun */
 
     return C_OK;
@@ -418,10 +432,12 @@ void clusterInit(void) {
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
     clusterCloseAllSlots();
 
+#ifndef WIN32   // TODO: review this to verify if we can lock the file on Windows
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
     if (clusterLockConfig(server.cluster_configfile) == C_ERR)
         exit(1);
+#endif
 
     /* Load or create a new nodes configuration. */
     if (clusterLoadConfig(server.cluster_configfile) == C_ERR) {
@@ -771,7 +787,7 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
  * node as well. */
 int clusterNodeFailureReportsCount(clusterNode *node) {
     clusterNodeCleanupFailureReports(node);
-    return listLength(node->fail_reports);
+    return (int) listLength(node->fail_reports);                                WIN_PORT_FIX /* cast (int) */
 }
 
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
@@ -979,7 +995,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
                              CLUSTER_TODO_FSYNC_CONFIG);
         serverLog(LL_WARNING,
             "New configEpoch set to %llu",
-            (unsigned long long) myself->configEpoch);
+            (PORT_ULONGLONG) myself->configEpoch);
         return C_OK;
     } else {
         return C_ERR;
@@ -1046,7 +1062,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
         "WARNING: configEpoch collision with node %.40s."
         " configEpoch set to %llu",
         sender->name,
-        (unsigned long long) myself->configEpoch);
+        (PORT_ULONGLONG) myself->configEpoch);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1078,7 +1094,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * entries from the black list. This is an O(N) operation but it is not a
  * problem since add / exists operations are called very infrequently and
  * the hash table is supposed to contain very little elements at max.
- * However without the cleanup during long uptimes and with some automated
+ * However without the cleanup during PORT_LONG uptimes and with some automated
  * node add/removal procedures, entries could accumulate. */
 void clusterBlacklistCleanup(void) {
     dictIterator *di;
@@ -1544,8 +1560,8 @@ int clusterProcessPacket(clusterLink *link) {
     uint16_t type = ntohs(hdr->type);
 
     server.cluster->stats_bus_messages_received++;
-    serverLog(LL_DEBUG,"--- Processing packet of type %d, %lu bytes",
-        type, (unsigned long) totlen);
+    serverLog(LL_DEBUG,"--- Processing packet of type %d, %Iu bytes",         WIN_PORT_FIX /* %lu -> %Iu */
+        type, (PORT_ULONG) totlen);
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
@@ -2004,7 +2020,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         handleLinkIOError(link);
         return;
     }
-    sdsrange(link->sndbuf,nwritten,-1);
+    sdsrange(link->sndbuf,(int)nwritten,-1);                                    WIN_PORT_FIX /* cast (int) */
     if (sdslen(link->sndbuf) == 0)
         aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
 }
@@ -2021,8 +2037,8 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
 
-    while(1) { /* Read as long as there is data to read. */
-        rcvbuflen = sdslen(link->rcvbuf);
+    while(1) { /* Read as PORT_LONG as there is data to read. */
+        rcvbuflen = (unsigned int)sdslen(link->rcvbuf);                         WIN_PORT_FIX /* cast (unsigned int) */
         if (rcvbuflen < 8) {
             /* First, obtain the first 8 bytes to get the full message
              * length. */
@@ -2040,7 +2056,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         "Bad message length or signature received "
                         "from Cluster bus.");
                     handleLinkIOError(link);
-                    return;
+                    IF_WIN32(goto done,return);
                 }
             }
             readlen = ntohl(hdr->totlen) - rcvbuflen;
@@ -2048,19 +2064,19 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
         nread = read(fd,buf,readlen);
-        if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        if (nread == -1 && errno == EAGAIN) IF_WIN32(goto done, return); /* No more data ready. */
 
         if (nread <= 0) {
             /* I/O error... */
             serverLog(LL_DEBUG,"I/O error reading from node link: %s",
                 (nread == 0) ? "connection closed" : strerror(errno));
             handleLinkIOError(link);
-            return;
+            IF_WIN32(goto done, return);
         } else {
             /* Read data and recast the pointer to the new buffer. */
             link->rcvbuf = sdscatlen(link->rcvbuf,buf,nread);
             hdr = (clusterMsg*) link->rcvbuf;
-            rcvbuflen += nread;
+            rcvbuflen += (unsigned int)nread;                                   WIN_PORT_FIX /* cast (unsigned int) */
         }
 
         /* Total length obtained? Process this packet. */
@@ -2069,10 +2085,12 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 sdsfree(link->rcvbuf);
                 link->rcvbuf = sdsempty();
             } else {
-                return; /* Link no longer valid. */
+                IF_WIN32(goto done, return); /* Link no longer valid. */
             }
         }
     }
+WIN32_ONLY(done:)
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
 }
 
 /* Put stuff into the send buffer.
@@ -2182,7 +2200,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * nodes available minus two (ourself and the node we are sending the
      * message to). However practically there may be less valid nodes since
      * nodes in handshake state, disconnected, are not considered. */
-    int freshnodes = dictSize(server.cluster->nodes)-2;
+    int freshnodes = (int)dictSize(server.cluster->nodes)-2;                    WIN_PORT_FIX /* cast (int) */
 
     /* How many gossip sections we want to add? 1/10 of the number of nodes
      * and anyway at least 3. Why 1/10?
@@ -2270,8 +2288,8 @@ void clusterSendPing(clusterLink *link, int type) {
         freshnodes--;
         gossip = &(hdr->data.ping.gossip[gossipcount]);
         memcpy(gossip->nodename,this->name,CLUSTER_NAMELEN);
-        gossip->ping_sent = htonl(this->ping_sent);
-        gossip->pong_received = htonl(this->pong_received);
+        gossip->ping_sent = htonl((u_long)this->ping_sent);                     WIN_PORT_FIX /* cast (u_long) */
+        gossip->pong_received = htonl((u_long)this->pong_received);             WIN_PORT_FIX /* cast (u_long) */
         memcpy(gossip->ip,this->ip,sizeof(this->ip));
         gossip->port = htons(this->port);
         gossip->flags = htons(this->flags);
@@ -2338,8 +2356,8 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
 
     channel = getDecodedObject(channel);
     message = getDecodedObject(message);
-    channel_len = sdslen(channel->ptr);
-    message_len = sdslen(message->ptr);
+    channel_len = (uint32_t)sdslen(channel->ptr);                               WIN_PORT_FIX /* cast (uint32_t) */
+    message_len = (uint32_t)sdslen(message->ptr);                               WIN_PORT_FIX /* cast (uint32_t) */
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_PUBLISH);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
@@ -2485,8 +2503,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         serverLog(LL_WARNING,
             "Failover auth denied to %.40s: reqEpoch (%llu) < curEpoch(%llu)",
             node->name,
-            (unsigned long long) requestCurrentEpoch,
-            (unsigned long long) server.cluster->currentEpoch);
+            (PORT_ULONGLONG) requestCurrentEpoch,
+            (PORT_ULONGLONG) server.cluster->currentEpoch);
         return;
     }
 
@@ -2495,7 +2513,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         serverLog(LL_WARNING,
                 "Failover auth denied to %.40s: already voted for epoch %llu",
                 node->name,
-                (unsigned long long) server.cluster->currentEpoch);
+                (PORT_ULONGLONG) server.cluster->currentEpoch);
         return;
     }
 
@@ -2530,7 +2548,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
                 "Failover auth denied to %.40s: "
                 "can't vote about this master before %lld milliseconds",
                 node->name,
-                (long long) ((server.cluster_node_timeout*2)-
+                (PORT_LONGLONG) ((server.cluster_node_timeout*2)-
                              (mstime() - node->slaveof->voted_time)));
         return;
     }
@@ -2552,8 +2570,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
                 "Failover auth denied to %.40s: "
                 "slot %d epoch (%llu) > reqEpoch (%llu)",
                 node->name, j,
-                (unsigned long long) server.cluster->slots[j]->configEpoch,
-                (unsigned long long) requestConfigEpoch);
+                (PORT_ULONGLONG) server.cluster->slots[j]->configEpoch,
+                (PORT_ULONGLONG) requestConfigEpoch);
         return;
     }
 
@@ -2562,7 +2580,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = mstime();
     serverLog(LL_WARNING, "Failover auth granted to %.40s for epoch %llu",
-        node->name, (unsigned long long) server.cluster->currentEpoch);
+        node->name, (PORT_ULONGLONG) server.cluster->currentEpoch);
 }
 
 /* This function returns the "rank" of this instance, a slave, in the context
@@ -2578,7 +2596,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
  * get voted and replace a failing master. Slaves with better replication
  * offsets are more likely to win. */
 int clusterGetSlaveRank(void) {
-    long long myoffset;
+    PORT_LONGLONG myoffset;
     int j, rank = 0;
     clusterNode *master;
 
@@ -2627,9 +2645,9 @@ void clusterLogCantFailover(int reason) {
 
     server.cluster->cant_failover_reason = reason;
 
-    /* We also don't emit any log if the master failed no long ago, the
+    /* We also don't emit any log if the master failed no PORT_LONG ago, the
      * goal of this function is to log slaves in a stalled condition for
-     * a long time. */
+     * a PORT_LONG time. */
     if (myself->slaveof &&
         nodeFailed(myself->slaveof) &&
         (mstime() - myself->slaveof->fail_time) < nolog_fail_time) return;
@@ -2810,7 +2828,7 @@ void clusterHandleSlaveFailover(void) {
     {
         int newrank = clusterGetSlaveRank();
         if (newrank > server.cluster->failover_auth_rank) {
-            long long added_delay =
+            PORT_LONGLONG added_delay =
                 (newrank - server.cluster->failover_auth_rank) * 1000;
             server.cluster->failover_auth_time += added_delay;
             server.cluster->failover_auth_rank = newrank;
@@ -2837,7 +2855,7 @@ void clusterHandleSlaveFailover(void) {
         server.cluster->currentEpoch++;
         server.cluster->failover_auth_epoch = server.cluster->currentEpoch;
         serverLog(LL_WARNING,"Starting a failover election for epoch %llu.",
-            (unsigned long long) server.cluster->currentEpoch);
+            (PORT_ULONGLONG) server.cluster->currentEpoch);
         clusterRequestFailoverAuth();
         server.cluster->failover_auth_sent = 1;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -2858,7 +2876,7 @@ void clusterHandleSlaveFailover(void) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
             serverLog(LL_WARNING,
                 "configEpoch set to %llu after successful failover",
-                (unsigned long long) myself->configEpoch);
+                (PORT_ULONGLONG) myself->configEpoch);
         }
 
         /* Take responsability for the cluster slots. */
@@ -3068,7 +3086,7 @@ void clusterCron(void) {
     int this_slaves; /* Number of ok slaves for our master (if we are slave). */
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
-    static unsigned long long iteration = 0;
+    static PORT_ULONGLONG iteration = 0;
     mstime_t handshake_timeout;
 
     iteration++; /* Number of times this function was called so far. */
@@ -3713,9 +3731,9 @@ sds clusterGenNodeDescription(clusterNode *node) {
 
     /* Latency from the POV of this node, config epoch, link status */
     ci = sdscatprintf(ci,"%lld %lld %llu %s",
-        (long long) node->ping_sent,
-        (long long) node->pong_received,
-        (unsigned long long) node->configEpoch,
+        (PORT_LONGLONG) node->ping_sent,
+        (PORT_LONGLONG) node->pong_received,
+        (PORT_ULONGLONG) node->configEpoch,
         (node->link || node->flags & CLUSTER_NODE_MYSELF) ?
                     "connected" : "disconnected");
 
@@ -3792,7 +3810,7 @@ sds clusterGenNodesDescription(int filter) {
  * -------------------------------------------------------------------------- */
 
 int getSlotOrReply(client *c, robj *o) {
-    long long slot;
+    PORT_LONGLONG slot;
 
     if (getLongLongFromObject(o,&slot) != C_OK ||
         slot < 0 || slot >= CLUSTER_SLOTS)
@@ -3884,7 +3902,7 @@ void clusterCommand(client *c) {
     }
 
     if (!strcasecmp(c->argv[1]->ptr,"meet") && c->argc == 4) {
-        long long port;
+        PORT_LONGLONG port;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
             addReplyErrorFormat(c,"Invalid TCP port specified: %s",
@@ -3892,7 +3910,7 @@ void clusterCommand(client *c) {
             return;
         }
 
-        if (clusterStartHandshake(c->argv[2]->ptr,port) == 0 &&
+        if (clusterStartHandshake(c->argv[2]->ptr,(int)port) == 0 &&            WIN_PORT_FIX /* cast (int) */
             errno == EINVAL)
         {
             addReplyErrorFormat(c,"Invalid node address specified: %s:%s",
@@ -4075,7 +4093,7 @@ void clusterCommand(client *c) {
         int retval = clusterBumpConfigEpochWithoutConsensus();
         sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
                 (retval == C_OK) ? "BUMPED" : "STILL",
-                (unsigned long long) myself->configEpoch);
+                (PORT_ULONGLONG) myself->configEpoch);
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
@@ -4107,7 +4125,7 @@ void clusterCommand(client *c) {
             "cluster_slots_ok:%d\r\n"
             "cluster_slots_pfail:%d\r\n"
             "cluster_slots_fail:%d\r\n"
-            "cluster_known_nodes:%lu\r\n"
+            "cluster_known_nodes:%Iu\r\n"                                       WIN_PORT_FIX /* %lu -> %Iu */
             "cluster_size:%d\r\n"
             "cluster_current_epoch:%llu\r\n"
             "cluster_my_epoch:%llu\r\n"
@@ -4120,13 +4138,13 @@ void clusterCommand(client *c) {
             slots_fail,
             dictSize(server.cluster->nodes),
             server.cluster->size,
-            (unsigned long long) server.cluster->currentEpoch,
-            (unsigned long long) myepoch,
+            (PORT_ULONGLONG) server.cluster->currentEpoch,
+            (PORT_ULONGLONG) myepoch,
             server.cluster->stats_bus_messages_sent,
             server.cluster->stats_bus_messages_received
         );
-        addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
-            (unsigned long)sdslen(info)));
+        addReplySds(c,sdscatprintf(sdsempty(),"$%Iu\r\n",                       WIN_PORT_FIX /* %lu -> %Iu */
+            (PORT_ULONG)sdslen(info)));
         addReplySds(c,info);
         addReply(c,shared.crlf);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
@@ -4141,10 +4159,10 @@ void clusterCommand(client *c) {
         /* CLUSTER KEYSLOT <key> */
         sds key = c->argv[2]->ptr;
 
-        addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
+        addReplyLongLong(c,keyHashSlot(key,(int)sdslen(key)));                  WIN_PORT_FIX /* cast (int) */
     } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
-        long long slot;
+        PORT_LONGLONG slot;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
             return;
@@ -4152,10 +4170,10 @@ void clusterCommand(client *c) {
             addReplyError(c,"Invalid slot");
             return;
         }
-        addReplyLongLong(c,countKeysInSlot(slot));
+        addReplyLongLong(c,countKeysInSlot((unsigned int)slot));                WIN_PORT_FIX /* cast (unsigned int) */
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
-        long long maxkeys, slot;
+        PORT_LONGLONG maxkeys, slot;
         unsigned int numkeys, j;
         robj **keys;
 
@@ -4170,7 +4188,7 @@ void clusterCommand(client *c) {
         }
 
         keys = zmalloc(sizeof(robj*)*maxkeys);
-        numkeys = getKeysInSlot(slot, keys, maxkeys);
+        numkeys = getKeysInSlot((unsigned int)slot, keys, (unsigned int)maxkeys); WIN_PORT_FIX /* cast (unsigned int) */
         addReplyMultiBulkLen(c,numkeys);
         for (j = 0; j < numkeys; j++) addReplyBulk(c,keys[j]);
         zfree(keys);
@@ -4328,7 +4346,7 @@ void clusterCommand(client *c) {
          * This happens at cluster creation time to start with a cluster where
          * every node has a different node ID, without to rely on the conflicts
          * resolution system which is too slow when a big cluster is created. */
-        long long epoch;
+        PORT_LONGLONG epoch;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&epoch,NULL) != C_OK)
             return;
@@ -4344,7 +4362,7 @@ void clusterCommand(client *c) {
             myself->configEpoch = epoch;
             serverLog(LL_WARNING,
                 "configEpoch set to %llu via CLUSTER SET-CONFIG-EPOCH",
-                (unsigned long long) myself->configEpoch);
+                (PORT_ULONGLONG) myself->configEpoch);
 
             if (server.cluster->currentEpoch < (uint64_t)epoch)
                 server.cluster->currentEpoch = epoch;
@@ -4470,7 +4488,7 @@ void dumpCommand(client *c) {
 
 /* RESTORE key ttl serialized-value [REPLACE] */
 void restoreCommand(client *c) {
-    long long ttl;
+    PORT_LONGLONG ttl;
     rio payload;
     int j, type, replace = 0;
     robj *obj;
@@ -4536,7 +4554,7 @@ void restoreCommand(client *c) {
 
 typedef struct migrateCachedSocket {
     int fd;
-    long last_dbid;
+    PORT_LONG last_dbid;
     time_t last_use_time;
 } migrateCachedSocket;
 
@@ -4551,7 +4569,7 @@ typedef struct migrateCachedSocket {
  * If the caller detects an error while using the socket, migrateCloseSocket()
  * should be called so that the connection will be created from scratch
  * the next time. */
-migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long timeout) {
+migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, PORT_LONG timeout) {
     int fd;
     sds name = sdsempty();
     migrateCachedSocket *cs;
@@ -4650,9 +4668,9 @@ void migrateCloseTimedoutSockets(void) {
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
     int copy, replace, j;
-    long timeout;
-    long dbid;
-    long long ttl, expireat;
+    PORT_LONG timeout;
+    PORT_LONG dbid;
+    PORT_LONGLONG ttl, expireat;
     robj **ov = NULL; /* Objects to migrate. */
     robj **kv = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
@@ -4780,6 +4798,27 @@ try_again:
         size_t pos = 0, towrite;
         int nwritten = 0;
 
+#ifdef _WIN32
+        while ((towrite = sdslen(buf) - pos) > 0) {
+            towrite = (towrite > (64 * 1024) ? (64 * 1024) : towrite);
+            while (nwritten != (signed) towrite) {
+                nwritten = (int) syncWrite(cs->fd, buf + pos, (ssize_t) towrite, timeout);
+                if (nwritten != (signed) towrite) {
+                    DWORD err = GetLastError();
+                    if (err == WSAEWOULDBLOCK) {
+                        // Likely send buffer is full. A short delay or two is sufficient to allow this to work.
+                        serverLog(LL_VERBOSE, "In migrate. WSAEWOULDBLOCK with synchronous socket: sleeping for 0.1s");
+                        Sleep(100);
+                    } else {
+                        serverLog(LL_WARNING, "SyncWrite failure toWrite=%d  written=%d err=%d timeout=%d ", towrite, nwritten, GetLastError(), timeout);
+                        goto socket_err;
+                    }
+                }
+            }
+            pos += nwritten;
+            nwritten = 0;
+        }
+#else
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
             nwritten = syncWrite(cs->fd,buf+pos,towrite,timeout);
@@ -4789,6 +4828,7 @@ try_again:
             }
             pos += nwritten;
         }
+#endif
     }
 
     char buf1[1024]; /* Select reply. */
@@ -4881,6 +4921,9 @@ try_again:
  * It is very common for the cached socket to get closed, if just reopening
  * it works it's a shame to notify the error to the caller. */
 socket_err:
+#ifdef _WIN32
+    serverLog(LL_WARNING, "syncReadLine failure err=%d timeout=%d ", GetLastError(), timeout);
+#endif
     /* Cleanup we want to perform in both the retry and no retry case.
      * Note: Closing the migrate socket will also force SELECT next time. */
     sdsfree(cmd.io.buffer.ptr);
@@ -4922,7 +4965,7 @@ void askingCommand(client *c) {
 }
 
 /* The READONLY command is used by clients to enter the read-only mode.
- * In this mode slaves will not redirect clients as long as clients access
+ * In this mode slaves will not redirect clients as PORT_LONG as clients access
  * with read-only commands to keys that are served by the slave's master. */
 void readonlyCommand(client *c) {
     if (server.cluster_enabled == 0) {
@@ -5016,7 +5059,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+                                       (int)sdslen(thiskey->ptr));              WIN_PORT_FIX /* cast (int) */
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
@@ -5190,7 +5233,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         di = dictGetIterator(c->bpop.keys);
         while((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
-            int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
+            int slot = keyHashSlot((char*)key->ptr, (int)sdslen(key->ptr));     WIN_PORT_FIX /* cast (int) */
             clusterNode *node = server.cluster->slots[slot];
 
             /* We send an error and unblock the client if:

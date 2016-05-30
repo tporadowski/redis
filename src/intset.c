@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "../../src/Win32_Interop/Win32_Portability.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,10 +89,10 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
         ((int64_t*)is->contents)[pos] = value;
         memrev64ifbe(((int64_t*)is->contents)+pos);
     } else if (encoding == INTSET_ENC_INT32) {
-        ((int32_t*)is->contents)[pos] = value;
+        ((int32_t*)is->contents)[pos] = (int32_t)value;                     WIN_PORT_FIX /* cast (int32_t) */
         memrev32ifbe(((int32_t*)is->contents)+pos);
     } else {
-        ((int16_t*)is->contents)[pos] = value;
+        ((int16_t*)is->contents)[pos] = (int16_t)value;                     WIN_PORT_FIX /* cast (int16_t) */
         memrev16ifbe(((int16_t*)is->contents)+pos);
     }
 }
@@ -303,10 +307,10 @@ static void ok(void) {
     printf("OK\n");
 }
 
-static long long usec(void) {
+static PORT_LONGLONG usec(void) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
 #define assert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
@@ -459,9 +463,9 @@ int intsetTest(int argc, char **argv) {
     }
 
     printf("Stress lookups: "); {
-        long num = 100000, size = 10000;
+        PORT_LONG num = 100000, size = 10000;
         int i, bits = 20;
-        long long start;
+        PORT_LONGLONG start;
         is = createSet(bits,size);
         checkConsistency(is);
 

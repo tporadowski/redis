@@ -55,7 +55,7 @@ void *listPopSaver(unsigned char *data, unsigned int sz) {
 }
 
 robj *listTypePop(robj *subject, int where) {
-    long long vlong;
+    PORT_LONGLONG vlong;
     robj *value = NULL;
 
     int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -71,7 +71,7 @@ robj *listTypePop(robj *subject, int where) {
     return value;
 }
 
-unsigned long listTypeLength(robj *subject) {
+PORT_ULONG listTypeLength(robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);
     } else {
@@ -80,7 +80,7 @@ unsigned long listTypeLength(robj *subject) {
 }
 
 /* Initialize an iterator at the specified index. */
-listTypeIterator *listTypeInitIterator(robj *subject, long index,
+listTypeIterator *listTypeInitIterator(robj *subject, PORT_LONG index,
                                        unsigned char direction) {
     listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
     li->subject = subject;
@@ -305,7 +305,7 @@ void llenCommand(client *c) {
 void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    long index;
+    PORT_LONG index;
     robj *value = NULL;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
@@ -332,7 +332,7 @@ void lindexCommand(client *c) {
 void lsetCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    long index;
+    PORT_LONG index;
     robj *value = c->argv[3];
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
@@ -388,7 +388,7 @@ void rpopCommand(client *c) {
 
 void lrangeCommand(client *c) {
     robj *o;
-    long start, end, llen, rangelen;
+    PORT_LONG start, end, llen, rangelen;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -434,7 +434,7 @@ void lrangeCommand(client *c) {
 
 void ltrimCommand(client *c) {
     robj *o;
-    long start, end, llen, ltrim, rtrim;
+    PORT_LONG start, end, llen, ltrim, rtrim;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -481,8 +481,8 @@ void ltrimCommand(client *c) {
 void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
-    long toremove;
-    long removed = 0;
+    PORT_LONG toremove;
+    PORT_LONG removed = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;

@@ -35,12 +35,55 @@
 
 #define SDS_MAX_PREALLOC (1024*1024)
 
+#ifdef _WIN32
+#include "../../src/Win32_Interop/Win32_Portability.h"
+#include "../../src/Win32_Interop/win32_types_hiredis.h"
+#endif
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
 
 typedef char *sds;
 
+#ifdef _WIN32
+#define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop) )
+
+/* Note: sdshdr5 is never used, we just access the flags byte directly.
+* However is here to document the layout of type 5 SDS strings. */
+PACK(
+struct sdshdr5{
+    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
+    char buf[];
+};)
+PACK(
+struct sdshdr8 {
+    uint8_t len; /* used */
+    uint8_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr16 {
+    uint16_t len; /* used */
+    uint16_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr32 {
+    uint32_t len; /* used */
+    uint32_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+PACK(
+struct sdshdr64 {
+    uint64_t len; /* used */
+    uint64_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};)
+#else
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 struct __attribute__ ((__packed__)) sdshdr5 {
@@ -71,6 +114,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
+#endif
 
 #define SDS_TYPE_5  0
 #define SDS_TYPE_8  1
@@ -82,6 +126,10 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
+
+#ifdef _WIN32
+#define inline __inline
+#endif
 
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
@@ -244,7 +292,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
 void sdsfreesplitres(sds *tokens, int count);
 void sdstolower(sds s);
 void sdstoupper(sds s);
-sds sdsfromlonglong(long long value);
+sds sdsfromlonglong(PORT_LONGLONG value);
 sds sdscatrepr(sds s, const char *p, size_t len);
 sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);

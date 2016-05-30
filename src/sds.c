@@ -30,6 +30,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32fixes.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,27 +101,27 @@ sds sdsnewlen(const void *init, size_t initlen) {
     fp = ((unsigned char*)s)-1;
     switch(type) {
         case SDS_TYPE_5: {
-            *fp = type | (initlen << SDS_TYPE_BITS);
+            *fp = type | (unsigned char)(initlen << SDS_TYPE_BITS);             WIN_PORT_FIX /* cast (unsigned char) */
             break;
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
-            sh->len = initlen;
-            sh->alloc = initlen;
+            sh->len = (uint8_t)initlen;                                         WIN_PORT_FIX /* cast (uint8_t) */
+            sh->alloc = (uint8_t)initlen;                                       WIN_PORT_FIX /* cast (uint8_t) */
             *fp = type;
             break;
         }
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
-            sh->len = initlen;
-            sh->alloc = initlen;
+            sh->len = (uint16_t)initlen;                                        WIN_PORT_FIX /* cast (uint16_t) */
+            sh->alloc = (uint16_t)initlen;                                      WIN_PORT_FIX /* cast (uint16_t) */
             *fp = type;
             break;
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
-            sh->len = initlen;
-            sh->alloc = initlen;
+            sh->len = (uint32_t)initlen;                                        WIN_PORT_FIX /* cast (uint32_t) */
+            sh->alloc = (uint32_t)initlen;                                      WIN_PORT_FIX /* cast (uint32_t) */
             *fp = type;
             break;
         }
@@ -172,7 +177,7 @@ void sdsfree(sds s) {
  * the output will be "6" as the string was modified but the logical length
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
-    int reallen = strlen(s);
+    int reallen = (int)strlen(s);                                               WIN_PORT_FIX /* cast (int) */
     sdssetlen(s, reallen);
 }
 
@@ -426,9 +431,9 @@ sds sdscpy(sds s, const char *t) {
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
 #define SDS_LLSTR_SIZE 21
-int sdsll2str(char *s, long long value) {
+int sdsll2str(char *s, PORT_LONGLONG value) {
     char *p, aux;
-    unsigned long long v;
+    PORT_ULONGLONG v;
     size_t l;
 
     /* Generate the string representation, this method produces
@@ -454,11 +459,11 @@ int sdsll2str(char *s, long long value) {
         s++;
         p--;
     }
-    return l;
+    return (int)l;                                                              WIN_PORT_FIX /* cast (int) */
 }
 
-/* Identical sdsll2str(), but for unsigned long long type. */
-int sdsull2str(char *s, unsigned long long v) {
+/* Identical sdsll2str(), but for PORT_ULONGLONG type. */
+int sdsull2str(char *s, PORT_ULONGLONG v) {
     char *p, aux;
     size_t l;
 
@@ -483,14 +488,14 @@ int sdsull2str(char *s, unsigned long long v) {
         s++;
         p--;
     }
-    return l;
+    return (int)l;
 }
 
-/* Create an sds string from a long long value. It is much faster than:
+/* Create an sds string from a PORT_LONGLONG value. It is much faster than:
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
-sds sdsfromlonglong(long long value) {
+sds sdsfromlonglong(PORT_LONGLONG value) {
     char buf[SDS_LLSTR_SIZE];
     int len = sdsll2str(buf,value);
 
@@ -506,10 +511,11 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     /* We try to start using a static buffer for speed.
      * If not possible we revert to heap allocation. */
     if (buflen > sizeof(staticbuf)) {
-        buf = s_malloc(buflen);
+        buf = IF_WIN32(zcalloc,s_malloc)(buflen);
         if (buf == NULL) return NULL;
     } else {
         buflen = sizeof(staticbuf);
+        WIN32_ONLY(memset(staticbuf, 0, sizeof(staticbuf));)
     }
 
     /* Try with buffers two times bigger every time we fail to
@@ -522,7 +528,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         if (buf[buflen-2] != '\0') {
             if (buf != staticbuf) s_free(buf);
             buflen *= 2;
-            buf = s_malloc(buflen);
+            buf = IF_WIN32(zcalloc,s_malloc)(buflen);
             if (buf == NULL) return NULL;
             continue;
         }
@@ -571,9 +577,9 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %s - C String
  * %S - SDS string
  * %i - signed int
- * %I - 64 bit signed integer (long long, int64_t)
+ * %I - 64 bit signed integer (PORT_LONGLONG, int64_t)
  * %u - unsigned int
- * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
+ * %U - 64 bit unsigned integer (PORT_ULONGLONG, uint64_t)
  * %% - Verbatim "%" character.
  */
 sds sdscatfmt(sds s, char const *fmt, ...) {
@@ -584,12 +590,12 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
 
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
-    i = initlen; /* Position of the next byte to write to dest str. */
+    i = (int)initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
         size_t l;
-        long long num;
-        unsigned long long unum;
+        PORT_LONGLONG num;
+        PORT_ULONGLONG unum;
 
         /* Make sure there is always space for at least 1 char. */
         if (sdsavail(s)==0) {
@@ -604,20 +610,20 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
             case 's':
             case 'S':
                 str = va_arg(ap,char*);
-                l = (next == 's') ? strlen(str) : sdslen(str);
+                l = (int)((next == 's') ? strlen(str) : sdslen(str));           WIN_PORT_FIX /* cast (int) */
                 if (sdsavail(s) < l) {
                     s = sdsMakeRoomFor(s,l);
                 }
                 memcpy(s+i,str,l);
                 sdsinclen(s,l);
-                i += l;
+                i += (int)l;                                                    WIN_PORT_FIX /* cast (int) */
                 break;
             case 'i':
             case 'I':
                 if (next == 'i')
                     num = va_arg(ap,int);
                 else
-                    num = va_arg(ap,long long);
+                    num = va_arg(ap,PORT_LONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsll2str(buf,num);
@@ -626,7 +632,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                     }
                     memcpy(s+i,buf,l);
                     sdsinclen(s,l);
-                    i += l;
+                    i += (int)l;                                                WIN_PORT_FIX /* cast (int) */
                 }
                 break;
             case 'u':
@@ -634,7 +640,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (next == 'u')
                     unum = va_arg(ap,unsigned int);
                 else
-                    unum = va_arg(ap,unsigned long long);
+                    unum = va_arg(ap,PORT_ULONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsull2str(buf,unum);
@@ -643,7 +649,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                     }
                     memcpy(s+i,buf,l);
                     sdsinclen(s,l);
-                    i += l;
+                    i += (int)l;                                                WIN_PORT_FIX /* cast (int) */
                 }
                 break;
             default: /* Handle %% and generally %<unknown>. */
@@ -716,11 +722,11 @@ void sdsrange(sds s, int start, int end) {
 
     if (len == 0) return;
     if (start < 0) {
-        start = len+start;
+        start = (int)len+start;                                                 WIN_PORT_FIX /* cast (int) */
         if (start < 0) start = 0;
     }
     if (end < 0) {
-        end = len+end;
+        end = (int)len+end;                                                     WIN_PORT_FIX /* cast (int) */
         if (end < 0) end = 0;
     }
     newlen = (start > end) ? 0 : (end-start)+1;
@@ -728,7 +734,7 @@ void sdsrange(sds s, int start, int end) {
         if (start >= (signed)len) {
             newlen = 0;
         } else if (end >= (signed)len) {
-            end = len-1;
+            end = (int)len-1;                                                   WIN_PORT_FIX /* cast (int) */
             newlen = (start > end) ? 0 : (end-start)+1;
         }
     } else {
@@ -741,14 +747,14 @@ void sdsrange(sds s, int start, int end) {
 
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 /* Apply toupper() to every character of the sds string 's'. */
 void sdstoupper(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
@@ -772,7 +778,7 @@ int sdscmp(const sds s1, const sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return l1-l2;
+    if (cmp == 0) return (int)(l1-l2);                                          WIN_PORT_FIX /* cast (int) */
     return cmp;
 }
 
@@ -869,7 +875,7 @@ sds sdscatrepr(sds s, const char *p, size_t len) {
         case '\a': s = sdscatlen(s,"\\a",2); break;
         case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
-            if (isprint(*p))
+            if (isprint((unsigned char)*p))                                     WIN_PORT_FIX /* cast (unsigned char) */
                 s = sdscatprintf(s,"%c",*p);
             else
                 s = sdscatprintf(s,"\\x%02x",(unsigned char)*p);

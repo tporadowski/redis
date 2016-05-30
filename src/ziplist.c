@@ -112,6 +112,10 @@
 #include "endianconv.h"
 #include "redisassert.h"
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_FDAPI.h"
+#endif
+
 #define ZIP_END 255
 #define ZIP_BIGLEN 254
 
@@ -325,15 +329,15 @@ static unsigned int zipRawEntryLength(unsigned char *p) {
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
  * Stores the integer value in 'v' and its encoding in 'encoding'. */
-static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
-    long long value;
+static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, PORT_LONGLONG *v, unsigned char *encoding) {
+    PORT_LONGLONG value;
 
     if (entrylen >= 32 || entrylen == 0) return 0;
     if (string2ll((char*)entry,entrylen,&value)) {
         /* Great, the string can be encoded. Check what's the smallest
          * of our encoding types that can hold this value. */
         if (value >= 0 && value <= 12) {
-            *encoding = ZIP_INT_IMM_MIN+value;
+            *encoding = (unsigned char)(ZIP_INT_IMM_MIN+value);                 WIN_PORT_FIX /* cast (unsigned char) */
         } else if (value >= INT8_MIN && value <= INT8_MAX) {
             *encoding = ZIP_INT_8B;
         } else if (value >= INT16_MIN && value <= INT16_MAX) {
@@ -359,15 +363,15 @@ static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encodi
     if (encoding == ZIP_INT_8B) {
         ((int8_t*)p)[0] = (int8_t)value;
     } else if (encoding == ZIP_INT_16B) {
-        i16 = value;
+        i16 = (int16_t)value;                                                   WIN_PORT_FIX /* cast (int16_t) */
         memcpy(p,&i16,sizeof(i16));
         memrev16ifbe(p);
     } else if (encoding == ZIP_INT_24B) {
-        i32 = value<<8;
+        i32 = (int32_t)(value<<8);                                              WIN_PORT_FIX /* cast (int32_t) */
         memrev32ifbe(&i32);
         memcpy(p,((uint8_t*)&i32)+1,sizeof(i32)-sizeof(uint8_t));
     } else if (encoding == ZIP_INT_32B) {
-        i32 = value;
+        i32 = (int32_t)value;                                                   WIN_PORT_FIX /* cast (int32_t) */
         memcpy(p,&i32,sizeof(i32));
         memrev32ifbe(p);
     } else if (encoding == ZIP_INT_64B) {
@@ -470,7 +474,7 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
     while (p[0] != ZIP_END) {
         zipEntry(p, &cur);
         rawlen = cur.headersize + cur.len;
-        rawlensize = zipPrevEncodeLength(NULL,rawlen);
+        rawlensize = zipPrevEncodeLength(NULL,(unsigned int)rawlen);            WIN_PORT_FIX /* cast (unsigned int) */
 
         /* Abort if there is no next entry. */
         if (p[rawlen] == ZIP_END) break;
@@ -484,7 +488,7 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
              * the raw length of "cur". */
             offset = p-zl;
             extra = rawlensize-next.prevrawlensize;
-            zl = ziplistResize(zl,curlen+extra);
+            zl = ziplistResize(zl,(unsigned int)(curlen+extra));                WIN_PORT_FIX /* cast (unsigned int) */
             p = zl+offset;
 
             /* Current pointer and offset for next element. */
@@ -494,14 +498,14 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
             /* Update tail offset when next element is not the tail element. */
             if ((zl+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))) != np) {
                 ZIPLIST_TAIL_OFFSET(zl) =
-                    intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
+                    (uint32_t)intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra); WIN_PORT_FIX /* cast (uint32_t) */
             }
 
             /* Move the tail to the back. */
             memmove(np+rawlensize,
                 np+next.prevrawlensize,
                 curlen-noffset-next.prevrawlensize-1);
-            zipPrevEncodeLength(np,rawlen);
+            zipPrevEncodeLength(np,(unsigned int)rawlen);                       WIN_PORT_FIX /* cast (unsigned int) */
 
             /* Advance the cursor */
             p += rawlen;
@@ -510,9 +514,9 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
             if (next.prevrawlensize > rawlensize) {
                 /* This would result in shrinking, which we want to avoid.
                  * So, set "rawlen" in the available bytes. */
-                zipPrevEncodeLengthForceLarge(p+rawlen,rawlen);
+                zipPrevEncodeLengthForceLarge(p+rawlen,(unsigned int)rawlen);
             } else {
-                zipPrevEncodeLength(p+rawlen,rawlen);
+                zipPrevEncodeLength(p+rawlen,(unsigned int)rawlen);
             }
 
             /* Stop here, as the raw length of "next" has not changed. */
@@ -535,7 +539,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
         deleted++;
     }
 
-    totlen = p-first.p;
+    totlen = (unsigned int)(p-first.p);                                         WIN_PORT_FIX /* cast (unsigned int) */
     if (totlen > 0) {
         if (p[0] != ZIP_END) {
             /* Storing `prevrawlen` in this entry may increase or decrease the
@@ -565,7 +569,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
         } else {
             /* The entire tail was deleted. No need to move memory. */
             ZIPLIST_TAIL_OFFSET(zl) =
-                intrev32ifbe((first.p-zl)-first.prevrawlen);
+                (unsigned int)intrev32ifbe((first.p-zl)-first.prevrawlen);      WIN_PORT_FIX /* cast (unsigned int) */
         }
 
         /* Resize and update length */
@@ -589,7 +593,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     size_t offset;
     int nextdiff = 0;
     unsigned char encoding = 0;
-    long long value = 123456789; /* initialized to avoid warning. Using a value
+    PORT_LONGLONG value = 123456789; /* initialized to avoid warning. Using a value
                                     that is easy to see if for some reason
                                     we use it uninitialized. */
     zlentry tail;
@@ -615,17 +619,17 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     }
     /* We need space for both the length of the previous entry and
      * the length of the payload. */
-    reqlen += zipPrevEncodeLength(NULL,prevlen);
+    reqlen += zipPrevEncodeLength(NULL,(unsigned int)prevlen);                  WIN_PORT_FIX /* cast (unsigned int) */
     reqlen += zipEncodeLength(NULL,encoding,slen);
 
     /* When the insert position is not equal to the tail, we need to
      * make sure that the next entry can hold this entry's length in
      * its prevlen field. */
-    nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0;
+    nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,(unsigned int)reqlen) : 0; WIN_PORT_FIX /* cast (unsigned int) */
 
     /* Store offset because a realloc may change the address of zl. */
     offset = p-zl;
-    zl = ziplistResize(zl,curlen+reqlen+nextdiff);
+    zl = ziplistResize(zl,(unsigned int)(curlen+reqlen+nextdiff));              WIN_PORT_FIX /* cast (unsigned int) */
     p = zl+offset;
 
     /* Apply memory move when necessary and update tail offset. */
@@ -634,11 +638,11 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
         memmove(p+reqlen,p-nextdiff,curlen-offset-1+nextdiff);
 
         /* Encode this entry's raw length in the next entry. */
-        zipPrevEncodeLength(p+reqlen,reqlen);
+        zipPrevEncodeLength(p+reqlen,(unsigned int)reqlen);                     WIN_PORT_FIX /* cast (unsigned int) */
 
         /* Update offset for tail */
         ZIPLIST_TAIL_OFFSET(zl) =
-            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+reqlen);
+            (uint32_t)intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+reqlen); WIN_PORT_FIX /* cast (uint32_t) */
 
         /* When the tail contains more than one entry, we need to take
          * "nextdiff" in account as well. Otherwise, a change in the
@@ -650,7 +654,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
         }
     } else {
         /* This element will be the new tail. */
-        ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(p-zl);
+        ZIPLIST_TAIL_OFFSET(zl) = (uint32_t)intrev32ifbe(p-zl);                 WIN_PORT_FIX /* cast (uint32_) */
     }
 
     /* When nextdiff != 0, the raw length of the next entry has changed, so
@@ -662,7 +666,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     }
 
     /* Write the entry */
-    p += zipPrevEncodeLength(p,prevlen);
+    p += zipPrevEncodeLength(p,(unsigned int)prevlen);                          WIN_PORT_FIX /* cast (unsigned int) */
     p += zipEncodeLength(p,encoding,slen);
     if (ZIP_IS_STR(encoding)) {
         memcpy(p,s,slen);
@@ -866,7 +870,7 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
  * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
-unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, PORT_LONGLONG *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
     if (sstr) *sstr = NULL;
@@ -916,7 +920,7 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
     unsigned char sencoding;
-    long long zval, sval;
+    PORT_LONGLONG zval, sval;
     if (p[0] == ZIP_END) return 0;
 
     zipEntry(p, &entry);
@@ -943,7 +947,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
 unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
-    long long vll = 0;
+    PORT_LONGLONG vll = 0;
 
     while (p[0] != ZIP_END) {
         unsigned int prevlensize, encoding, lensize, len;
@@ -978,7 +982,7 @@ unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int v
                  * if vencoding != UCHAR_MAX because if there is no encoding
                  * possible for the field it can't be a valid integer. */
                 if (vencoding != UCHAR_MAX) {
-                    long long ll = zipLoadInteger(q, encoding);
+                    PORT_LONGLONG ll = zipLoadInteger(q, encoding);
                     if (ll == vll) {
                         return p;
                     }
@@ -1039,7 +1043,7 @@ void ziplistRepr(unsigned char *zl) {
         zipEntry(p, &entry);
         printf(
             "{"
-                "addr 0x%08lx, "
+                "addr 0x%08lx, "    /* TODO" verify 0x%08lx */
                 "index %2d, "
                 "offset %5ld, "
                 "rl: %5u, "
@@ -1048,9 +1052,9 @@ void ziplistRepr(unsigned char *zl) {
                 "pls: %2u, "
                 "payload %5u"
             "} ",
-            (long unsigned)p,
+            (PORT_ULONG)p,
             index,
-            (unsigned long) (p-zl),
+            (PORT_ULONG) (p-zl),
             entry.headersize+entry.len,
             entry.headersize,
             entry.prevrawlen,
@@ -1066,7 +1070,7 @@ void ziplistRepr(unsigned char *zl) {
                     fwrite(p,entry.len,1,stdout) == 0) perror("fwrite");
             }
         } else {
-            printf("%lld", (long long) zipLoadInteger(p,entry.encoding));
+            printf("%lld", (PORT_LONGLONG) zipLoadInteger(p,entry.encoding));
         }
         printf("\n");
         p += entry.len;
@@ -1110,17 +1114,21 @@ static unsigned char *createIntList() {
     return zl;
 }
 
-static long long usec(void) {
+PORT_LONGLONG usec(void) {
+#ifdef _WIN32
+    return GetHighResRelativeTime(1000000);
+#else
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
+#endif
 }
 
 static void stress(int pos, int num, int maxsize, int dnum) {
     int i,j,k;
     unsigned char *zl;
     char posstr[2][5] = { "HEAD", "TAIL" };
-    long long start;
+    PORT_LONGLONG start;
     for (i = 0; i < maxsize; i+=dnum) {
         zl = ziplistNew();
         for (j = 0; j < i; j++) {
@@ -1142,7 +1150,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
 static unsigned char *pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
-    long long vlong;
+    PORT_LONGLONG vlong;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
     if (ziplistGet(p,&vstr,&vlen,&vlong)) {
@@ -1213,7 +1221,7 @@ int ziplistTest(int argc, char **argv) {
     unsigned char *zl, *p;
     unsigned char *entry;
     unsigned int elen;
-    long long value;
+    PORT_LONGLONG value;
 
     /* If an argument is given, use it as the random seed. */
     if (argc == 2)
@@ -1686,7 +1694,7 @@ int ziplistTest(int argc, char **argv) {
         /* Hold temp vars from ziplist */
         unsigned char *sstr;
         unsigned int slen;
-        long long sval;
+        PORT_LONGLONG sval;
 
         for (i = 0; i < 20000; i++) {
             zl = ziplistNew();

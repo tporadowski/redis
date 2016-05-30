@@ -31,9 +31,15 @@
  * file is recompiled, as we access this information in all the other
  * files using this functions. */
 
-#include <string.h>
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#define REDIS_GIT_SHA1 "00000000"   /* TODO: Modify build to write them to release.h from the environment */
+#define REDIS_GIT_DIRTY "0"
+#define REDIS_BUILD_ID "0000"
+#endif
 
-#include "release.h"
+#include <string.h>
+POSIX_ONLY(#include "release.h")
 #include "version.h"
 #include "crc64.h"
 

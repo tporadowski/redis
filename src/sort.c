@@ -33,7 +33,7 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, PORT_ULONG rank);
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
@@ -88,16 +88,16 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Find out if we're dealing with a hash dereference. */
     if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
-        fieldlen = sdslen(spat)-(f-spat)-2;
+        fieldlen = (int)(sdslen(spat)-(f-spat)-2);                              WIN_PORT_FIX /* cast (int) */
         fieldobj = createStringObject(f+2,fieldlen);
     } else {
         fieldlen = 0;
     }
 
     /* Perform the '*' substitution. */
-    prefixlen = p-spat;
-    sublen = sdslen(ssub);
-    postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
+    prefixlen = (int)(p-spat);                                                  WIN_PORT_FIX /* cast (int) */
+    sublen = (int)sdslen(ssub);                                                 WIN_PORT_FIX /* cast (int) */
+    postfixlen = (int)(sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0)); WIN_PORT_FIX /* cast (int) */
     keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
     k = keyobj->ptr;
     memcpy(k,spat,prefixlen);
@@ -190,7 +190,7 @@ void sortCommand(client *c) {
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
-    long limit_start = 0, limit_count = -1, start, end;
+    PORT_LONG limit_start = 0, limit_count = -1, start, end;
     int j, dontsort = 0, vectorlen;
     int getop = 0; /* GET operation counter */
     int int_convertion_error = 0;
@@ -307,9 +307,9 @@ void sortCommand(client *c) {
 
     /* Objtain the length of the object to sort. */
     switch(sortval->type) {
-    case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
-    case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
-    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case OBJ_LIST: vectorlen = (int)listTypeLength(sortval); break;           WIN_PORT_FIX /* cast (int) */
+    case OBJ_SET: vectorlen =  (int)setTypeSize(sortval); break;              WIN_PORT_FIX /* cast (int) */
+    case OBJ_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break; WIN_PORT_FIX /* cast (int) */
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -336,7 +336,7 @@ void sortCommand(client *c) {
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
-        vectorlen = end-start+1;
+        vectorlen = (int)(end-start+1);                                         WIN_PORT_FIX /* cast (int) */
     }
 
     /* Load the sorting vector with all the objects to sort */
@@ -354,7 +354,7 @@ void sortCommand(client *c) {
             listTypeIterator *li;
             listTypeEntry entry;
             li = listTypeInitIterator(sortval,
-                    desc ? (long)(listTypeLength(sortval) - start - 1) : start,
+                    desc ? (PORT_LONG)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
             while(j < vectorlen && listTypeNext(li,&entry)) {
@@ -404,7 +404,7 @@ void sortCommand(client *c) {
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
-            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
+            PORT_LONG zsetlen = (PORT_LONG) dictSize(((zset*)sortval->ptr)->dict); WIN_PORT_FIX /* cast (PORT_LONG) */
 
             ln = zsl->tail;
             if (start > 0)
@@ -473,7 +473,7 @@ void sortCommand(client *c) {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
                      * far. We can just cast it */
-                    vector[j].u.score = (long)byval->ptr;
+                    vector[j].u.score = (PORT_LONG)byval->ptr;
                 } else {
                     serverAssertWithInfo(c,sortval,1 != 1);
                 }
@@ -500,13 +500,13 @@ void sortCommand(client *c) {
 
     /* Send command output to the output buffer, performing the specified
      * GET/DEL/INCR/DECR operations if any. */
-    outputlen = getop ? getop*(end-start+1) : end-start+1;
+    outputlen = getop ? (unsigned int)(getop*(end-start+1)) : (unsigned int)(end-start+1); WIN_PORT_FIX /* cast (unsigned int), cast (unsigned int) */
     if (int_convertion_error) {
         addReplyError(c,"One or more scores can't be converted into double");
     } else if (storekey == NULL) {
         /* STORE option not specified, sent the sorting result to client */
         addReplyMultiBulkLen(c,outputlen);
-        for (j = start; j <= end; j++) {
+        for (j = (int)start; j <= end; j++) {                                   WIN_PORT_FIX /* cast (int) */
             listNode *ln;
             listIter li;
 
@@ -534,7 +534,7 @@ void sortCommand(client *c) {
         robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
-        for (j = start; j <= end; j++) {
+        for (j = (int)start; j <= end; j++) {                                   WIN_PORT_FIX /* cast (int) */
             listNode *ln;
             listIter li;
 

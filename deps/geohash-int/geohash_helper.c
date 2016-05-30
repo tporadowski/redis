@@ -36,6 +36,12 @@
 
 #include "geohash_helper.h"
 
+#ifdef _WIN32
+#define inline __inline
+#define _USE_MATH_DEFINES // for C
+#include <math.h>
+#endif
+
 #define D_R (M_PI / 180.0)
 #define R_MAJOR 6378137.0
 #define R_MINOR 6356752.3142

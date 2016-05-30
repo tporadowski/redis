@@ -44,11 +44,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "win32_interop/win32_types.h"
+#include "Win32_Interop/Win32_FDAPI.h"
+#endif
 
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
+POSIX_ONLY(#include <unistd.h>)
 #include "rio.h"
 #include "util.h"
 #include "crc64.h"
@@ -60,7 +65,7 @@
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;                                             WIN_PORT_FIX /* cast (off_t) */
     return 1;
 }
 
@@ -69,7 +74,7 @@ static size_t rioBufferRead(rio *r, void *buf, size_t len) {
     if (sdslen(r->io.buffer.ptr)-r->io.buffer.pos < len)
         return 0; /* not enough buffer to return len bytes. */
     memcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;                                             WIN_PORT_FIX /* cast (off_t) */
     return 1;
 }
 
@@ -110,7 +115,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
 
     retval = fwrite(buf,len,1,r->io.file.fp);
-    r->io.file.buffered += len;
+    r->io.file.buffered += (off_t)len;                                          WIN_PORT_FIX /* cast (off_t) */
 
     if (r->io.file.autosync &&
         r->io.file.buffered >= r->io.file.autosync)
@@ -129,7 +134,7 @@ static size_t rioFileRead(rio *r, void *buf, size_t len) {
 
 /* Returns read/write position in file. */
 static off_t rioFileTell(rio *r) {
-    return ftello(r->io.file.fp);
+    return (off_t)ftello(r->io.file.fp);                                        WIN_PORT_FIX /* cast (int) */
 }
 
 /* Flushes any buffer to target device if applicable. Returns 1 on success
@@ -160,7 +165,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 /* ------------------- File descriptors set implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure.
- * The function returns success as long as we are able to correctly write
+ * The function returns success as PORT_LONG as we are able to correctly write
  * to at least one file descriptor.
  *
  * When buf is NULL and len is 0, the function performs a flush operation
@@ -248,7 +253,7 @@ static off_t rioFdsetTell(rio *r) {
 static int rioFdsetFlush(rio *r) {
     /* Our flush is implemented by the write method, that recognizes a
      * buffer set to NULL with a count of zero as a flush request. */
-    return rioFdsetWrite(r,NULL,0);
+    return (int)rioFdsetWrite(r,NULL,0);                                        WIN_PORT_FIX /* cast (int) */
 }
 
 static const rio rioFdsetIO = {
@@ -326,14 +331,14 @@ size_t rioWriteBulkCount(rio *r, char prefix, int count) {
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     size_t nwritten;
 
-    if ((nwritten = rioWriteBulkCount(r,'$',len)) == 0) return 0;
+    if ((nwritten = rioWriteBulkCount(r,'$',(int)len)) == 0) return 0;          WIN_PORT_FIX /* cast (int) */
     if (len > 0 && rioWrite(r,buf,len) == 0) return 0;
     if (rioWrite(r,"\r\n",2) == 0) return 0;
     return nwritten+len+2;
 }
 
-/* Write a long long value in format: "$<count>\r\n<payload>\r\n". */
-size_t rioWriteBulkLongLong(rio *r, long long l) {
+/* Write a PORT_LONGLONG value in format: "$<count>\r\n<payload>\r\n". */
+size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l) {
     char lbuf[32];
     unsigned int llen;
 

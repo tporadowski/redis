@@ -28,18 +28,56 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Error.h"
+#include "Win32_Interop/win32fixes.h"
+#endif
 
 #include "server.h"
 #include "rdb.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
+POSIX_ONLY(#include <unistd.h>)
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/mman.h>
+POSIX_ONLY(#include <sys/mman.h>)
 #include "lzf.h"
 #include "crc64.h"
 
+#ifdef _WIN32
+/* File maping used in redis-check-dump */
+/* mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0); */
+void *win_mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset) {
+    HANDLE h;
+    void *data;
+    (void) offset;
+    if ((flags != MAP_SHARED) || (prot != PROT_READ)) {
+        /*  Not supported  in this port */
+        return MAP_FAILED;
+    };
+    h = CreateFileMapping((HANDLE) FDAPI_get_osfhandle(fd), NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!h) {
+        return MAP_FAILED;
+    }
+
+    data = MapViewOfFileEx(h, FILE_MAP_READ, 0, 0, length, start);
+    CloseHandle(h);
+
+    if (!data) {
+        return MAP_FAILED;
+    }
+
+    return data;
+}
+
+/* Unmap file mapping */
+int win_munmap(void *start, size_t length) {
+    (void) length;
+    return !UnmapViewOfFile(start);
+}
+#endif
 #define ERROR(...) { \
     serverLog(LL_WARNING, __VA_ARGS__); \
     exit(1); \
@@ -94,7 +132,7 @@ static int rdbCheckType(unsigned char t) {
 }
 
 /* when number of bytes to read is negative, do a peek */
-static int readBytes(void *target, long num) {
+static int readBytes(void *target, PORT_LONG num) {
     char peek = (num < 0) ? 1 : 0;
     num = (num < 0) ? -num : num;
 
@@ -121,7 +159,7 @@ int processHeader(void) {
         ERROR("Wrong signature in header");
     }
 
-    dump_version = (int)strtol(buf + 5, NULL, 10);
+    dump_version = (int)PORT_STRTOL(buf + 5, NULL, 10);
     if (dump_version < 1 || dump_version > 6) {
         ERROR("Unknown RDB format version: %d", dump_version);
     }
@@ -129,7 +167,7 @@ int processHeader(void) {
 }
 
 static int loadType(entry *e) {
-    uint32_t offset = CURR_OFFSET;
+    uint32_t offset = (int32_t) CURR_OFFSET;                                    WIN_PORT_FIX /* cast (int32_t) */
 
     /* this byte needs to qualify as type */
     unsigned char t;
@@ -157,7 +195,7 @@ static int peekType() {
 
 /* discard time, just consume the bytes */
 static int processTime(int type) {
-    uint32_t offset = CURR_OFFSET;
+    uint32_t offset = (int32_t) CURR_OFFSET;                                    WIN_PORT_FIX /* cast (int32_t) */
     unsigned char t[8];
     int timelen = (type == RDB_OPCODE_EXPIRETIME_MS) ? 8 : 4;
 
@@ -198,9 +236,9 @@ static uint32_t loadLength(int *isencoded) {
 }
 
 static char *loadIntegerObject(int enctype) {
-    uint32_t offset = CURR_OFFSET;
+    uint32_t offset = (int32_t) CURR_OFFSET;                                    WIN_PORT_FIX /* cast (int32_t) */
     unsigned char enc[4];
-    long long val;
+    PORT_LONGLONG val;
 
     if (enctype == RDB_ENC_INT8) {
         uint8_t v;
@@ -254,7 +292,7 @@ static char* loadLzfStringObject() {
 
 /* returns NULL when not processable, char* when valid */
 static char* loadStringObject() {
-    uint32_t offset = CURR_OFFSET;
+    uint32_t offset = (int32_t) CURR_OFFSET;                                    WIN_PORT_FIX /* cast (int32_t) */
     int isencoded;
     uint32_t len;
 
@@ -287,7 +325,7 @@ static char* loadStringObject() {
 }
 
 static int processStringObject(char** store) {
-    unsigned long offset = CURR_OFFSET;
+    PORT_ULONG offset = CURR_OFFSET;
     char *key = loadStringObject();
     if (key == NULL) {
         SHIFT_ERROR(offset, "Error reading string object");
@@ -327,7 +365,7 @@ static double* loadDoubleValue() {
 }
 
 static int processDoubleValue(double** store) {
-    unsigned long offset = CURR_OFFSET;
+    PORT_ULONG offset = CURR_OFFSET;
     double *val = loadDoubleValue();
     if (val == NULL) {
         SHIFT_ERROR(offset, "Error reading double value");
@@ -344,7 +382,7 @@ static int processDoubleValue(double** store) {
 }
 
 static int loadPair(entry *e) {
-    uint32_t offset = CURR_OFFSET;
+    uint32_t offset = (int32_t) CURR_OFFSET;                                    WIN_PORT_FIX /* cast (int32_t) */
     uint32_t i;
 
     /* read key first */
@@ -382,7 +420,7 @@ static int loadPair(entry *e) {
     case RDB_TYPE_LIST:
     case RDB_TYPE_SET:
         for (i = 0; i < length; i++) {
-            offset = CURR_OFFSET;
+            offset = (int32_t) CURR_OFFSET;                                     WIN_PORT_FIX /* cast (int32_t) */
             if (!processStringObject(NULL)) {
                 SHIFT_ERROR(offset, "Error reading element at index %d (length: %d)", i, length);
                 return 0;
@@ -391,12 +429,12 @@ static int loadPair(entry *e) {
     break;
     case RDB_TYPE_ZSET:
         for (i = 0; i < length; i++) {
-            offset = CURR_OFFSET;
+            offset = (int32_t) CURR_OFFSET;                                     WIN_PORT_FIX /* cast (int32_t) */
             if (!processStringObject(NULL)) {
                 SHIFT_ERROR(offset, "Error reading element key at index %d (length: %d)", i, length);
                 return 0;
             }
-            offset = CURR_OFFSET;
+            offset = (int32_t) CURR_OFFSET;                                     WIN_PORT_FIX /* cast (int32_t) */
             if (!processDoubleValue(NULL)) {
                 SHIFT_ERROR(offset, "Error reading element value at index %d (length: %d)", i, length);
                 return 0;
@@ -405,12 +443,12 @@ static int loadPair(entry *e) {
     break;
     case RDB_TYPE_HASH:
         for (i = 0; i < length; i++) {
-            offset = CURR_OFFSET;
+            offset = (int32_t) CURR_OFFSET;                                     WIN_PORT_FIX /* cast (int32_t) */
             if (!processStringObject(NULL)) {
                 SHIFT_ERROR(offset, "Error reading element key at index %d (length: %d)", i, length);
                 return 0;
             }
-            offset = CURR_OFFSET;
+            offset = (int32_t) CURR_OFFSET;                                     WIN_PORT_FIX /* cast (int32_t) */
             if (!processStringObject(NULL)) {
                 SHIFT_ERROR(offset, "Error reading element value at index %d (length: %d)", i, length);
                 return 0;
@@ -433,12 +471,12 @@ static entry loadEntry() {
     /* reset error container */
     errors.level = 0;
 
-    offset[0] = CURR_OFFSET;
+    offset[0] = (int32_t) CURR_OFFSET;                                          WIN_PORT_FIX /* cast (int32_t) */
     if (!loadType(&e)) {
         return e;
     }
 
-    offset[1] = CURR_OFFSET;
+    offset[1] = (int32_t) CURR_OFFSET;                                          WIN_PORT_FIX /* cast (int32_t) */
     if (e.type == RDB_OPCODE_SELECTDB) {
         if ((length = loadLength(NULL)) == RDB_LENERR) {
             SHIFT_ERROR(offset[1], "Error reading database number");
@@ -463,7 +501,7 @@ static entry loadEntry() {
             if (!loadType(&e)) return e;
         }
 
-        offset[1] = CURR_OFFSET;
+        offset[1] = (int32_t) CURR_OFFSET;                                      WIN_PORT_FIX /* cast (int32_t) */
         if (!loadPair(&e)) {
             SHIFT_ERROR(offset[1], "Error for type %s", types[e.type]);
             return e;
@@ -472,7 +510,7 @@ static entry loadEntry() {
 
     /* all entries are followed by a valid type:
      * e.g. a new entry, SELECTDB, EXPIRE, EOF */
-    offset[2] = CURR_OFFSET;
+    offset[2] = (int32_t) CURR_OFFSET;                                          WIN_PORT_FIX /* cast (int32_t) */
     if (peekType() == -1) {
         SHIFT_ERROR(offset[2], "Followed by invalid type");
         SHIFT_ERROR(offset[0], "Error for type %s", types[e.type]);
@@ -497,14 +535,14 @@ static void printCentered(int indent, int width, char* body) {
 static void printValid(uint64_t ops, uint64_t bytes) {
     char body[80];
     sprintf(body, "Processed %llu valid opcodes (in %llu bytes)",
-        (unsigned long long) ops, (unsigned long long) bytes);
+        (PORT_ULONGLONG) ops, (PORT_ULONGLONG) bytes);
     printCentered(4, 80, body);
 }
 
 static void printSkipped(uint64_t bytes, uint64_t offset) {
     char body[80];
     sprintf(body, "Skipped %llu bytes (resuming at 0x%08llx)",
-        (unsigned long long) bytes, (unsigned long long) offset);
+        (PORT_ULONGLONG) bytes, (PORT_ULONGLONG) offset);
     printCentered(4, 80, body);
 }
 
@@ -539,7 +577,7 @@ static void printErrorStack(entry *e) {
     /* display error stack */
     for (i = 0; i < errors.level; i++) {
         serverLog(LL_WARNING, "0x%08lx - %s",
-            (unsigned long) errors.offset[i], errors.error[i]);
+            (PORT_ULONG) errors.offset[i], errors.error[i]);
     }
 }
 
@@ -643,17 +681,26 @@ void process(void) {
     /* print summary on errors */
     if (num_errors) {
         serverLog(LL_WARNING, "Total unprocessable opcodes: %llu",
-            (unsigned long long) num_errors);
+            (PORT_ULONGLONG) num_errors);
     }
 }
 
 int redis_check_rdb(char *rdbfilename) {
     int fd;
     off_t size;
-    struct stat stat;
+    struct IF_WIN32(_stat64, stat) stat;                                        // TODO: verify for 32-bit
     void *data;
 
+#ifdef _WIN32
+    _fmode = _O_BINARY;
+    setmode(_fileno(stdin), _O_BINARY);
+    setmode(_fileno(stdout), _O_BINARY);
+    setmode(_fileno(stderr), _O_BINARY);
+    fd = open(rdbfilename, O_RDONLY | _O_BINARY, 0);
+#else
     fd = open(rdbfilename, O_RDONLY);
+#endif
+    
     if (fd < 1) {
         ERROR("Cannot open file: %s", rdbfilename);
     }
@@ -667,7 +714,7 @@ int redis_check_rdb(char *rdbfilename) {
         ERROR("Cannot check dump files >2GB on a 32-bit platform");
     }
 
-    data = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+    data = IF_WIN32(win_mmap,mmap)(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED) {
         ERROR("Cannot mmap: %s", rdbfilename);
     }
@@ -692,7 +739,7 @@ int redis_check_rdb(char *rdbfilename) {
 
     process();
 
-    munmap(data, size);
+    IF_WIN32(win_munmap,munmap)(data, size);
     close(fd);
     return 0;
 }

@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
+#endif
 #include "server.h"
 #include "sha1.h"
 #include "rand.h"
@@ -139,7 +142,7 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long value;
+    PORT_LONGLONG value;
 
     string2ll(reply+1,p-reply-1,&value);
     lua_pushnumber(lua,(lua_Number)value);
@@ -148,14 +151,14 @@ char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {
 
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long bulklen;
+    PORT_LONGLONG bulklen;
 
     string2ll(reply+1,p-reply-1,&bulklen);
     if (bulklen == -1) {
         lua_pushboolean(lua,0);
         return p+2;
     } else {
-        lua_pushlstring(lua,p+2,bulklen);
+        lua_pushlstring(lua,p+2,(size_t)bulklen);                               WIN_PORT_FIX /* cast (size_t) */
         return p+2+bulklen+2;
     }
 }
@@ -182,7 +185,7 @@ char *redisProtocolToLuaType_Error(lua_State *lua, char *reply) {
 
 char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long mbulklen;
+    PORT_LONGLONG mbulklen;
     int j = 0;
 
     string2ll(reply+1,p-reply-1,&mbulklen);
@@ -285,7 +288,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.nullbulk);
         break;
     case LUA_TNUMBER:
-        addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
+        addReplyLongLong(c,(PORT_LONGLONG)lua_tonumber(lua,-1));
         break;
     case LUA_TTABLE:
         /* We need to check if it is an array, an error, or a status reply.
@@ -779,7 +782,7 @@ int luaLogCommand(lua_State *lua) {
         lua_pushstring(lua, "First argument must be a number (log level).");
         return lua_error(lua);
     }
-    level = lua_tonumber(lua,-argc);
+    level = (int)lua_tonumber(lua,-argc);                                       WIN_PORT_FIX /* cast (int) */
     if (level < LL_DEBUG || level > LL_WARNING) {
         lua_pushstring(lua, "Invalid debug level.");
         return lua_error(lua);
@@ -1132,7 +1135,7 @@ int redis_math_randomseed (lua_State *L) {
  * ------------------------------------------------------------------------- */
 
 /* Define a lua function with the specified function name and body.
- * The function name musts be a 42 characters long string, since all the
+ * The function name musts be a 42 characters PORT_LONG string, since all the
  * functions we defined in the Lua context are in the form:
  *
  *   f_<hex sha1 sum>
@@ -1178,7 +1181,7 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed;
+    PORT_LONGLONG elapsed;
     UNUSED(ar);
     UNUSED(lua);
 
@@ -1204,7 +1207,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
-    long long numkeys;
+    PORT_LONGLONG numkeys;
     int delhook = 0, err;
 
     /* When we replicate whole scripts, we want the same PRNG sequence at
@@ -1285,8 +1288,8 @@ void evalGenericCommand(client *c, int evalsha) {
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
-    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
+    luaSetGlobalArray(lua,"KEYS",c->argv+3,(int)numkeys);                       WIN_PORT_FIX /* cast (int) */
+    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,(int)(c->argc-3-numkeys));   WIN_PORT_FIX /* cast (int) */
 
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);
@@ -1335,7 +1338,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * for every command uses too much CPU. */
     #define LUA_GC_CYCLE_PERIOD 50
     {
-        static long gc_count = 0;
+        static PORT_LONG gc_count = 0;
 
         gc_count++;
         if (gc_count == LUA_GC_CYCLE_PERIOD) {
@@ -1589,6 +1592,7 @@ void ldbSendLogs(void) {
  * The caller should call ldbEndSession() only if ldbStartSession()
  * returned 1. */
 int ldbStartSession(client *c) {
+#ifndef _WIN32
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
         pid_t cp = fork();
@@ -1611,7 +1615,7 @@ int ldbStartSession(client *c) {
             closeListeningSockets(0);
         } else {
             /* Parent */
-            listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
+            listAddNodeTail(ldb.children,(void*)(PORT_ULONG)cp);
             freeClientAsync(c); /* Close the client in the parent side. */
             return 0;
         }
@@ -1638,6 +1642,8 @@ int ldbStartSession(client *c) {
     ldb.src = sdssplitlen(srcstring,sdslen(srcstring),"\n",1,&ldb.lines);
     sdsfree(srcstring);
     return 1;
+#endif 
+    return 0;
 }
 
 /* End a debugging session after the EVAL call with debugging enabled
@@ -1675,7 +1681,7 @@ void ldbEndSession(client *c) {
  * forked debugging sessions, it is removed from the children list.
  * If the pid was found non-zero is returned. */
 int ldbRemoveChild(pid_t pid) {
-    listNode *ln = listSearchKey(ldb.children,(void*)(unsigned long)pid);
+    listNode *ln = listSearchKey(ldb.children,(void*)(PORT_ULONG)pid);
     if (ln) {
         listDelNode(ldb.children,ln);
         return 1;
@@ -1686,22 +1692,24 @@ int ldbRemoveChild(pid_t pid) {
 /* Return the number of children we still did not received termination
  * acknowledge via wait() in the parent process. */
 int ldbPendingChildren(void) {
-    return listLength(ldb.children);
+    return (int)listLength(ldb.children);                                       WIN_PORT_FIX /* cast (int) */
 }
 
 /* Kill all the forked sessions. */
 void ldbKillForkedSessions(void) {
+#ifndef _WIN32
     listIter li;
     listNode *ln;
 
     listRewind(ldb.children,&li);
     while((ln = listNext(&li))) {
-        pid_t pid = (unsigned long) ln->value;
-        serverLog(LL_WARNING,"Killing debugging session %ld",(long)pid);
+        pid_t pid = (PORT_ULONG) ln->value;
+        serverLog(LL_WARNING,"Killing debugging session %ld",(PORT_LONG)pid);
         kill(pid,SIGKILL);
     }
     listRelease(ldb.children);
     ldb.children = listCreate();
+#endif
 }
 
 /* Wrapper for EVAL / EVALSHA that enables debugging, and makes sure
@@ -1980,7 +1988,7 @@ char *ldbRedisProtocolToHuman_Int(sds *o, char *reply) {
 
 char *ldbRedisProtocolToHuman_Bulk(sds *o, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long bulklen;
+    PORT_LONGLONG bulklen;
 
     string2ll(reply+1,p-reply-1,&bulklen);
     if (bulklen == -1) {
@@ -2001,7 +2009,7 @@ char *ldbRedisProtocolToHuman_Status(sds *o, char *reply) {
 
 char *ldbRedisProtocolToHuman_MultiBulk(sds *o, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long mbulklen;
+    PORT_LONGLONG mbulklen;
     int j = 0;
 
     string2ll(reply+1,p-reply-1,&mbulklen);
@@ -2103,7 +2111,7 @@ void ldbBreak(sds *argv, int argc) {
         int j;
         for (j = 1; j < argc; j++) {
             char *arg = argv[j];
-            long line;
+            PORT_LONG line;
             if (!string2l(arg,sdslen(arg),&line)) {
                 ldbLog(sdscatfmt(sdsempty(),"Invalid argument:'%s'",arg));
             } else {
@@ -2113,13 +2121,13 @@ void ldbBreak(sds *argv, int argc) {
                 } else if (line > 0) {
                     if (ldb.bpcount == LDB_BREAKPOINTS_MAX) {
                         ldbLog(sdsnew("Too many breakpoints set."));
-                    } else if (ldbAddBreakpoint(line)) {
-                        ldbList(line,1);
+                    } else if (ldbAddBreakpoint((int)line)) {                   WIN_PORT_FIX /* cast (int) */
+                        ldbList((int)line,1);                                   WIN_PORT_FIX /* cast (int) */
                     } else {
                         ldbLog(sdsnew("Wrong line number."));
                     }
                 } else if (line < 0) {
-                    if (ldbDelBreakpoint(-line))
+                    if (ldbDelBreakpoint((int)(-line)))                         WIN_PORT_FIX /* cast (int) */
                         ldbLog(sdsnew("Breakpoint removed."));
                     else
                         ldbLog(sdsnew("No breakpoint in the specified line."));
@@ -2230,7 +2238,7 @@ int ldbRepl(lua_State *lua) {
     while(1) {
         while((argv = ldbReplParseCommand(&argc)) == NULL) {
             char buf[1024];
-            int nread = read(ldb.fd,buf,sizeof(buf));
+            int nread = (int)read(ldb.fd,buf,sizeof(buf));                      WIN_PORT_FIX /* cast (int) */
             if (nread <= 0) {
                 /* Make sure the script runs without user input since the
                  * client is no longer connected. */
@@ -2384,4 +2392,3 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         server.lua_time_start = mstime();
     }
 }
-
