@@ -84,7 +84,6 @@
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFiles64Folder">
                 <Directory Id="INSTALLFOLDER" Name="Redis">
-                    <Directory Id="LogsFolder" Name="Logs" />
                 </Directory>
             </Directory>
         </Directory>

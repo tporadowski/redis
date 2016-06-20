@@ -62,7 +62,7 @@
       <!--
         Sets up the Windows event log event source. Note that for this to work the following
         must be set in the redis config file:
-          * logfile "Logs/redis_log.txt" (or any other non-empty value; without a logfile, events are not logged to eventvwr for some reason)
+          * logfile "server_log.txt" (or any other non-empty value; without a logfile, events are not logged to eventvwr for some reason)
           * syslog-enabled yes
           * syslog-ident redis
         You can verify that the event source was created by inspecting the Windows registry at
@@ -76,16 +76,6 @@
                           EventMessageFile="[#file_EventLogDLL]"
                           Name="redis"
                           Log="Application" />
-      </Component>
-
-      <!--
-        This ensures that the LogsFolder is created even though it starts out empty.
-        It also ensures that it is removed (along with the log file(s) within) during uninstall.
-      -->
-      <Component Id="cmp_LogsFolder" Guid="{C88495B4-469A-4DE7-AA84-653D0FA6628F}" KeyPath="yes">
-        <CreateFolder Directory="LogsFolder" />
-        <RemoveFolder Id="removeLogsFolder" Directory="LogsFolder" On="uninstall" />
-        <RemoveFile Id="removeLogFile" Directory="LogsFolder" Name="*" On="uninstall" />
       </Component>
     </ComponentGroup>
   </Fragment>
