@@ -167,7 +167,7 @@ POSIX_ONLY(#define LOG_MAX_LEN    1024) /* Default maximum length of syslog mess
 #define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
-#define LONG_STR_SIZE      21          /* Bytes needed for PORT_LONG -> str */
+#define LONG_STR_SIZE      21          /* Bytes needed for PORT_LONG -> str + '\0' */
 #define AOF_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
 
 /* When configuring the server eventloop, we setup it so that the total number
@@ -477,7 +477,7 @@ typedef struct redisObject {
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the
  * LRU clock (as it should be in production servers) we return the
- * precomputed value, otherwise we need to resort to a function call. */
+ * precomputed value, otherwise we need to resort to a system call. */
 #define LRU_CLOCK() ((1000/server.hz <= LRU_CLOCK_RESOLUTION) ? server.lruclock : getLRUClock())
 
 /* Macro used to initialize a Redis object allocated on the stack.
@@ -1332,7 +1332,6 @@ void serverLogFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
-void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
 void adjustOpenFilesLimit(void);
@@ -1415,6 +1414,9 @@ robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
+robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
+#define LOOKUP_NONE 0
+#define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
@@ -1557,6 +1559,7 @@ void pexpireCommand(client *c);
 void pexpireatCommand(client *c);
 void getsetCommand(client *c);
 void ttlCommand(client *c);
+void touchCommand(client *c);
 void pttlCommand(client *c);
 void persistCommand(client *c);
 void slaveofCommand(client *c);

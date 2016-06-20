@@ -171,7 +171,7 @@ struct redisCommand redisCommandTable[] = {
     {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0},
     {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0},
+    {"spop",spopCommand,-2,"wRF",0,NULL,1,1,1,0,0},
     {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0},
     {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
@@ -256,6 +256,7 @@ struct redisCommand redisCommandTable[] = {
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
@@ -673,7 +674,7 @@ int htNeedsResize(dict *dict) {
 
     size = dictSlots(dict);
     used = dictSize(dict);
-    return (size && used && size > DICT_HT_INITIAL_SIZE &&
+    return (size > DICT_HT_INITIAL_SIZE &&
             (used*100/size < HASHTABLE_MIN_FILL));
 }
 
