@@ -496,7 +496,7 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
  *
  * If the source object is NULL the function is guaranteed to return NULL
  * and set 'len' to 0. */
-unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
+unsigned char *getObjectReadOnlyString(robj *o, PORT_LONG *len, char *llbuf) {
     serverAssert(o->type == OBJ_STRING);
     unsigned char *p = NULL;
 
@@ -504,7 +504,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
      * array if our string was integer encoded. */
     if (o && o->encoding == OBJ_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        if (len) *len = ll2string(llbuf,LONG_STR_SIZE,(long)o->ptr);
+        if (len) *len = ll2string(llbuf,LONG_STR_SIZE,(PORT_LONG)o->ptr);
     } else if (o) {
         p = (unsigned char*) o->ptr;
         if (len) *len = sdslen(o->ptr);
@@ -907,7 +907,7 @@ void bitfieldCommand(client *c) {
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    long higest_write_offset = 0;
+    PORT_LONG higest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -1071,7 +1071,7 @@ void bitfieldCommand(client *c) {
         } else {
             /* GET */
             unsigned char buf[9];
-            long strlen = 0;
+            PORT_LONG strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
 
