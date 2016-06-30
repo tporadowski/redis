@@ -316,8 +316,10 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
     FDAPI_SaveSocketAddrStorage(fd, &socketStorage);
 
     if (WSIOCP_SocketConnect(fd, &socketStorage) == SOCKET_ERROR) {
-        if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
-        if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
+        if ((errno == WSAEWOULDBLOCK) || (errno == WSA_IO_PENDING)) {
+            errno = EINPROGRESS;
+        }
+        if ((errno == EINPROGRESS) && (flags & ANET_CONNECT_NONBLOCK)) {
             return fd;
         }
 
