@@ -498,9 +498,9 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     PORT_LONGLONG when;
     robj *argv[3];
 
-    /* Make sure we can use PORT_STRTOL */
+    /* Make sure we can use strtol */
     seconds = getDecodedObject(seconds);
-    when = PORT_STRTOL(seconds->ptr,NULL,10);
+    when = strtol(seconds->ptr,NULL,10);
     /* Convert argument into milliseconds for EXPIRE, SETEX, EXPIREAT */
     if (cmd->proc == expireCommand || cmd->proc == setexCommand ||
         cmd->proc == expireatCommand)
@@ -688,7 +688,7 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             if (buf[0] != '$') goto fmterr;
-            len = PORT_STRTOL(buf+1,NULL,10);
+            len = strtol(buf+1,NULL,10);
             argsds = sdsnewlen(NULL,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);

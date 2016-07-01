@@ -218,7 +218,7 @@ PORT_LONGLONG memtoll(const char *p, int *err) {
         return 0;
     }
 
-    /* Copy the digits into a buffer, we'll use PORT_STRTOL() to convert
+    /* Copy the digits into a buffer, we'll use strtol() to convert
      * the digit (without the unit) into a number. */
     digits = (unsigned int)(u-p);                                                WIN_PORT_FIX /* cast (unsigned int) */
     if (digits >= sizeof(buf)) {
@@ -230,7 +230,7 @@ PORT_LONGLONG memtoll(const char *p, int *err) {
 
     char *endptr;
     errno = 0;
-    val = PORT_STRTOL(buf,&endptr,10);
+    val = strtol(buf,&endptr,10);
     if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
         if (err) *err = 1;
         return 0;

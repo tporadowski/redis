@@ -2927,7 +2927,7 @@ sds genRedisInfoString(char *section) {
             "config_file:%s\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
-            PORT_STRTOL(redisGitDirty(),NULL,10) > 0,
+            strtol(redisGitDirty(),NULL,10) > 0,
             (PORT_ULONGLONG) redisBuildId(),
             mode,
 #ifdef _WIN32
@@ -3755,7 +3755,7 @@ void redisAsciiArt(void) {
             "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
             REDIS_VERSION,
             redisGitSHA1(),
-            PORT_STRTOL(redisGitDirty(),NULL,10) > 0,
+            strtol(redisGitDirty(),NULL,10) > 0,
             (sizeof(PORT_LONG) == 8) ? "64" : "32",
             mode, server.port,
             (PORT_LONG) getpid()
@@ -3764,7 +3764,7 @@ void redisAsciiArt(void) {
         snprintf(buf,1024*16,ascii_logo,
             REDIS_VERSION,
             redisGitSHA1(),
-            PORT_STRTOL(redisGitDirty(),NULL,10) > 0,
+            strtol(redisGitDirty(),NULL,10) > 0,
             (sizeof(PORT_LONG) == 8) ? "64" : "32",
             mode, server.port,
             (PORT_LONG) getpid()

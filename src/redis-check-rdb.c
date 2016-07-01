@@ -159,7 +159,7 @@ int processHeader(void) {
         ERROR("Wrong signature in header");
     }
 
-    dump_version = (int)PORT_STRTOL(buf + 5, NULL, 10);
+    dump_version = (int)strtol(buf + 5, NULL, 10);
     if (dump_version < 1 || dump_version > 6) {
         ERROR("Unknown RDB format version: %d", dump_version);
     }

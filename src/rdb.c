@@ -235,7 +235,7 @@ int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     char *endptr, buf[32];
 
     /* Check if it's possible to encode this value as a number */
-    value = PORT_STRTOL(s, &endptr, 10);
+    value = strtol(s, &endptr, 10);
     if (endptr[0] != '\0') return 0;
     ll2string(buf,32,value);
 

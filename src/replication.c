@@ -1119,7 +1119,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master");
         } else {
             usemark = 0;
-            server.repl_transfer_size = PORT_STRTOL(buf+1,NULL,10);
+            server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master",
                 (PORT_LONGLONG) server.repl_transfer_size);
@@ -1443,7 +1443,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         } else {
             memcpy(server.repl_master_runid, runid, offset-runid-1);
             server.repl_master_runid[CONFIG_RUN_ID_SIZE] = '\0';
-            server.repl_master_initial_offset = PORT_STRTOL(offset,NULL,10);
+            server.repl_master_initial_offset = strtol(offset,NULL,10);
             serverLog(LL_NOTICE,"Full resync from master: %s:%lld",
                 server.repl_master_runid,
                 server.repl_master_initial_offset);

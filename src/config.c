@@ -231,7 +231,7 @@ void loadServerConfigFromString(char *config) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
-            server.unixsocketperm = (mode_t)PORT_STRTOL(argv[1], NULL, 8);
+            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
             if (errno || server.unixsocketperm > 0777) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
@@ -549,7 +549,7 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
-            server.cluster_node_timeout = PORT_STRTOL(argv[1],NULL,10);
+            server.cluster_node_timeout = strtol(argv[1],NULL,10);
             if (server.cluster_node_timeout <= 0) {
                 err = "cluster node timeout must be 1 or greater"; goto loaderr;
             }
@@ -570,21 +570,21 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
-            server.lua_time_limit = PORT_STRTOL(argv[1],NULL,10);
+            server.lua_time_limit = strtol(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
-            server.slowlog_log_slower_than = PORT_STRTOL(argv[1],NULL,10);
+            server.slowlog_log_slower_than = strtol(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"latency-monitor-threshold") &&
                    argc == 2)
         {
-            server.latency_monitor_threshold = PORT_STRTOL(argv[1],NULL,10);
+            server.latency_monitor_threshold = strtol(argv[1],NULL,10);
             if (server.latency_monitor_threshold < 0) {
                 err = "The latency threshold can't be negative";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = (PORT_ULONG)(PORT_STRTOL(argv[1],NULL,10));    WIN_PORT_FIX /* cast (PORT_ULONG) */
+            server.slowlog_max_len = (PORT_ULONG)(strtol(argv[1],NULL,10));    WIN_PORT_FIX /* cast (PORT_ULONG) */
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
@@ -871,7 +871,7 @@ void configSetCommand(client *c) {
             char *eptr;
             PORT_LONG val;
 
-            val = PORT_STRTOL(v[j], &eptr, 10);
+            val = strtol(v[j], &eptr, 10);
             if (eptr[0] != '\0' ||
                 ((j & 1) == 0 && val < 1) ||
                 ((j & 1) == 1 && val < 0)) {
@@ -885,8 +885,8 @@ void configSetCommand(client *c) {
             time_t seconds;
             int changes;
 
-            seconds = PORT_STRTOL(v[j],NULL,10);
-            changes = PORT_STRTOL(v[j+1],NULL,10);
+            seconds = strtol(v[j],NULL,10);
+            changes = strtol(v[j+1],NULL,10);
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
@@ -931,9 +931,9 @@ void configSetCommand(client *c) {
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
-            hard = PORT_STRTOL(v[j+1],NULL,10);
-            soft = PORT_STRTOL(v[j+2],NULL,10);
-            soft_seconds = PORT_STRTOL(v[j+3],NULL,10);
+            hard = strtol(v[j+1],NULL,10);
+            soft = strtol(v[j+2],NULL,10);
+            soft_seconds = strtol(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;

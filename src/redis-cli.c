@@ -250,9 +250,9 @@ static sds cliVersion(void) {
     version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
 
     /* Add git commit and working tree status when available */
-    if (PORT_STRTOL(redisGitSHA1(),NULL,16)) {
+    if (strtol(redisGitSHA1(),NULL,16)) {
         version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (PORT_STRTOL(redisGitDirty(),NULL,10))
+        if (strtol(redisGitDirty(),NULL,10))
             version = sdscatprintf(version, "-dirty");
         version = sdscat(version, ")");
     }
@@ -1021,7 +1021,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
-            config.repeat = (PORT_LONG) PORT_STRTOL(argv[++i],NULL,10);
+            config.repeat = (PORT_LONG) strtol(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"-i") && !lastarg) {
             double seconds = atof(argv[++i]);
             config.interval = (PORT_LONG) (seconds*1000000);
@@ -1047,7 +1047,7 @@ static int parseOptions(int argc, char **argv) {
             config.latency_history = 1;
         } else if (!strcmp(argv[i],"--lru-test") && !lastarg) {
             config.lru_test_mode = 1;
-            config.lru_test_sample_size = PORT_STRTOL(argv[++i],NULL,10);
+            config.lru_test_sample_size = strtol(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
         } else if (!strcmp(argv[i],"--stat")) {
@@ -2265,7 +2265,7 @@ static PORT_LONG getLongInfoField(char *info, char *field) {
     PORT_LONG l;
 
     if (!value) return PORT_LONG_MIN;
-    l = PORT_STRTOL(value,NULL,10);
+    l = strtol(value,NULL,10);
     zfree(value);
     return l;
 }

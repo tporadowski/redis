@@ -629,7 +629,7 @@ int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = PORT_STRTOL(o->ptr, &eptr, 10);
+            value = strtol(o->ptr, &eptr, 10);
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return C_ERR;
