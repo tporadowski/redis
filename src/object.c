@@ -36,7 +36,6 @@
 #include <math.h>
 #include <ctype.h>
 
-
 #ifdef __CYGWIN__
 #define strtold(a,b) ((PORT_LONGDOUBLE)strtod((a),(b)))
 #endif
@@ -621,18 +620,13 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, PORT_LONGDOUBLE *target, 
 
 int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
     PORT_LONGLONG value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtol(o->ptr, &eptr, 10);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE)
-                return C_ERR;
+            if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (PORT_LONG)o->ptr;
         } else {
