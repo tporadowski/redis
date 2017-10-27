@@ -188,7 +188,7 @@ static void cliRefreshPrompt(void) {
         len = anetFormatAddr(config.prompt, sizeof(config.prompt),
                            config.hostip, config.hostport);
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
+    if (config.dbnum != 0)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
@@ -250,9 +250,9 @@ static sds cliVersion(void) {
     version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
 
     /* Add git commit and working tree status when available */
-    if (strtol(redisGitSHA1(),NULL,16)) {
+    if (strtoll(redisGitSHA1(),NULL,16)) {
         version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtol(redisGitDirty(),NULL,10))
+        if (strtoll(redisGitDirty(),NULL,10))
             version = sdscatprintf(version, "-dirty");
         version = sdscat(version, ")");
     }
@@ -302,6 +302,10 @@ static void cliIntegrateHelp(void) {
      * don't already match what we have. */
     for (size_t j = 0; j < reply->elements; j++) {
         redisReply *entry = reply->element[j];
+        if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
+            entry->element[0]->type != REDIS_REPLY_STRING ||
+            entry->element[1]->type != REDIS_REPLY_INTEGER ||
+            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -363,7 +367,7 @@ static void cliOutputGenericHelp(void) {
         "      \"help <tab>\" to get a list of possible help topics\n"
         "      \"quit\" to exit\n"
         "\n"
-        "To set redis-cli perferences:\n"
+        "To set redis-cli preferences:\n"
         "      \":set hints\" enable online hints\n"
         "      \":set nohints\" disable online hints\n"
         "Set your preferences in ~/.redisclirc\n",
@@ -655,7 +659,6 @@ sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     int bold = strstr(color,"bold") != NULL;
     int ccode = 37; /* Defaults to white. */
     if (strstr(color,"red")) ccode = 31;
-    else if (strstr(color,"red")) ccode = 31;
     else if (strstr(color,"green")) ccode = 32;
     else if (strstr(color,"yellow")) ccode = 33;
     else if (strstr(color,"blue")) ccode = 34;
@@ -875,8 +878,10 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
-                      ((!strcasecmp(argv[1],"jemalloc") && !strcasecmp(argv[2],"info")) ||
-                       !strcasecmp(argv[1],"htstats"))) ||
+                       !strcasecmp(argv[1],"htstats")) ||
+        (argc >= 2 && !strcasecmp(command,"memory") &&
+                      (!strcasecmp(argv[1],"malloc-stats") ||
+                       !strcasecmp(argv[1],"doctor"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
@@ -948,7 +953,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2) {
+            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && argc == 2) {
@@ -1047,7 +1052,7 @@ static int parseOptions(int argc, char **argv) {
             config.latency_history = 1;
         } else if (!strcmp(argv[i],"--lru-test") && !lastarg) {
             config.lru_test_mode = 1;
-            config.lru_test_sample_size = strtol(argv[++i],NULL,10);
+            config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
         } else if (!strcmp(argv[i],"--stat")) {
@@ -1149,6 +1154,12 @@ static void usage(void) {
 "  --csv              Output in CSV format.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
+"                     If you use this mode in an interactive session it runs\n"
+"                     forever displaying real-time stats. Otherwise if --raw or\n"
+"                     --csv is specified, or if you redirect the output to a non\n"
+"                     TTY, it samples the latency for 1 second (you can use\n"
+"                     -i to change the interval), then produces a single output\n"
+"                     and exits.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -1252,7 +1263,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
     }
 }
 
-/* Set the CLI perferences. This function is invoked when an interactive
+/* Set the CLI preferences. This function is invoked when an interactive
  * ":command" is called, or when reading ~/.redisclirc file, in order to
  * set user preferences. */
 void cliSetPreferences(char **argv, int argc, int interactive) {
@@ -1287,6 +1298,7 @@ void cliLoadPreferences(void) {
             if (argc > 0) cliSetPreferences(argv,argc,0);
             sdsfreesplitres(argv,argc);
         }
+        fclose(fp);
     }
     sdsfree(rcfile);
 }
@@ -1297,6 +1309,11 @@ static void repl(void) {
     char *line;
     int argc;
     sds *argv;
+
+    /* Initialize the help and, if possible, use the COMMAND command in order
+     * to retrieve missing entries. */
+    cliInitHelp();
+    cliIntegrateHelp();
 
     config.interactive = 1;
     linenoiseSetMultiLine(1);
@@ -1352,9 +1369,10 @@ static void repl(void) {
                 } else {
                     PORT_LONGLONG start_time = mstime(), elapsed;
                     int repeat, skipargs = 0;
+                    char *endptr;
 
-                    repeat = atoi(argv[0]);
-                    if (argc > 1 && repeat) {
+                    repeat = strtol(argv[0], &endptr, 10);
+                    if (argc > 1 && *endptr == '\0' && repeat) {
                         skipargs = 1;
                     } else {
                         repeat = 1;
@@ -1373,7 +1391,9 @@ static void repl(void) {
                     }
 
                     elapsed = mstime()-start_time;
-                    if (elapsed >= 500) {
+                    if (elapsed >= 500 &&
+                        config.output == OUTPUT_STANDARD)
+                    {
                         printf("(%.2fs)\n",(double)elapsed/1000);
                     }
                 }
@@ -1490,6 +1510,18 @@ static int evalMode(int argc, char **argv) {
  * Latency and latency history modes
  *--------------------------------------------------------------------------- */
 
+static void latencyModePrint(PORT_LONGLONG min, PORT_LONGLONG max, double avg, PORT_LONGLONG count) {
+    if (config.output == OUTPUT_STANDARD) {
+        printf("min: %lld, max: %lld, avg: %.2f (%lld samples)",
+                min, max, avg, count);
+        fflush(stdout);
+    } else if (config.output == OUTPUT_CSV) {
+        printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
+    } else if (config.output == OUTPUT_RAW) {
+        printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+    }
+}
+
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
 static void latencyMode(void) {
@@ -1500,6 +1532,14 @@ static void latencyMode(void) {
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
     PORT_LONGLONG history_start = mstime();
+
+    /* Set a default for the interval in case of --latency option
+     * with --raw, --csv or when it is redirected to non tty. */
+    if (config.interval == 0) {
+        config.interval = 1000;
+    } else {
+        config.interval /= 1000; /* We need to convert to milliseconds. */
+    }
 
     if (!context) exit(1);
     while(1) {
@@ -1521,9 +1561,19 @@ static void latencyMode(void) {
             tot += latency;
             avg = (double) tot/count;
         }
-        printf("\x1b[0G\x1b[2Kmin: %lld, max: %lld, avg: %.2f (%lld samples)",
-            min, max, avg, count);
-        fflush(stdout);
+
+        if (config.output == OUTPUT_STANDARD) {
+            printf("\x1b[0G\x1b[2K"); /* Clear the line. */
+            latencyModePrint(min,max,avg,count);
+        } else {
+            if (config.latency_history) {
+                latencyModePrint(min,max,avg,count);
+            } else if (mstime()-history_start > config.interval) {
+                latencyModePrint(min,max,avg,count);
+                exit(0);
+            }
+        }
+
         if (config.latency_history && mstime()-history_start > history_interval)
         {
             printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
@@ -2049,8 +2099,13 @@ static void getKeyTypes(redisReply *keys, int *types) {
                 keys->element[i]->str, context->err, context->errstr);
             exit(1);
         } else if(reply->type != REDIS_REPLY_STATUS) {
-            fprintf(stderr, "Invalid reply type (%d) for TYPE on key '%s'!\n",
-                reply->type, keys->element[i]->str);
+            if(reply->type == REDIS_REPLY_ERROR) {
+                fprintf(stderr, "TYPE returned an error: %s\n", reply->str);
+            } else {
+                fprintf(stderr,
+                    "Invalid reply type (%d) for TYPE on key '%s'!\n",
+                    reply->type, keys->element[i]->str);
+            }
             exit(1);
         }
 
@@ -2327,7 +2382,7 @@ static void statMode(void) {
             if (k == PORT_LONG_MIN) continue;
             aux += k;
         }
-        sprintf(buf,"%ld",aux);
+        sprintf(buf,"%Id",aux);                                      WIN_PORT_FIX /* %ld -> %Id */
         printf("%-11s",buf);
 
         /* Used memory */
@@ -2337,23 +2392,23 @@ static void statMode(void) {
 
         /* Clients */
         aux = getLongInfoField(reply->str,"connected_clients");
-        sprintf(buf,"%ld",aux);
+        sprintf(buf,"%Id",aux);                                      WIN_PORT_FIX /* %ld -> %Id */
         printf(" %-8s",buf);
 
         /* Blocked (BLPOPPING) Clients */
         aux = getLongInfoField(reply->str,"blocked_clients");
-        sprintf(buf,"%ld",aux);
+        sprintf(buf,"%Id",aux);                                      WIN_PORT_FIX /* %ld -> %Id */
         printf("%-8s",buf);
 
         /* Requets */
         aux = getLongInfoField(reply->str,"total_commands_processed");
-        sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
+        sprintf(buf,"%Id (+%Id)",aux,requests == 0 ? 0 : aux-requests);  WIN_PORT_FIX /* %ld -> %Id */
         printf("%-19s",buf);
         requests = aux;
 
         /* Connections */
         aux = getLongInfoField(reply->str,"total_connections_received");
-        sprintf(buf,"%ld",aux);
+        sprintf(buf,"%Id",aux);                                       WIN_PORT_FIX /* %ld -> %Id */
         printf(" %-12s",buf);
 
         /* Children */
@@ -2439,7 +2494,7 @@ PORT_LONGLONG powerLawRand(PORT_LONGLONG min, PORT_LONGLONG max, double alpha) {
 /* Generates a key name among a set of lru_test_sample_size keys, using
  * an 80-20 distribution. */
 void LRUTestGenKey(char *buf, size_t buflen) {
-    snprintf(buf, buflen, "lru:%lld\n",
+    snprintf(buf, buflen, "lru:%lld",
         powerLawRand(1, config.lru_test_sample_size, 6.2));
 }
 
@@ -2461,8 +2516,11 @@ static void LRUTestMode(void) {
         while(mstime() - start_cycle < 1000) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
+                char val[6];
+                val[5] = '\0';
+                for (int i = 0; i < 5; i++) val[i] = 'A'+rand()%('z'-'A');
                 LRUTestGenKey(key,sizeof(key));
-                redisAppendCommand(context, "SET %s val",key);
+                redisAppendCommand(context, "SET %s %s",key,val);
             }
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++)
                 redisGetReply(context, (void**)&reply);
@@ -2632,11 +2690,6 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
-
-    /* Initialize the help and, if possible, use the COMMAND command in order
-     * to retrieve missing entries. */
-    cliInitHelp();
-    cliIntegrateHelp();
 
     /* Latency mode */
     if (config.latency_mode) {

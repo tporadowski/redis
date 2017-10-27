@@ -41,7 +41,9 @@ uint32_t sdigits10(int64_t v);
 int ll2string(char *s, size_t len, PORT_LONGLONG value);
 int string2ll(const char *s, size_t slen, PORT_LONGLONG *value);
 int string2l(const char *s, size_t slen, PORT_LONG *value);
+int string2ld(const char *s, size_t slen, PORT_LONGDOUBLE *dp);
 int d2string(char *buf, size_t len, double value);
+int ld2string(char *buf, size_t len, PORT_LONGDOUBLE value, int humanfriendly);
 sds getAbsolutePath(char *filename);
 int pathIsBaseName(char *path);
 

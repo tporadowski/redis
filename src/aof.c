@@ -29,6 +29,7 @@
 
 #ifdef _WIN32
 #include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 #include "server.h"
@@ -266,7 +267,7 @@ int startAppendOnly(void) {
             "append only file %s (in server root dir %s): %s",
             server.aof_filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return C_ERR;
     }
     if (rewriteAppendOnlyFileBackground() == C_ERR) {
@@ -371,7 +372,7 @@ void flushAppendOnlyFile(int force) {
         if (nwritten == -1) {
             if (can_log) {
                 serverLog(LL_WARNING,"Error writing to the AOF file: %s",
-                    strerror(errno));
+                    IF_WIN32(wsa_strerror(errno), strerror(errno)));
                 server.aof_last_write_errno = errno;
             }
         } else {
@@ -388,7 +389,7 @@ void flushAppendOnlyFile(int force) {
                     serverLog(LL_WARNING, "Could not remove short write "
                              "from the append-only file.  Redis may refuse "
                              "to load the AOF the next time it starts.  "
-                             "ftruncate: %s", strerror(errno));
+                             "ftruncate: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
                 }
             } else {
                 /* If the ftruncate() succeeded we can set nwritten to
@@ -641,7 +642,7 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
+        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         exit(1);
     }
 
@@ -741,7 +742,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
         if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-        serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
+        serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         exit(1);
     }
 
@@ -755,14 +756,14 @@ uxeof: /* Unexpected AOF end of file. */
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
                 serverLog(LL_WARNING,"Error truncating the AOF file: %s",
-                    strerror(errno));
+                    IF_WIN32(wsa_strerror(errno), strerror(errno)));
             }
         } else {
             /* Make sure the AOF file descriptor points to the end of the
              * file after the truncate call. */
             if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
                 serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
-                    strerror(errno));
+                    IF_WIN32(wsa_strerror(errno), strerror(errno)));
             } else {
                 serverLog(LL_WARNING,
                     "AOF loaded anyway because aof-load-truncated is enabled");
@@ -1043,7 +1044,7 @@ int rewriteAppendOnlyFile(char *filename) {
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
     fp = fopen(tmpfile,IF_WIN32("wb","w"));
     if (!fp) {
-        serverLog(LL_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", strerror(errno));
+        serverLog(LL_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return C_ERR;
     }
 
@@ -1172,7 +1173,7 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
-        serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", strerror(errno));
+        serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         unlink(tmpfile);
         return C_ERR;
     }
@@ -1180,7 +1181,7 @@ int rewriteAppendOnlyFile(char *filename) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
+    serverLog(LL_WARNING,"Write error writing append only file on disk: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
     fclose(fp);
     unlink(tmpfile);
     if (di) dictReleaseIterator(di);
@@ -1209,7 +1210,7 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
              * kernel can't buffer our write, or, the children was
              * terminated. */
             serverLog(LL_WARNING,"Can't send ACK to AOF child: %s",
-                strerror(errno));
+                IF_WIN32(wsa_strerror(errno), strerror(errno)));
         }
     }
 #ifndef _WIN32
@@ -1253,7 +1254,7 @@ int aofCreatePipes(void) {
 
 error:
     serverLog(LL_WARNING,"Error opening /setting AOF rewrite IPC pipes: %s",
-        strerror(errno));
+        IF_WIN32(wsa_strerror(errno), strerror(errno)));
     for (j = 0; j < 6; j++) if(fds[j] != -1) close(fds[j]);
     return C_ERR;
 }
@@ -1334,7 +1335,7 @@ int rewriteAppendOnlyFileBackground(void) {
         if (childpid == -1) {
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
-                strerror(errno));
+                IF_WIN32(wsa_strerror(errno), strerror(errno)));
             return C_ERR;
         }
         serverLog(LL_NOTICE,
@@ -1394,7 +1395,7 @@ void aofUpdateCurrentSize(void) {
     latencyStartMonitor(latency);
     if (redis_fstat(server.aof_fd,&sb) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
-            strerror(errno));
+            IF_WIN32(wsa_strerror(errno), strerror(errno)));
     } else {
         server.aof_current_size = sb.st_size;
     }
@@ -1428,13 +1429,13 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 #endif
         if (newfd == -1) {
             serverLog(LL_WARNING,
-                "Unable to open the temporary AOF produced by the child: %s", strerror(errno));
+                "Unable to open the temporary AOF produced by the child: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
             goto cleanup;
         }
 
         if (aofRewriteBufferWrite(newfd) == -1) {
             serverLog(LL_WARNING,
-                "Error trying to flush the parent diff to the rewritten AOF: %s", strerror(errno));
+                "Error trying to flush the parent diff to the rewritten AOF: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
             close(newfd);
             goto cleanup;
         }
@@ -1487,7 +1488,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             // Now rename the existing AOF file to allow the new file to be renamed
             if (rename(server.aof_filename, tmpfile_win_old) == -1) {
                 serverLog(LL_WARNING,
-                    "Error trying to rename the existing AOF to old tempfile: %s", strerror(errno));
+                    "Error trying to rename the existing AOF to old tempfile: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
                 // Let's clean the Windows-specific temp file here
                 unlink(tmpfile_win_old);
                 goto cleanup;
@@ -1501,16 +1502,16 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 "Error trying to rename the temporary AOF file %s into %s: %s",
                 tmpfile,
                 server.aof_filename,
-                strerror(errno));
+                IF_WIN32(wsa_strerror(errno), strerror(errno)));
             if (server.aof_fd != -1) {
                 if (rename(tmpfile_win_old, server.aof_filename) == -1) {
                     serverLog(LL_WARNING,
                         "Error trying to rename the old tempfile %s into the existing AOF file %s: %s",
                         tmpfile,
                         server.aof_filename,
-                        strerror(errno));
+                        IF_WIN32(wsa_strerror(errno), strerror(errno)));
                     serverLog(LL_WARNING,
-                        "Error trying to rename the existing AOF from old tempfile: %s", strerror(errno));
+                        "Error trying to rename the existing AOF from old tempfile: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
                     // The Windows-specific temp file couldn't be renamed to
                     // the configured AOF file, that should never happen but
                     // if it happens we leave the file behind in case the user

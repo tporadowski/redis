@@ -7,7 +7,7 @@
  * file is slow, blocking the server.
  *
  * In the future we'll either continue implementing new things we need or
- * we'll switch to libeio. However there are probably PORT_LONG term uses for this
+ * we'll switch to libeio. However there are probably long term uses for this
  * file as we may want to put here Redis specific background tasks (for instance
  * it is not impossible that we'll need a non blocking FLUSHDB/FLUSHALL
  * implementation).
@@ -61,6 +61,7 @@
 #include "Win32_Interop/win32fixes.h"
 #include "Win32_Interop/Win32_PThread.h"
 #include "Win32_Interop/Win32_ThreadControl.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 #include "server.h"
@@ -68,7 +69,8 @@
 
 static pthread_t bio_threads[BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
-static pthread_cond_t bio_condvar[BIO_NUM_OPS];
+static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
+static pthread_cond_t bio_step_cond[BIO_NUM_OPS];
 static list *bio_jobs[BIO_NUM_OPS];
 /* The following array is used to hold the number of pending jobs for every
  * OP type. This allows us to export the bioPendingJobsOfType() API that is
@@ -88,6 +90,9 @@ struct bio_job {
 };
 
 void *bioProcessBackgroundJobs(void *arg);
+void lazyfreeFreeObjectFromBioThread(robj *o);
+void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2);
+void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -103,7 +108,8 @@ void bioInit(void) {
     /* Initialization of state vars and objects */
     for (j = 0; j < BIO_NUM_OPS; j++) {
         pthread_mutex_init(&bio_mutex[j],NULL);
-        pthread_cond_init(&bio_condvar[j],NULL);
+        pthread_cond_init(&bio_newjob_cond[j],NULL);
+        pthread_cond_init(&bio_step_cond[j],NULL);
         bio_jobs[j] = listCreate();
         bio_pending[j] = 0;
     }
@@ -138,7 +144,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
     bio_pending[type]++;
-    pthread_cond_signal(&bio_condvar[type]);
+    pthread_cond_signal(&bio_newjob_cond[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
@@ -150,7 +156,7 @@ void *bioProcessBackgroundJobs(void *arg) {
     /* Check that the type is within the right interval. */
     if (type >= BIO_NUM_OPS) {
         serverLog(LL_WARNING,
-            "Warning: bio thread started with wrong type %lu",type);
+            "Warning: bio thread started with wrong type %Iu",type);                WIN_PORT_FIX /* %lu -> %Iu */
         return NULL;
     }
 
@@ -165,14 +171,13 @@ void *bioProcessBackgroundJobs(void *arg) {
 #endif
 
     pthread_mutex_lock(&bio_mutex[type]);
-
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGALRM);
     if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
         serverLog(LL_WARNING,
-            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
+            "Warning: can't mask SIGALRM in bio.c thread: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
 
     while(1) {
         listNode *ln;
@@ -180,7 +185,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0) {
             WIN32_ONLY(WorkerThread_EnterSafeMode());
-            pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
+            pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
             WIN32_ONLY(pthread_mutex_unlock(&bio_mutex[type]));
             WIN32_ONLY(WorkerThread_ExitSafeMode());
             WIN32_ONLY(pthread_mutex_lock(&bio_mutex[type]));
@@ -198,10 +203,24 @@ void *bioProcessBackgroundJobs(void *arg) {
             close((PORT_LONG)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
             aof_fsync((PORT_LONG)job->arg1);
+        } else if (type == BIO_LAZY_FREE) {
+            /* What we free changes depending on what arguments are set:
+             * arg1 -> free the object at pointer.
+             * arg2 & arg3 -> free two dictionaries (a Redis DB).
+             * only arg3 -> free the skiplist. */
+            if (job->arg1)
+                lazyfreeFreeObjectFromBioThread(job->arg1);
+            else if (job->arg2 && job->arg3)
+                lazyfreeFreeDatabaseFromBioThread(job->arg2,job->arg3);
+            else if (job->arg3)
+                lazyfreeFreeSlotsMapFromBioThread(job->arg3);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
         zfree(job);
+
+        /* Unblock threads blocked on bioWaitStepOfType() if any. */
+        pthread_cond_broadcast(&bio_step_cond[type]);
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
@@ -216,6 +235,28 @@ PORT_ULONGLONG bioPendingJobsOfType(int type) {
     PORT_ULONGLONG val;
     pthread_mutex_lock(&bio_mutex[type]);
     val = bio_pending[type];
+    pthread_mutex_unlock(&bio_mutex[type]);
+    return val;
+}
+
+/* If there are pending jobs for the specified type, the function blocks
+ * and waits that the next job was processed. Otherwise the function
+ * does not block and returns ASAP.
+ *
+ * The function returns the number of jobs still to process of the
+ * requested type.
+ *
+ * This function is useful when from another thread, we want to wait
+ * a bio.c thread to do more work in a blocking way.
+ */
+PORT_ULONGLONG bioWaitStepOfType(int type) {
+    PORT_ULONGLONG val;
+    pthread_mutex_lock(&bio_mutex[type]);
+    val = bio_pending[type];
+    if (val != 0) {
+        pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
+        val = bio_pending[type];
+    }
     pthread_mutex_unlock(&bio_mutex[type]);
     return val;
 }

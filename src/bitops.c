@@ -104,6 +104,7 @@ PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
     PORT_ULONG skipval, word = 0, one;
     PORT_LONG pos = 0; /* Position of bit, to return to the caller. */
     PORT_ULONG j;
+    int found;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -117,21 +118,27 @@ PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
     /* Skip initial bits not aligned to sizeof(PORT_ULONG) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
+    found = 0;
     while((PORT_ULONG)c & (sizeof(*l)-1) && count) {
-        if (*c != skipval) break;
+        if (*c != skipval) {
+            found = 1;
+            break;
+        }
         c++;
         count--;
         pos += 8;
     }
 
     /* Skip bits with full word step. */
-    skipval = bit ? 0 : PORT_ULONG_MAX;
     l = (PORT_ULONG*) c;
-    while (count >= sizeof(*l)) {
-        if (*l != skipval) break;
-        l++;
-        count -= sizeof(*l);
-        pos += sizeof(*l)*8;
+    if (!found) {
+        skipval = bit ? 0 : PORT_ULONG_MAX;
+        while (count >= sizeof(*l)) {
+            if (*l != skipval) break;
+            l++;
+            count -= sizeof(*l);
+            pos += sizeof(*l)*8;
+        }
     }
 
     /* Load bytes into "word" considering the first byte as the most significant
@@ -648,14 +655,17 @@ void bitopCommand(client *c) {
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL, maxlen);
+        res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
         PORT_ULONG i;
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
-         * vanilla algorithm. */
+         * vanilla algorithm. On ARM we skip the fast path since it will
+         * result in GCC compiling the code using multiple-words load/store
+         * operations that are not supported even in ARM >= v6. */
         j = 0;
+        #ifndef USE_ALIGNED_ACCESS
         if (minlen >= sizeof(PORT_ULONG)*4 && numkeys <= 16) {
             PORT_ULONG *lp[16];
             PORT_ULONG *lres = (PORT_ULONG*) res;
@@ -716,6 +726,7 @@ void bitopCommand(client *c) {
                 }
             }
         }
+        #endif
 
         /* j is set to the next byte to process by the previous loop. */
         for (; j < maxlen; j++) {
@@ -957,7 +968,8 @@ void bitfieldCommand(client *c) {
 
         if (opcode != BITFIELDOP_GET) {
             readonly = 0;
-            higest_write_offset = bitoffset + bits - 1;
+            if (higest_write_offset < bitoffset + bits - 1)
+                higest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);

@@ -98,7 +98,7 @@ was received:
 
 * **`REDIS_REPLY_INTEGER`**:
     * The command replied with an integer. The integer value can be accessed using the
-      `reply->integer` field of type `long long`.
+      `reply->integer` field of type `PORT_LONGLONG`.
 
 * **`REDIS_REPLY_NIL`**:
     * The command replied with a **nil** object. There is no data to access.
@@ -300,7 +300,7 @@ An asynchronous connection can be terminated using:
     void redisAsyncDisconnect(redisAsyncContext *ac);
 
 When this function is called, the connection is **not** immediately terminated. Instead, new
-commands are no longer accepted and the connection is only terminated when all pending commands
+commands are no PORT_LONGer accepted and the connection is only terminated when all pending commands
 have been written to the socket, their respective replies have been read and their respective
 callbacks have been executed. After this, the disconnection callback is executed with the
 `REDIS_OK` status and the context object is free'd.

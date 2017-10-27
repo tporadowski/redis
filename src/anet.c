@@ -33,6 +33,7 @@
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/win32fixes.h"
 #include "Win32_Interop/win32_wsiocp2.h"
+#include "Win32_Interop/Win32_Error.h"
 #define ANET_NOTUSED(V) V
 #include <Mstcpip.h>
 #endif
@@ -76,7 +77,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
     if ((flags = fcntl(fd, F_GETFL, 0)) == -1) {                                WIN_PORT_FIX /* fcntl default value for the 'flags' parameter */
-        anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
+        anetSetError(err, "fcntl(F_GETFL): %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
 
@@ -86,7 +87,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
         flags &= ~O_NONBLOCK;
 
     if (fcntl(fd, F_SETFL, flags) == -1) {
-        anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
+        anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -109,7 +110,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
 #ifdef _WIN32    
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
 
@@ -130,7 +131,7 @@ int anetKeepAlive(char *err, int fd, int interval)
                        NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) {
         anetSetError(err,
                      "WSAIotcl(SIO_KEEPALIVE_VALS) failed with error code %d\n",
-                     strerror(errno));
+                     IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     } 
 #else
@@ -175,7 +176,7 @@ static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
     {
-        anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
+        anetSetError(err, "setsockopt TCP_NODELAY: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -196,7 +197,7 @@ int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
     {
-        anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_SNDBUF: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -206,7 +207,7 @@ int anetTcpKeepAlive(char *err, int fd)
 {
     int yes = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -220,7 +221,7 @@ int anetSendTimeout(char *err, int fd, PORT_LONGLONG ms) {
     tv.tv_sec = (int) ms/1000;                                                  WIN_PORT_FIX /* cast (int) */
     tv.tv_usec = (ms%1000)*1000;
     if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
-        anetSetError(err, "setsockopt SO_SNDTIMEO: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_SNDTIMEO: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -273,7 +274,7 @@ static int anetSetReuseAddr(char *err, int fd) {
     /* Make sure connection-intensive things like the redis benckmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_REUSEADDR: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -282,7 +283,7 @@ static int anetSetReuseAddr(char *err, int fd) {
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, IF_WIN32(IPPROTO_TCP,0))) == -1) {
-        anetSetError(err, "creating socket: %s", strerror(errno));
+        anetSetError(err, "creating socket: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
 
@@ -454,8 +455,10 @@ int anetUnixGenericConnect(char *err, char *path, int flags)
     sa.sun_family = AF_LOCAL;
     strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
     if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK)
+        if (anetNonBlock(err,s) != ANET_OK) {
+            close(s);
             return ANET_ERR;
+        }
     }
     if (connect(s,(struct sockaddr*)&sa,sizeof(sa)) == -1) {
         if (errno == EINPROGRESS &&
@@ -512,7 +515,7 @@ int anetWrite(int fd, char *buf, int count)
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
     if (bind(s,sa,len) == -1) {
-        anetSetError(err, "bind: %s", strerror(errno));
+        anetSetError(err, "bind: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         close(s);
         return ANET_ERR;
     }
@@ -522,7 +525,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
 #else
     if (listen(s, backlog) == -1) {
 #endif
-        anetSetError(err, "listen: %s", strerror(errno));
+        anetSetError(err, "listen: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         close(s);
         return ANET_ERR;
     }
@@ -532,7 +535,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
 static int anetV6Only(char *err, int s) {
     int yes = 1;
     if (setsockopt(s,IPPROTO_IPV6,IPV6_V6ONLY,&yes,sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt: %s", strerror(errno));
+        anetSetError(err, "setsockopt: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         close(s);
         return ANET_ERR;
     }
@@ -545,7 +548,7 @@ static int anetSetExclusiveAddr(char *err, int fd) {
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_EXCLUSIVEADDRUSE: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_EXCLUSIVEADDRUSE: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
         return ANET_ERR;
     }
     return ANET_OK;
@@ -554,7 +557,7 @@ static int anetSetExclusiveAddr(char *err, int fd) {
 
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
-    int s, rv;
+    int s = -1, rv;
     char _port[6];  /* strlen("65535") */
     struct addrinfo hints, *servinfo, *p;
 
@@ -578,11 +581,12 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         goto end;
     }
     if (p == NULL) {
-        anetSetError(err, "unable to bind socket");
+        anetSetError(err, "unable to bind socket, errno: %d", errno);
         goto error;
     }
 
 error:
+    if (s != -1) close(s);
     s = ANET_ERR;
 end:
     freeaddrinfo(servinfo);
@@ -632,7 +636,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
             if (errno == EINTR)
                 continue;
             else {
-                anetSetError(err, "accept: %s", strerror(errno));
+                anetSetError(err, "accept: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
                 return ANET_ERR;
             }
         }

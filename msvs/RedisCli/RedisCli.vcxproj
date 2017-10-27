@@ -187,6 +187,9 @@
       <Project>{13e85053-54b3-487b-8ddb-3430b1c1b3bf}</Project>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\deps\linenoise\linenoise.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

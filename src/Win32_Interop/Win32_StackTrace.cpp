@@ -127,7 +127,8 @@ void LogStackTrace() {
             GetModuleFileNameA((HINSTANCE) moduleBase, modulePath, MAX_PATH);
         }
 
-        serverLog(LL_WARNING | LL_RAW, "%s!%s(%s:%d)(0x%08LX, 0x%08LX, 0x%08LX, 0x%08LX)\n",
+        //serverLog(LL_WARNING | LL_RAW, "%s!%s(%s:%d)(0x%08LX, 0x%08LX, 0x%08LX, 0x%08LX)\n",
+        serverLog(LL_WARNING | LL_RAW, "%s!%s(%s:%d)(0x%08I64X, 0x%08I64X, 0x%08I64X, 0x%08I64X)\n",
             &modulePath[GetFilenameStart(modulePath)],
             pSymbol->Name,
             line.FileName,

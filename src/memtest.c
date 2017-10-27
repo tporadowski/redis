@@ -29,6 +29,7 @@
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 #include <stdint.h>
 #include <stdlib.h>
@@ -356,8 +357,8 @@ void memtest_alloc_and_test(size_t megabytes, int passes) {
     PORT_ULONG *m = malloc(bytes);
 
     if (m == NULL) {
-        fprintf(stderr,"Unable to allocate %zu megabytes: %s",
-            megabytes, strerror(errno));
+        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                 WIN_PORT_FIX /* %zu -> %Iu */
+            megabytes, IF_WIN32(wsa_strerror(errno), strerror(errno)));
         exit(1);
     }
     memtest_test(m,bytes,passes,1);

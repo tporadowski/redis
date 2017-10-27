@@ -992,7 +992,7 @@ prof_leakcheck(const prof_cnt_t *cnt_all, size_t leak_nctx,
 
 	if (cnt_all->curbytes != 0) {
 		malloc_printf("<jemalloc>: Leak summary: %"PRId64" byte%s, %"
-		    PRId64" object%s, %zu context%s\n",
+		    PRId64" object%s, %Iu context%s\n",                    /*WIN_PORT_FIX  %zu -> %Iu */
 		    cnt_all->curbytes, (cnt_all->curbytes != 1) ? "s" : "",
 		    cnt_all->curobjs, (cnt_all->curobjs != 1) ? "s" : "",
 		    leak_nctx, (leak_nctx != 1) ? "s" : "");

@@ -35,7 +35,9 @@ int do_rdbSave(char* filename)
 {
 #ifndef NO_QFORKIMPL
     server.rdb_child_pid = GetCurrentProcessId();
-    if( rdbSave(filename) != C_OK ) {
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+    if( rdbSave(filename, rsiptr) != C_OK ) {
         serverLog(LL_WARNING,"rdbSave failed in qfork: %s", strerror(errno));
         return C_ERR;
     }
@@ -90,7 +92,7 @@ int do_rdbSaveToSlavesSockets(int *fds, int numfds, uint64_t *clientids)
         retval = C_ERR;
     
     if (retval == C_OK) {
-        size_t private_dirty = zmalloc_get_private_dirty();
+        size_t private_dirty = zmalloc_get_private_dirty(-1);
     
         if (private_dirty) {
             serverLog(LL_NOTICE,

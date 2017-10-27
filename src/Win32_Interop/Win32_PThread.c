@@ -207,3 +207,8 @@ int pthread_cond_signal(pthread_cond_t *cond) {
     else
         return 0;
 }
+
+int pthread_cond_broadcast(pthread_cond_t *cond) {
+    //TODO
+    return 0;
+}

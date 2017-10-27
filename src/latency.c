@@ -41,7 +41,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
-unsigned int dictStringHash(const void *key) {
+uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, (int)strlen(key));                          WIN_PORT_FIX /* cast (int) */
 }
 
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:");              WIN_PORT_FIX /* cast (int) */
+    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:",-1);              WIN_PORT_FIX /* cast (int) */
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -262,7 +262,7 @@ sds createLatencyReport(void) {
         analyzeLatencyForEvent(event,&ls);
 
         report = sdscatprintf(report,
-            "%d. %s: %d latency spikes (average %lums, mean deviation %lums, period %.2f sec). Worst all time event %lums.",
+            "%d. %s: %d latency spikes (average %Iums, mean deviation %Iums, period %.2f sec). Worst all time event %Iums.",            WIN_PORT_FIX /* %lu -> %Iu */
             eventnum, event,
             ls.samples,
             (PORT_ULONG) ls.avg,

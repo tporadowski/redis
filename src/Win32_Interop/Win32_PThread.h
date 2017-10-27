@@ -1,4 +1,5 @@
-
+#ifndef __WIN32_PTHREAD_H_
+#define __WIN32_PTHREAD_H_
 
 #include <windows.h>
 #include <errno.h>
@@ -48,6 +49,10 @@ int pthread_cond_init(pthread_cond_t *cond, const void *unused);
 int pthread_cond_destroy(pthread_cond_t *cond);
 int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
 int pthread_cond_signal(pthread_cond_t *cond);
+//TODO
+int pthread_cond_broadcast(pthread_cond_t *cond);
 
 int pthread_detach(pthread_t thread);
 int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
+
+#endif

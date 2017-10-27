@@ -88,7 +88,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_DEBUG;_CONSOLE;LACKS_STDLIB_H;%(PreprocessorDefinitions);NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_DEBUG;_CONSOLE;LACKS_STDLIB_H;%(PreprocessorDefinitions);NO_QFORKIMPL;_WIN32_REDIS_CHECK_AOF_EXE</PreprocessorDefinitions>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
@@ -100,6 +100,10 @@
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <SubSystem>
+      </SubSystem>
+      <EntryPointSymbol>
+      </EntryPointSymbol>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -127,7 +131,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_CONSOLE;%(PreprocessorDefinitions);LACKS_STDLIB_H;NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_CONSOLE;%(PreprocessorDefinitions);LACKS_STDLIB_H;NO_QFORKIMPL;_WIN32_REDIS_CHECK_AOF_EXE</PreprocessorDefinitions>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
@@ -165,11 +169,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\redis-check-aof.c" />
+    <ClCompile Include="..\..\src\zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Win32_Interop\Win32_Interop.vcxproj">
       <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\zmalloc.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

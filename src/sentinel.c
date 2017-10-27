@@ -431,7 +431,7 @@ void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
 
-unsigned int dictSdsHash(const void *key);
+uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
@@ -535,7 +535,7 @@ void sentinelIsRunning(void) {
     } else if (access(server.configfile,W_OK) == -1) {
         serverLog(LL_WARNING,
             "Sentinel config file %s is not writable: %s. Exiting...",
-            server.configfile,strerror(errno));
+            server.configfile, IF_WIN32(wsa_strerror(errno), strerror(errno)));
         exit(1);
     }
 
@@ -1213,11 +1213,18 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
                                                        NULL,0,ri->runid);
-        if (match->link->disconnected == 0) {
+        /* If there is no match, this master does not know about this
+         * Sentinel, try with the next one. */
+        if (match == NULL) continue;
+
+        /* Disconnect the old links if connected. */
+        if (match->link->cc != NULL)
             instanceLinkCloseConnection(match->link,match->link->cc);
+        if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
-        }
+
         if (match == ri) continue; /* Address already updated for it. */
+
         /* Update the address of the matching Sentinel by copying the address
          * of the Sentinel object that received the address update. */
         releaseSentinelAddr(match->addr);
@@ -1996,14 +2003,14 @@ void sentinelFlushConfig(void) {
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
-    if ((fd = open(server.configfile,O_RDONLY,0)) == -1) goto werr;             WIN_PORT_FIX /* %lu -> %Iu */
+    if ((fd = open(server.configfile,O_RDONLY,IF_WIN32(_S_IREAD|_S_IWRITE,0644))) == -1) goto werr;
     POSIX_ONLY(if (fsync(fd) == -1) goto werr;)
     if (close(fd) == EOF) goto werr;
     return;
 
 werr:
     if (fd != -1) close(fd);
-    serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
+    serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
 }
 
 /* ====================== hiredis connection handling ======================= */
@@ -2205,7 +2212,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 32 &&
             !memcmp(l,"master_link_down_since_seconds",30))
         {
-            ri->master_link_down_time = strtol(l+31,NULL,10)*1000;
+            ri->master_link_down_time = strtoll(l+31,NULL,10)*1000;
         }
 
         /* role:<role> */
@@ -2723,9 +2730,15 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     /* If this is a slave of a master in O_DOWN condition we start sending
      * it INFO every second, instead of the usual SENTINEL_INFO_PERIOD
      * period. In this state we want to closely monitor slaves in case they
-     * are turned into masters by another Sentinel, or by the sysadmin. */
+     * are turned into masters by another Sentinel, or by the sysadmin.
+     *
+     * Similarly we monitor the INFO output more often if the slave reports
+     * to be disconnected from the master, so that we can have a fresh
+     * disconnection time figure. */
     if ((ri->flags & SRI_SLAVE) &&
-        (ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS))) {
+        ((ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS)) ||
+         (ri->master_link_down_time != 0)))
+    {
         info_period = 1000;
     } else {
         info_period = SENTINEL_INFO_PERIOD;
@@ -3380,8 +3393,8 @@ void sentinelInfoCommand(client *c) {
             "sentinel_masters:%Iu\r\n"                                          WIN_PORT_FIX /* %lu -> %Iu */
             "sentinel_tilt:%d\r\n"
             "sentinel_running_scripts:%d\r\n"
-            "sentinel_scripts_queue_length:%ld\r\n"
-            "sentinel_simulate_failure_flags:%lu\r\n",
+            "sentinel_scripts_queue_length:%Id\r\n"                             WIN_PORT_FIX /* %ld -> %Id */
+            "sentinel_simulate_failure_flags:%Iu\r\n",                          WIN_PORT_FIX /* %lu -> %Iu */
             dictSize(sentinel.masters),
             sentinel.tilt,
             sentinel.running_scripts,
@@ -3778,15 +3791,15 @@ struct sentinelLeader {
 /* Helper function for sentinelGetLeader, increment the counter
  * relative to the specified runid. */
 int sentinelLeaderIncr(dict *counters, char *runid) {
-    dictEntry *de = dictFind(counters,runid);
+    dictEntry *existing, *de;
     uint64_t oldval;
 
-    if (de) {
-        oldval = dictGetUnsignedIntegerVal(de);
-        dictSetUnsignedIntegerVal(de,oldval+1);
+    de = dictAddRaw(counters,runid,&existing);
+    if (existing) {
+        oldval = dictGetUnsignedIntegerVal(existing);
+        dictSetUnsignedIntegerVal(existing,oldval+1);
         return (int)oldval+1;                                                   WIN_PORT_FIX /* cast (int) */
     } else {
-        de = dictAddRaw(counters,runid);
         serverAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
         return 1;

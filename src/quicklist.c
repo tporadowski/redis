@@ -149,7 +149,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned int quicklistCount(quicklist *ql) { return (unsigned int)(ql->count); } WIN_PORT_FIX /* cast (unsigned int) */
+unsigned int quicklistCount(const quicklist *ql) { return (unsigned int)(ql->count); } WIN_PORT_FIX /* cast (unsigned int) */
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -671,6 +671,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, PORT_LONG index, void *data,
         /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);
         entry.node->zl = ziplistInsert(entry.node->zl, entry.zi, data, sz);
+        quicklistNodeUpdateSz(entry.node);
         quicklistCompress(quicklist, entry.node);
         return 1;
     } else {
@@ -848,7 +849,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
 
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
-        D("Current node is full with count %d with requested fill %lu",
+        D("Current node is full with count %d with requested fill %Iu",                    WIN_PORT_FIX /* %lu -> %Iu */
           node->count, fill);
         full = 1;
     }
@@ -973,7 +974,7 @@ int quicklistDelRange(quicklist *quicklist, const PORT_LONG start,
     if (!quicklistIndex(quicklist, start, &entry))
         return 0;
 
-    D("Quicklist delete request for start %ld, count %ld, extent: %ld", start,
+    D("Quicklist delete request for start %Id, count %Id, extent: %Id", start,                 WIN_PORT_FIX /* %ld -> %Id */
       count, extent);
     quicklistNode *node = entry.node;
 
@@ -1011,7 +1012,7 @@ int quicklistDelRange(quicklist *quicklist, const PORT_LONG start,
             del = extent;
         }
 
-        D("[%ld]: asking to del: %ld because offset: %d; (ENTIRE NODE: %d), "
+        D("[%Id]: asking to del: %Id because offset: %d; (ENTIRE NODE: %d), "                             WIN_PORT_FIX /* %ld -> %Id */
           "node count: %u",
           extent, del, entry.offset, delete_entire_node, node->count);
 
@@ -1191,12 +1192,12 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)node->zl;
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            quicklistLZF *lzf = (quicklistLZF *)current->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }

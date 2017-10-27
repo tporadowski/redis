@@ -153,6 +153,7 @@
     <ClCompile Include="..\..\deps\hiredis\async.c" />
     <ClCompile Include="..\..\deps\hiredis\hiredis.c" />
     <ClCompile Include="..\..\deps\hiredis\net.c" />
+    <ClCompile Include="..\..\deps\hiredis\read.c" />
     <ClCompile Include="..\..\deps\hiredis\sds.c" />
   </ItemGroup>
   <ItemGroup>
@@ -160,6 +161,7 @@
     <ClInclude Include="..\..\deps\hiredis\fmacros.h" />
     <ClInclude Include="..\..\deps\hiredis\hiredis.h" />
     <ClInclude Include="..\..\deps\hiredis\net.h" />
+    <ClInclude Include="..\..\deps\hiredis\read.h" />
     <ClInclude Include="..\..\deps\hiredis\sds.h" />
     <ClInclude Include="..\..\deps\hiredis\win32_hiredis.h" />
   </ItemGroup>

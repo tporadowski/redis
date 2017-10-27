@@ -33,8 +33,10 @@
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/Win32_Error.h"
 #include "Win32_Interop/win32fixes.h"
+#include "zmalloc.h"
 #endif
 
+#include "server.h"
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -72,7 +74,7 @@ int readLong(FILE *fp, char prefix, PORT_LONG *target) {
         return 0;
     }
     if (buf[0] != prefix) {
-        ERROR("Expected prefix '%c', got: '%c'",buf[0],prefix);
+        ERROR("Expected prefix '%c', got: '%c'",prefix,buf[0]);
         return 0;
     }
     *target = strtol(buf+1,&eptr,10);
@@ -84,7 +86,7 @@ int readBytes(FILE *fp, char *target, PORT_LONG length) {
     epos = ftello(fp);
     real = (PORT_LONG) fread(target, 1, length, fp);
     if (real != length) {
-        ERROR("Expected to read %ld bytes, got %ld bytes", length, real); /* TODO: verify %ld */
+        ERROR("Expected to read %Id bytes, got %Id bytes",length,real);                        WIN_PORT_FIX /* %ld -> %Id */
         return 0;
     }
     return 1;
@@ -99,7 +101,7 @@ int readString(FILE *fp, char** target) {
 
     /* Increase length to also consume \r\n */
     len += 2;
-    *target = (char*)malloc(len);
+    *target = (char*)zmalloc(len);
     if (!readBytes(fp,*target,len)) {
         return 0;
     }
@@ -139,12 +141,12 @@ off_t process(FILE *fp) {
                     }
                 }
             }
-            free(str);
+            zfree(str);
         }
 
         /* Stop if the loop did not finish */
         if (i < argc) {
-            if (str) free(str);
+            if (str) zfree(str);
             break;
         }
     }
@@ -158,7 +160,8 @@ off_t process(FILE *fp) {
     return pos;
 }
 
-int main(int argc, char **argv) {
+int redis_check_aof_main(int argc, char **argv) {
+
     char *filename;
     int fix = 0;
 #ifdef _WIN32
@@ -203,6 +206,28 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    //TODO: _WIN32
+#ifndef _WIN32
+    /* This AOF file may have an RDB preamble. Check this to start, and if this
+     * is the case, start processing the RDB part. */
+    if (size >= 8) {    /* There must be at least room for the RDB header. */
+        char sig[5];
+        int has_preamble = fread(sig,sizeof(sig),1,fp) == 1 &&
+                            memcmp(sig,"REDIS",sizeof(sig)) == 0;
+        rewind(fp);
+        if (has_preamble) {
+            printf("The AOF appears to start with an RDB preamble.\n"
+                   "Checking the RDB preamble to start:\n");
+            if (redis_check_rdb_main(argc,argv,fp) == C_ERR) {
+                printf("RDB preamble of AOF file is not sane, aborting.\n");
+                exit(1);
+            } else {
+                printf("RDB preamble is OK, proceeding with AOF tail...\n");
+            }
+        }
+    }
+#endif
+
     off_t pos = process(fp);
     off_t diff = size-pos;
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
@@ -224,7 +249,8 @@ int main(int argc, char **argv) {
                 printf("Successfully truncated AOF\n");
             }
         } else {
-            printf("AOF is not valid\n");
+            printf("AOF is not valid. "
+                   "Use the --fix option to try fixing it.\n");
             exit(1);
         }
     } else {
@@ -234,3 +260,9 @@ int main(int argc, char **argv) {
     fclose(fp);
     return 0;
 }
+
+#ifdef _WIN32_REDIS_CHECK_AOF_EXE
+int main(int argc, char **argv) {
+    return redis_check_aof_main(argc, argv);
+}
+#endif
