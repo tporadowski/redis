@@ -32,6 +32,8 @@
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/Win32_Time.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_PThread.h"
 #endif
 
 #include "fmacros.h"
@@ -154,6 +156,10 @@ static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 static int cliConnect(int force);
+
+#ifdef _WIN32
+extern pthread_mutex_t used_memory_mutex;
+#endif
 
 /*------------------------------------------------------------------------------
  * Utility functions
@@ -2640,6 +2646,10 @@ static void intrinsicLatencyMode(void) {
 
 int main(int argc, char **argv) {
     int firstarg;
+
+#ifdef _WIN32
+    pthread_mutex_init(&used_memory_mutex, NULL);
+#endif
 
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
