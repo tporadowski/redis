@@ -23,7 +23,7 @@
 #include "..\server.h"
 #include "Win32_Portability.h"
 
-void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint32_t dictHashSeed)
+void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint8_t *dictHashSeed)
 {
 #ifndef NO_QFORKIMPL
     memcpy(&server, redisData, redisDataSize);

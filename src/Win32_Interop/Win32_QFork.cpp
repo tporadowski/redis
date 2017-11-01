@@ -149,7 +149,7 @@ BOOL WriteToProcmon(wstring message)
 struct QForkInfo {
     BYTE redisData[MAX_REDIS_DATA_SIZE];
     size_t redisDataSize;
-    uint32_t dictHashSeed;
+    uint8_t dictHashSeed[16];
     char filename[MAX_PATH];
     int *fds;
     int numfds;
@@ -329,8 +329,8 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
 
         // Copy redis globals into fork process
         SetupRedisGlobals(g_pQForkControl->globalData.redisData,
-                          g_pQForkControl->globalData.redisDataSize,
-                          g_pQForkControl->globalData.dictHashSeed);
+            g_pQForkControl->globalData.redisDataSize,
+            g_pQForkControl->globalData.dictHashSeed);
 
         // Execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
@@ -559,7 +559,7 @@ BOOL QForkShutdown() {
     return TRUE;
 }
 
-void CopyForkOperationData(OperationType type, LPVOID redisData, int redisDataSize, uint32_t dictHashSeed) {
+void CopyForkOperationData(OperationType type, LPVOID redisData, int redisDataSize, uint8_t *dictHashSeed) {
     // Copy operation data
     g_pQForkControl->typeOfOperation = type;
     if (redisDataSize > MAX_REDIS_DATA_SIZE) {
@@ -567,7 +567,7 @@ void CopyForkOperationData(OperationType type, LPVOID redisData, int redisDataSi
     }
     memcpy(&(g_pQForkControl->globalData.redisData), redisData, redisDataSize);
     g_pQForkControl->globalData.redisDataSize = redisDataSize;
-    g_pQForkControl->globalData.dictHashSeed = dictHashSeed;
+    memcpy(&(g_pQForkControl->globalData.dictHashSeed), dictHashSeed, sizeof(g_pQForkControl->globalData.dictHashSeed));
 
 #ifdef USE_DLMALLOC
     GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
@@ -634,7 +634,7 @@ typedef void (*CHILD_PID_HOOK)(DWORD pid);
 pid_t BeginForkOperation(OperationType type,
                          LPVOID redisData,
                          int redisDataSize,
-                         uint32_t dictHashSeed)
+                         uint8_t *dictHashSeed)
 {
     PROCESS_INFORMATION pi;
     try {
@@ -673,7 +673,7 @@ pid_t BeginForkOperation(OperationType type,
 pid_t BeginForkOperation_Rdb(char *filename,
                              LPVOID redisData,
                              int redisDataSize,
-                             uint32_t dictHashSeed)
+                             uint8_t *dictHashSeed)
 {
     strcpy_s(g_pQForkControl->globalData.filename, filename);
     return BeginForkOperation(otRDB, redisData, redisDataSize, dictHashSeed);
@@ -685,7 +685,7 @@ pid_t BeginForkOperation_Aof(int aof_pipe_write_ack_to_parent,
                              char *filename,
                              LPVOID redisData,
                              int redisDataSize,
-                             uint32_t dictHashSeed)
+                             uint8_t *dictHashSeed)
 {
     HANDLE aof_pipe_write_ack_handle = (HANDLE) FDAPI_get_osfhandle(aof_pipe_write_ack_to_parent);
     HANDLE aof_pipe_read_ack_handle  = (HANDLE) FDAPI_get_osfhandle(aof_pipe_read_ack_from_parent);
@@ -720,7 +720,7 @@ pid_t BeginForkOperation_Socket(int *fds,
                                 int pipe_write_fd,
                                 LPVOID redisData,
                                 int redisDataSize,
-                                uint32_t dictHashSeed)
+                                uint8_t *dictHashSeed)
 {
     g_pQForkControl->globalData.fds = fds;
     g_pQForkControl->globalData.numfds = numfds;
@@ -1157,12 +1157,16 @@ void SetupQForkGlobals(int argc, char* argv[]) {
 
 extern "C"
 {
+#include "Win32_PThread.h"
+extern pthread_mutex_t used_memory_mutex;
+
     // The external main() is redefined as redis_main() by Win32_QFork.h.
     // The CRT will call this replacement main() before the previous main()
     // is invoked so that the QFork allocator can be setup prior to anything 
     // Redis will allocate.
     int main(int argc, char* argv[]) {
         try {
+            pthread_mutex_init(&used_memory_mutex, NULL);
             InitTimeFunctions();
             ParseCommandLineArguments(argc, argv);
             SetupQForkGlobals(argc, argv);

@@ -3797,7 +3797,8 @@ int main(int argc, char **argv) {
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     
 #ifdef _WIN32
-    pthread_mutex_init(&used_memory_mutex, NULL);
+    //"used_memory_mutex" from zmalloc.c is initialized earlier in Win32_QFork.cpp/main(), which later calls this main() function
+    //pthread_mutex_init(&used_memory_mutex, NULL);
     pthread_mutex_init(&lazyfree_objects_mutex, NULL);
     pthread_mutex_init(&moduleUnblockedClientsMutex, NULL);
     pthread_mutex_init(&moduleGIL, NULL);

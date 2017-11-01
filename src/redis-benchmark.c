@@ -34,6 +34,8 @@
 #include "Win32_Interop/Win32_Signal_Process.h"
 #include "Win32_Interop/Win32_Time.h"
 #include "Win32_Interop/Win32_Error.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_PThread.h"
 #endif
 
 #include "fmacros.h"
@@ -107,6 +109,10 @@ typedef struct _client {
                                benchmark commands and discarded after the first send. */
     int prefixlen;          /* Size in bytes of the pending prefix commands */
 } *client;
+
+#ifdef _WIN32
+extern pthread_mutex_t used_memory_mutex;
+#endif
 
 /* Prototypes */
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -729,6 +735,7 @@ int main(int argc, const char **argv) {
 
 #ifdef _WIN32
     InitTimeFunctions();
+    pthread_mutex_init(&used_memory_mutex, NULL);
 #endif
 
     srandom((unsigned int)time(NULL));                                          WIN_PORT_FIX /* cast (unsigned int) */
