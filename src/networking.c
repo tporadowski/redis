@@ -1014,8 +1014,13 @@ int writeToClient(int fd, client *c, int handler_installed) {
             nwritten = 0;
         }
         else {
+#ifdef _WIN32
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", wsa_strerror(errno));
+#else
+            serverLog(LL_VERBOSE,
+                "Error writing to client: %s", strerror(errno));
+#endif
             freeClient(c);
             return C_ERR;
         }

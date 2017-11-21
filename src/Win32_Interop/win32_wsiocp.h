@@ -24,12 +24,13 @@
 #define WIN32_INTEROP_WSIOCP_H
 
 #include "win32_wsiocp2.h"
+#include "../ae.h"
 
-/* structs and functions for using IOCP with windows sockets */
+ /* structs and functions for using IOCP with windows sockets */
 
-/* structure used for async write requests.
- * contains overlapped, WSABuf, and callback info
- * NOTE: OVERLAPPED must be first member */
+ /* structure used for async write requests.
+  * contains overlapped, WSABuf, and callback info
+  * NOTE: OVERLAPPED must be first member */
 typedef struct asendreq {
     OVERLAPPED ov;
     WSABUF wbuf;
@@ -47,7 +48,6 @@ typedef struct aacceptreq {
     void *buf;
     struct aacceptreq *next;
 } aacceptreq;
-
 
 /* per socket information */
 typedef struct iocpSockState {

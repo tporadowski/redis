@@ -29,76 +29,76 @@
 extern "C" {
 #endif
 
-BOOL g_IsForkedProcess;
+    BOOL g_IsForkedProcess;
 
-typedef enum operationType {
-    otINVALID = 0,
-    otRDB = 1,
-    otAOF = 2,
-    otSocket = 3
-} OperationType;
+    typedef enum operationType {
+        otINVALID = 0,
+        otRDB = 1,
+        otAOF = 2,
+        otSocket = 3
+    } OperationType;
 
-typedef enum operationStatus {
-    osUNSTARTED = 0,
-    osINPROGRESS = 1,
-    osCOMPLETE = 2,
-    osFAILED = 3
-} OperationStatus;
+    typedef enum operationStatus {
+        osUNSTARTED = 0,
+        osINPROGRESS = 1,
+        osCOMPLETE = 2,
+        osFAILED = 3
+    } OperationStatus;
 
-typedef enum startupStatus {
-    ssFAILED = 0,                 // Something went wrong, exit program with error.
-    ssCONTINUE_AS_PARENT = 1,     // Parent qfork initialization complete, continue as parent instance. Call QForkShutdown when exiting.
-    ssCHILD_EXIT = 2              // Child completed operation. Call QForkShutdown and exit.
-} StartupStatus;
+    typedef enum startupStatus {
+        ssFAILED = 0,                 // Something went wrong, exit program with error.
+        ssCONTINUE_AS_PARENT = 1,     // Parent qfork initialization complete, continue as parent instance. Call QForkShutdown when exiting.
+        ssCHILD_EXIT = 2              // Child completed operation. Call QForkShutdown and exit.
+    } StartupStatus;
 
-// For parent process use only
-pid_t BeginForkOperation_Rdb(
-    char* fileName,
-    LPVOID redisData,
-    int sizeOfRedisData,
-    uint8_t *dictHashSeed);
+    // For parent process use only
+    pid_t BeginForkOperation_Rdb(
+        char* fileName,
+        LPVOID redisData,
+        int sizeOfRedisData,
+        uint8_t *dictHashSeed);
 
-pid_t BeginForkOperation_Aof(
-    int aof_pipe_write_ack_to_parent,
-    int aof_pipe_read_ack_from_parent,
-    int aof_pipe_read_data_from_parent,
-    char* fileName,
-    LPVOID redisData,
-    int sizeOfRedisData,
-    uint8_t *dictHashSeed);
+    pid_t BeginForkOperation_Aof(
+        int aof_pipe_write_ack_to_parent,
+        int aof_pipe_read_ack_from_parent,
+        int aof_pipe_read_data_from_parent,
+        char* fileName,
+        LPVOID redisData,
+        int sizeOfRedisData,
+        uint8_t *dictHashSeed);
 
-pid_t BeginForkOperation_Socket(
-    int *fds,
-    int numfds,
-    uint64_t *clientids,
-    int pipe_write_fd,
-    LPVOID redisData,
-    int sizeOfRedisData,
-    uint8_t *dictHashSeed);
+    pid_t BeginForkOperation_Socket(
+        int *fds,
+        int numfds,
+        uint64_t *clientids,
+        int pipe_write_fd,
+        LPVOID redisData,
+        int sizeOfRedisData,
+        uint8_t *dictHashSeed);
 
-void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId);
+    void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId);
 
-OperationStatus GetForkOperationStatus();
-BOOL EndForkOperation(int * pExitCode); 
-BOOL AbortForkOperation();
+    OperationStatus GetForkOperationStatus();
+    BOOL EndForkOperation(int * pExitCode);
+    BOOL AbortForkOperation();
 
 #ifdef USE_DLMALLOC
-  LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
-  // for no persistence optimization/feature when using dlmalloc
-  extern void*(*g_malloc)(size_t);
-  extern void*(*g_calloc)(size_t, size_t);
-  extern void*(*g_realloc)(void*, size_t);
-  extern void(*g_free)(void*);
-  extern size_t(*g_msize)(void*);
+    LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
+    // for no persistence optimization/feature when using dlmalloc
+    extern void*(*g_malloc)(size_t);
+    extern void*(*g_calloc)(size_t, size_t);
+    extern void*(*g_realloc)(void*, size_t);
+    extern void(*g_free)(void*);
+    extern size_t(*g_msize)(void*);
 #elif USE_JEMALLOC
-  LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero);
-  BOOL PurgePages(LPVOID addr, size_t length);
+    LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero);
+    BOOL PurgePages(LPVOID addr, size_t length);
 #endif
-BOOL FreeHeapBlock(LPVOID addr, size_t size);
+    BOOL FreeHeapBlock(LPVOID addr, size_t size);
 
 #ifndef NO_QFORKIMPL
 #ifdef QFORK_MAIN_IMPL
-int redis_main(int argc, char** argv);
+    int redis_main(int argc, char** argv);
 #else
 #define main redis_main
 #endif

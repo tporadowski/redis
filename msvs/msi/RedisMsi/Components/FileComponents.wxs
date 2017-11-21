@@ -15,6 +15,10 @@
         <File Source="$(var.BinDir)redis-check-aof.exe" />
       </Component>
 
+      <Component Id="cmp_redis_check_rdbEXE" Guid="*">
+        <File Source="$(var.BinDir)redis-check-rdb.exe" />
+      </Component>
+
       <Component Id="cmp_redis_cliEXE" Guid="*">
         <File Source="$(var.BinDir)redis-cli.exe" />
       </Component>

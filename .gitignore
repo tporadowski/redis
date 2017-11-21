@@ -50,3 +50,4 @@ msvs/Documentation
 tests/tmp/
 
 /msvs/.vs/RedisServer/v15
+/msvs/msi/.vs/RedisMsi/v15/Server/sqlite3

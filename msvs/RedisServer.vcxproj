@@ -111,6 +111,12 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <IgnoreSpecificDefaultLibraries>MSVCRT.lib</IgnoreSpecificDefaultLibraries>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y $(OutputPath)redis-server.exe $(OutputPath)redis-check-rdb.exe
+copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-rdb.pdb
+copy /Y $(OutputPath)redis-server.exe $(OutputPath)redis-check-aof.exe
+copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -155,8 +161,10 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
-      <Command>
-      </Command>
+      <Command>copy /Y $(OutputPath)redis-server.exe $(OutputPath)redis-check-rdb.exe
+copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-rdb.pdb
+copy /Y $(OutputPath)redis-server.exe $(OutputPath)redis-check-aof.exe
+copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
     </PostBuildEvent>
     <CustomBuildStep>
       <Command>

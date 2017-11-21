@@ -21,7 +21,7 @@
     <Product Id="*"
              Name="Redis on Windows"
              Language="1033"
-             Version="3.2.100"
+             Version="4.0.2"
              Manufacturer="MSOpenTech"
              UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
         <Package InstallerVersion="200"
@@ -36,7 +36,7 @@
 
         <!--Properties-->
         <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
-        <Property Id="ARPURLINFOABOUT" Value="https://github.com/MSOpenTech/redis" />
+        <Property Id="ARPURLINFOABOUT" Value="https://github.com/tporadowski/redis" />
         <Property Id="PORT" Value="6379" />
         <Property Id="ADD_FIREWALL_RULE" Value="1" />
         <Property Id="FIREWALL_SERVICE_STOPPED" Value="0" />
