@@ -22,7 +22,7 @@
              Name="Redis on Windows"
              Language="1033"
              Version="4.0.2"
-             Manufacturer="MSOpenTech"
+             Manufacturer="Poradowski.com"
              UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
         <Package InstallerVersion="200"
                  Compressed="yes"
