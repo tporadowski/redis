@@ -970,6 +970,13 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 server.el, c, o, NULL);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 nwritten = -1;
+
+                //[tporadowski/#11] we might be bursting data too fast, so turn it into another try that will put back the client
+                //  in the sending queue
+                if (errno == WSAEWOULDBLOCK) {
+                    serverLog(LL_DEBUG, "writeToClient: will try again (EAGAIN) due to WSAEWOULDBLOCK");
+                    errno = EAGAIN;
+                }
                 break;
             }
             c->sentlen += objlen;
@@ -995,7 +1002,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 if (listLength(c->reply) == 0)
                     serverAssert(c->reply_bytes == 0);
             }
-        }
+            }
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
@@ -1007,7 +1014,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
                 zmalloc_used_memory() < server.maxmemory)) break;
-    }
+        }
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
@@ -1043,8 +1050,27 @@ int writeToClient(int fd, client *c, int handler_installed) {
             return C_ERR;
         }
     }
+#if _WIN32
+    /* [tporadowski/#11] too much data was sent in one run, schedule for next available sending slot again.
+    * We are re-scheduling only when writeToClient was called from sendReplyToClient handler as normally
+    * handleClientsWithPendingWrites() does this automatically after writeToClient() returns with pending
+    * replies.
+    */
+    else if (handler_installed) {
+        if (aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+            sendReplyToClient, c) == AE_ERR)
+        {
+            serverLog(LL_WARNING, "writeToClient: aeCreateFileEvent failed");
+            freeClientAsync(c);
+            return C_ERR;
+        }
+        else {
+            serverLog(LL_DEBUG, "writeToClient: re-scheduling sendReplyToClient() for pending client replies");
+        }
+    }
+#endif
     return C_OK;
-}
+    }
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
