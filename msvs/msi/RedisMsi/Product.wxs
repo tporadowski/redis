@@ -28,6 +28,12 @@
                  Compressed="yes"
                  InstallScope="perMachine" />
 
+        <Upgrade Id="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
+          <UpgradeVersion OnlyDetect="no" Property="PREVIOUSFOUND"
+            Minimum="3.2.100.0"  IncludeMinimum="yes"
+            Maximum="99.0.0.0" IncludeMaximum="no" />
+        </Upgrade>
+
         <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
         <MediaTemplate EmbedCab="yes" />
 
