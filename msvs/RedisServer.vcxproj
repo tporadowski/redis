@@ -311,6 +311,7 @@ copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
     <ClInclude Include="..\src\ziplist.h" />
     <ClInclude Include="..\src\zipmap.h" />
     <ClInclude Include="..\src\zmalloc.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\deps\jemalloc-win\projects\jemalloc\proj.win32\vc2013\jemalloc.vcxproj">
@@ -331,6 +332,9 @@ copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
   </ItemGroup>
   <ItemGroup>
     <Resource Include="..\src\Win32_Interop\resources\EventLog.res" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="RedisForWindows.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

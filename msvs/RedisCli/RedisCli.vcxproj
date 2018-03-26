@@ -189,6 +189,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\deps\linenoise\linenoise.h" />
+    <ClInclude Include="..\resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\RedisForWindows.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
