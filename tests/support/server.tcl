@@ -305,7 +305,7 @@ proc start_server {options {code undefined}} {
 
     # Wait for actual startup
     while {![info exists _pid]} {
-        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
+        regexp -nocase {PID[:=]\s*(\d+)} [exec cat $stdout] _ _pid
         after 100
     }
 
@@ -334,7 +334,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec grep "ready to accept" | wc -l < $stdout] > 0} {
+            if {[exec grep -i "ready to accept" | wc -l < $stdout] > 0} {
                 break
             }
             after 10
