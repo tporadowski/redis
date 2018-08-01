@@ -243,9 +243,7 @@ foreach dl {no yes} {
 
                         # Make sure that slaves and master have same
                         # number of keys
-
-                        #WIN_PORT_FIX 'wait_for_condition 500 100' -> 'wait_for_condition 200 250'
-                        wait_for_condition 200 250 {
+                        wait_for_condition 500 100 {
                             [$master dbsize] == [[lindex $slaves 0] dbsize] &&
                             [$master dbsize] == [[lindex $slaves 1] dbsize] &&
                             [$master dbsize] == [[lindex $slaves 2] dbsize]
@@ -255,24 +253,13 @@ foreach dl {no yes} {
 
                         # Check digests
                         set digest [$master debug digest]
+                        set digest0 [[lindex $slaves 0] debug digest]
+                        set digest1 [[lindex $slaves 1] debug digest]
+                        set digest2 [[lindex $slaves 2] debug digest]
                         assert {$digest ne 0000000000000000000000000000000000000000}
-
-                        if { $::tcl_platform(platform) == "windows" } {
-                            wait_for_condition 200 250 {
-                                $digest eq [[lindex $slaves 0] debug digest] &&
-                                $digest eq [[lindex $slaves 1] debug digest] &&
-                                $digest eq [[lindex $slaves 2] debug digest]
-                            } else {
-                                fail "slave digest not equal to master digest"
-                            }
-                        } else {
-                            set digest0 [[lindex $slaves 0] debug digest]
-                            set digest1 [[lindex $slaves 1] debug digest]
-                            set digest2 [[lindex $slaves 2] debug digest]
-                            assert {$digest eq $digest0}
-                            assert {$digest eq $digest1}
-                            assert {$digest eq $digest2}
-                        }
+                        assert {$digest eq $digest0}
+                        assert {$digest eq $digest1}
+                        assert {$digest eq $digest2}
                     }
                }
             }

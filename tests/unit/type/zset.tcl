@@ -722,9 +722,7 @@ start_server {tags {"zset"}} {
 
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-				set x [expr { double([lindex $aux $i]) } ]
-				set y [expr { double([r zscore zscoretest $i]) } ]
-				assert_equal $x $y 
+                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
             }
         }
 
@@ -740,9 +738,7 @@ start_server {tags {"zset"}} {
             r debug reload
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
-				set x [expr { double([lindex $aux $i]) } ]
-				set y [expr { double([r zscore zscoretest $i]) } ]
-                assert_equal $x $y
+                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
             }
         }
 

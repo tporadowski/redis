@@ -939,6 +939,14 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 server.el, c, c->buf, NULL);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 nwritten = -1;
+
+                //[tporadowski/#11] we might be bursting data too fast, so turn it into another try that will put back the client
+                //  in the sending queue
+                if (errno == WSAEWOULDBLOCK) {
+                    serverLog(LL_DEBUG, "writeToClient: will try again (EAGAIN) due to WSAEWOULDBLOCK");
+                    errno = EAGAIN;
+                }
+
                 break;
             }
 #else
@@ -1002,7 +1010,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 if (listLength(c->reply) == 0)
                     serverAssert(c->reply_bytes == 0);
             }
-            }
+        }
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
@@ -1014,7 +1022,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
                 zmalloc_used_memory() < server.maxmemory)) break;
-        }
+    }
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
@@ -1070,7 +1078,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
     }
 #endif
     return C_OK;
-    }
+}
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
