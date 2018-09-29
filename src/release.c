@@ -27,19 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Every time the Redis Git SHA1 or Dirty status changes only this small
- * file is recompiled, as we access this information in all the other
- * files using this functions. */
-
-#ifdef _WIN32
-#include "Win32_Interop/Win32_Portability.h"
-#define REDIS_GIT_SHA1 "00000000"   /* TODO: Modify build to write them to release.h from the environment */
-#define REDIS_GIT_DIRTY "0"
-#define REDIS_BUILD_ID "0000"
-#endif
+ /* Every time the Redis Git SHA1 or Dirty status changes only this small
+  * file is recompiled, as we access this information in all the other
+  * files using this functions. */
 
 #include <string.h>
-POSIX_ONLY(#include "release.h")
+#include "release.h"
 #include "version.h"
 #include "crc64.h"
 
@@ -54,5 +47,5 @@ char *redisGitDirty(void) {
 uint64_t redisBuildId(void) {
     char *buildid = REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1;
 
-    return crc64(0,(unsigned char*)buildid,strlen(buildid));
+    return crc64(0, (unsigned char*) buildid, strlen(buildid));
 }

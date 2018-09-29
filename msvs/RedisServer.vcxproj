@@ -296,6 +296,7 @@ copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
     <ClInclude Include="..\src\rdb.h" />
     <ClInclude Include="..\src\redisassert.h" />
     <ClInclude Include="..\src\redismodule.h" />
+    <ClInclude Include="..\src\release.h" />
     <ClInclude Include="..\src\rio.h" />
     <ClInclude Include="..\src\sds.h" />
     <ClInclude Include="..\src\sdsalloc.h" />
