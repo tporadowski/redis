@@ -22,19 +22,13 @@
 #  define xallocx jet_xallocx
 #  define sallocx jet_sallocx
 #  define dallocx jet_dallocx
+#  define sdallocx jet_sdallocx
 #  define nallocx jet_nallocx
 #  define mallctl jet_mallctl
 #  define mallctlnametomib jet_mallctlnametomib
 #  define mallctlbymib jet_mallctlbymib
 #  define malloc_stats_print jet_malloc_stats_print
 #  define malloc_usable_size jet_malloc_usable_size
-#  define memalign jet_memalign
-#  define valloc jet_valloc
-#  define allocm jet_allocm
-#  define dallocm jet_dallocm
-#  define nallocm jet_nallocm
-#  define rallocm jet_rallocm
-#  define sallocm jet_sallocm
 #endif
 
 /*
@@ -58,17 +52,11 @@
 #  undef jet_xallocx
 #  undef jet_sallocx
 #  undef jet_dallocx
+#  undef jet_sdallocx
 #  undef jet_nallocx
 #  undef jet_mallctl
 #  undef jet_mallctlnametomib
 #  undef jet_mallctlbymib
 #  undef jet_malloc_stats_print
 #  undef jet_malloc_usable_size
-#  undef jet_memalign
-#  undef jet_valloc
-#  undef jet_allocm
-#  undef jet_dallocm
-#  undef jet_nallocm
-#  undef jet_rallocm
-#  undef jet_sallocm
 #endif

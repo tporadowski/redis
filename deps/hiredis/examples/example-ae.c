@@ -9,7 +9,7 @@
 
 #include <hiredis.h>
 #include <async.h>
-#include <adapters\ae.h>
+#include <adapters/ae.h>
 
 /* Put event loop in the global scope, so it can be explicitly stopped */
 static aeEventLoop *loop;
@@ -41,6 +41,7 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
     }
 
     printf("Disconnected...\n");
+    aeStop(loop);
 }
 
 int main (int argc, char **argv) {

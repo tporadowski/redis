@@ -1274,7 +1274,8 @@ extern "C"
                 g_msize = _msize;
             }
 #elif USE_JEMALLOC
-            je_init();
+            //[tporadowski/#4] no longer required (not exported anyway)
+            //je_init();
 #endif
             if (g_PersistenceDisabled || g_SentinelMode) {
                 return redis_main(argc, argv);
@@ -1300,7 +1301,7 @@ extern "C"
                     return 2;
                 }
             }
-    }
+        }
         catch (system_error syserr) {
             RedisEventLog().LogError(string("Main: system error. ") + syserr.what());
             serverLog(LL_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
@@ -1313,5 +1314,5 @@ extern "C"
             RedisEventLog().LogError(string("Main: an exception occurred. ") + ex.what());
             serverLog(LL_WARNING, "main: other exception caught.\n");
         }
-}
+    }
 }

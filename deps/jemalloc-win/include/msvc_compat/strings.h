@@ -1,41 +1,29 @@
-#ifndef JEMALLOC_STRINGS_H
-#define JEMALLOC_STRINGS_H
-
-#ifdef _MSC_VER
+#ifndef strings_h
+#define strings_h
 
 /* MSVC doesn't define ffs/ffsl. This dummy strings.h header is provided
  * for both */
-#include <intrin.h>
-#pragma intrinsic(_BitScanForward)
-#ifdef _WIN64
-#pragma intrinsic(_BitScanForward64)
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-int ffsl(long x);
-int ffs(int x);
-
-#ifdef __cplusplus
-}
-#endif
-
+#ifdef _MSC_VER
+#  include <intrin.h>
+#  pragma intrinsic(_BitScanForward)
 static __forceinline int ffsl(long x)
 {
-	unsigned long i = 0;
+	unsigned long i;
 
-	if (_BitScanForward(&i, (unsigned long)x))
+	if (_BitScanForward(&i, x))
 		return (i + 1);
 	return (0);
 }
 
 static __forceinline int ffs(int x)
 {
+
 	return (ffsl(x));
 }
 
-#endif  /* _MSC_VER */
+#else
+#  define ffsl(x) __builtin_ffsl(x)
+#  define ffs(x) __builtin_ffs(x)
+#endif
 
-#endif  /* JEMALLOC_STRINGS_H */
+#endif /* strings_h */

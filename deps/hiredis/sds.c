@@ -485,7 +485,7 @@ int sdsull2str(char *s, PORT_ULONGLONG v) {
 		s++;
 		p--;
 	}
-	return (int)l;
+	return (int)l;                                                              WIN_PORT_FIX /* cast (int) */
 }
 
 /* Create an sds string from a long long value. It is much faster than:

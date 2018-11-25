@@ -6,7 +6,7 @@
 #endif
 
 #ifndef _CRT_SPINCOUNT
-#define	_CRT_SPINCOUNT  4000
+#define	_CRT_SPINCOUNT 4000
 #endif
 
 /******************************************************************************/
@@ -16,8 +16,8 @@
 bool isthreaded = false;
 #endif
 #ifdef JEMALLOC_MUTEX_INIT_CB
-static bool             postpone_init = true;
-static malloc_mutex_t  *postponed_mutexes = NULL;
+static bool		postpone_init = true;
+static malloc_mutex_t	*postponed_mutexes = NULL;
 #endif
 
 #if defined(JEMALLOC_LAZY_LOCK) && !defined(_WIN32)
@@ -71,10 +71,15 @@ JEMALLOC_EXPORT int	_pthread_mutex_init_calloc_cb(pthread_mutex_t *mutex,
 bool
 malloc_mutex_init(malloc_mutex_t *mutex)
 {
+
 #ifdef _WIN32
+#  if _WIN32_WINNT >= 0x0600
+	InitializeSRWLock(&mutex->lock);
+#  else
 	if (!InitializeCriticalSectionAndSpinCount(&mutex->lock,
 	    _CRT_SPINCOUNT))
 		return (true);
+#  endif
 #elif (defined(JEMALLOC_OSSPIN))
 	mutex->lock = 0;
 #elif (defined(JEMALLOC_MUTEX_INIT_CB))
@@ -82,8 +87,8 @@ malloc_mutex_init(malloc_mutex_t *mutex)
 		mutex->postponed_next = postponed_mutexes;
 		postponed_mutexes = mutex;
 	} else {
-		if (_pthread_mutex_init_calloc_cb(&mutex->lock, base_calloc) !=
-		    0)
+		if (_pthread_mutex_init_calloc_cb(&mutex->lock,
+		    bootstrap_calloc) != 0)
 			return (true);
 	}
 #else
@@ -102,49 +107,23 @@ malloc_mutex_init(malloc_mutex_t *mutex)
 }
 
 void
-malloc_mutex_uninit(malloc_mutex_t *mutex)
-{
-#ifdef _WIN32
-    DeleteCriticalSection(&mutex->lock);
-#elif (defined(JEMALLOC_OSSPIN))
-    mutex->lock = 0;
-#elif (defined(JEMALLOC_MUTEX_INIT_CB))
-    if (postpone_init) {
-        mutex->postponed_next = postponed_mutexes;
-        postponed_mutexes = mutex;
-    } else {
-        if (_pthread_mutex_init_calloc_cb(&mutex->lock, base_calloc) != 0)
-            return;
-    }
-#else
-    pthread_mutexattr_t attr;
-
-    if (pthread_mutexattr_init(&attr) != 0)
-        return;
-    pthread_mutexattr_settype(&attr, MALLOC_MUTEX_TYPE);
-    if (pthread_mutex_init(&mutex->lock, &attr) != 0) {
-        pthread_mutexattr_destroy(&attr);
-        return;
-    }
-    pthread_mutexattr_destroy(&attr);
-#endif
-}
-
-void
 malloc_mutex_prefork(malloc_mutex_t *mutex)
 {
+
 	malloc_mutex_lock(mutex);
 }
 
 void
 malloc_mutex_postfork_parent(malloc_mutex_t *mutex)
 {
+
 	malloc_mutex_unlock(mutex);
 }
 
 void
 malloc_mutex_postfork_child(malloc_mutex_t *mutex)
 {
+
 #ifdef JEMALLOC_MUTEX_INIT_CB
 	malloc_mutex_unlock(mutex);
 #else
@@ -160,11 +139,12 @@ malloc_mutex_postfork_child(malloc_mutex_t *mutex)
 bool
 mutex_boot(void)
 {
+
 #ifdef JEMALLOC_MUTEX_INIT_CB
 	postpone_init = false;
 	while (postponed_mutexes != NULL) {
 		if (_pthread_mutex_init_calloc_cb(&postponed_mutexes->lock,
-		    base_calloc) != 0)
+		    bootstrap_calloc) != 0)
 			return (true);
 		postponed_mutexes = postponed_mutexes->postponed_next;
 	}

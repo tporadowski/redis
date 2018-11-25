@@ -83,7 +83,7 @@ static void on_close(uv_handle_t* handle) {
 static void redisLibuvCleanup(void *privdata) {
   redisLibuvEvents* p = (redisLibuvEvents*)privdata;
 
-  p->context = NULL; // indicate that context might no PORT_LONGer exist
+  p->context = NULL; // indicate that context might no longer exist
   uv_close((uv_handle_t*)&p->handle, on_close);
 }
 

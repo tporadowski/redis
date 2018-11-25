@@ -42,7 +42,6 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <netdb.h>
 #endif
 #include <fcntl.h>
 #include <string.h>
@@ -56,6 +55,7 @@
 #include <poll.h>
 #endif
 #include <limits.h>
+#include <stdlib.h>
 
 #include "net.h"
 #include "sds.h"
@@ -241,8 +241,7 @@ static int redisContextWaitReady(redisContext *c, PORT_LONG msec) {
 	if (errno == EINPROGRESS) {
 		int res;
 
-		if ((res = poll(wfd, 1, (int)msec)) == -1) {
-			WIN_PORT_FIX /* cast (int) */
+		if ((res = poll(wfd, 1, (int)msec)) == -1) {                   WIN_PORT_FIX /* cast (int) */
 				__redisSetErrorFromErrno(c, REDIS_ERR_IO, "poll(2)");
 			redisContextCloseFd(c);
 			return REDIS_ERR;

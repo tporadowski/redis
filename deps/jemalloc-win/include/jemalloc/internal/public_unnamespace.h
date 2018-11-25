@@ -11,16 +11,10 @@
 #undef je_xallocx
 #undef je_sallocx
 #undef je_dallocx
+#undef je_sdallocx
 #undef je_nallocx
 #undef je_mallctl
 #undef je_mallctlnametomib
 #undef je_mallctlbymib
 #undef je_malloc_stats_print
 #undef je_malloc_usable_size
-#undef je_memalign
-#undef je_valloc
-#undef je_allocm
-#undef je_dallocm
-#undef je_nallocm
-#undef je_rallocm
-#undef je_sallocm

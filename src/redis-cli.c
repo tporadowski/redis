@@ -66,8 +66,6 @@
 #include "Win32_Interop/Win32_Signal_Process.h"
 #include "Win32_Interop/Win32_ANSI.h"
 #include <windows.h>
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
 #define strtoull _strtoui64
 #endif
 

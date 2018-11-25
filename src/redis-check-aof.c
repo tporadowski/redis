@@ -45,11 +45,6 @@ POSIX_ONLY(#include <unistd.h>)
 #include <sys/stat.h>
 #include "config.h"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#endif
-
 #define ERROR(...) { \
     char __buf[1024]; \
     sprintf(__buf, __VA_ARGS__); \

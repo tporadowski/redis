@@ -30,6 +30,7 @@
  */
 #ifdef _WIN32
 #include "win32_hiredis.h"
+#include "../../src/Win32_Interop/Win32_Portability.h"
 #include "../../src/Win32_Interop/win32_wsiocp2.h"
 #endif
 #include "fmacros.h"
@@ -65,11 +66,6 @@ POSIX_ONLY(#include <strings.h>)
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
     } while(0);
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#endif
-
 /* Forward declaration of function in hiredis.c */
 int __redisAppendCommand(redisContext *c, const char *cmd, size_t len);
 
@@ -80,8 +76,8 @@ static unsigned int callbackHash(const void *key) {
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
+    ((void) privdata);
 	redisCallback *dup = malloc(sizeof(*dup));
-	((void)privdata);
 	memcpy(dup, src, sizeof(*dup));
 	return dup;
 }

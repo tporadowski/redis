@@ -117,7 +117,7 @@ extern "C" {
 typedef struct redisReply {
     int type; /* REDIS_REPLY_* */
     PORT_LONGLONG integer; /* The integer when type is REDIS_REPLY_INTEGER */
-    int len; /* Length of string */
+    size_t len; /* Length of string */
     char *str; /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
     size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
     struct redisReply **element; /* elements vector for REDIS_REPLY_ARRAY */

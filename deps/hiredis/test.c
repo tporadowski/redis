@@ -20,8 +20,6 @@
 #include "hiredis.h"
 
 #ifdef _WIN32
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
 #define SIGPIPE 13
 #endif
 
