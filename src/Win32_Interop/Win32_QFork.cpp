@@ -188,7 +188,8 @@ const int  cMaxBlocks = 1 << 22;                // 256KB * 4M heap blocks = 1TB
 const int  cMaxBlocks = 1 << 12;                // 256KB * 4K heap blocks = 1GB
 #endif
 #elif USE_JEMALLOC
-const size_t cAllocationGranularity = 1 << 22;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
+//const size_t cAllocationGranularity = 1 << 22;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
+size_t cAllocationGranularity = 0;
 #ifdef _WIN64
 const int  cMaxBlocks = 1 << 18;                // 4MB * 256K heap blocks = 1TB
 #else
@@ -1274,8 +1275,11 @@ extern "C"
                 g_msize = _msize;
             }
 #elif USE_JEMALLOC
-            //[tporadowski/#4] no longer required (not exported anyway)
-            //je_init();
+            //[tporadowski/#4] jemalloc's memory allocation granularity for Windows relies now on value from GetSystemInfo()
+            SYSTEM_INFO systemInfo;
+            GetSystemInfo(&systemInfo);
+
+            cAllocationGranularity = systemInfo.dwAllocationGranularity;
 #endif
             if (g_PersistenceDisabled || g_SentinelMode) {
                 return redis_main(argc, argv);

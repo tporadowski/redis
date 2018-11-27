@@ -15,8 +15,12 @@ pages_map(void *addr, size_t size)
 	 * If VirtualAlloc can't allocate at the given address when one is
 	 * given, it fails and returns NULL.
 	 */
+#  ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	ret = AllocHeapBlock(addr, size, TRUE);
+#  else
 	ret = VirtualAlloc(addr, size, MEM_COMMIT | MEM_RESERVE,
 	    PAGE_READWRITE);
+#  endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 	/*
 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
@@ -46,7 +50,11 @@ pages_unmap(void *addr, size_t size)
 {
 
 #ifdef _WIN32
+#  ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	if (FreeHeapBlock(addr, size) == FALSE)
+#  else
 	if (VirtualFree(addr, 0, MEM_RELEASE) == 0)
+#  endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 	if (munmap(addr, size) == -1)
 #endif
@@ -56,7 +64,11 @@ pages_unmap(void *addr, size_t size)
 		buferror(get_errno(), buf, sizeof(buf));
 		malloc_printf("<jemalloc>: Error in "
 #ifdef _WIN32
+#  ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		              "FreeHeapBlock"
+#  else
 		              "VirtualFree"
+#  endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 		              "munmap"
 #endif
@@ -148,7 +160,11 @@ pages_purge(void *addr, size_t size)
 	bool unzeroed;
 
 #ifdef _WIN32
+#  ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	PurgePages(addr, size);
+#  else
 	VirtualAlloc(addr, size, MEM_RESET, PAGE_READWRITE);
+#  endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 	unzeroed = true;
 #elif defined(JEMALLOC_HAVE_MADVISE)
 #  ifdef JEMALLOC_PURGE_MADVISE_DONTNEED

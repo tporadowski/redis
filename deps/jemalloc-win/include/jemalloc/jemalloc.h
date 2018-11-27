@@ -135,7 +135,16 @@ extern "C" {
 #  define JEMALLOC_ALLOCATOR
 #elif _MSC_VER
 #  define JEMALLOC_ATTR(s)
-#  define JEMALLOC_ALIGNED(s) __declspec(align(s))
+#  if defined(USE_STATIC)
+#	 define	JEMALLOC_EXPORT
+#	 define	JEMALLOC_ALIGNED(s)
+#	 define	JEMALLOC_SECTION(s)
+#	 define	JEMALLOC_NOINLINE
+#  else
+#    define JEMALLOC_ALIGNED(s) __declspec(align(s))
+#    define JEMALLOC_NOINLINE __declspec(noinline)
+#    define JEMALLOC_SECTION(s) __declspec(allocate(s))
+#  endif //USE_STATIC
 #  define JEMALLOC_ALLOC_SIZE(s)
 #  define JEMALLOC_ALLOC_SIZE2(s1, s2)
 #  ifndef JEMALLOC_EXPORT
@@ -146,13 +155,11 @@ extern "C" {
 #    endif
 #  endif
 #  define JEMALLOC_FORMAT_PRINTF(s, i)
-#  define JEMALLOC_NOINLINE __declspec(noinline)
 #  ifdef __cplusplus
 #    define JEMALLOC_NOTHROW __declspec(nothrow)
 #  else
 #    define JEMALLOC_NOTHROW
 #  endif
-#  define JEMALLOC_SECTION(s) __declspec(allocate(s))
 #  define JEMALLOC_RESTRICT_RETURN __declspec(restrict)
 #  if _MSC_VER >= 1900 && !defined(__EDG__)
 #    define JEMALLOC_ALLOCATOR __declspec(allocator)

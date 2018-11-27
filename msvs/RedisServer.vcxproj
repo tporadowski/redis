@@ -317,6 +317,7 @@ copy /Y $(OutputPath)redis-server.pdb $(OutputPath)redis-check-aof.pdb</Command>
   <ItemGroup>
     <ProjectReference Include="..\deps\jemalloc-win\msvc\projects\vc2017\jemalloc\jemalloc.vcxproj">
       <Project>{8d6bb292-9e1c-413d-9f98-4864bdc1514a}</Project>
+      <Private>true</Private>
     </ProjectReference>
     <ProjectReference Include="..\src\Win32_Interop\Win32_Interop.vcxproj">
       <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
