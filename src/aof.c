@@ -1795,3 +1795,22 @@ cleanup:
     if (server.aof_state == AOF_WAIT_REWRITE)
         server.aof_rewrite_scheduled = 1;
 }
+
+#ifdef _WIN32
+void aofProcessDiffRewriteEvents(aeEventLoop* eventLoop)
+{
+	// only do these checks in the parent process and if an aof rewrite is in progress
+	if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
+		//1) check if more data can be written to the child and write it.
+		// in which case we dont need to send any more diffs to the parent
+		if (server.aof_stop_sending_diff == 0) {
+			aofChildWriteDiffData(eventLoop,server.aof_pipe_write_data_to_child,NULL,0);
+		}
+
+		//2) check if child has signaled parent to stop sending diffs
+		if (server.aof_stop_sending_diff == 0) {
+			aofChildPipeReadable(eventLoop,server.aof_pipe_read_ack_from_child,NULL,0);
+		}
+	}
+}
+#endif
