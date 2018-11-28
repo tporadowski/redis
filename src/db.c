@@ -41,6 +41,15 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+/* Update LFU when an object is accessed.
+ * Firstly, decrement the counter if the decrement time is reached.
+ * Then logarithmically increment the counter, and update the access time. */
+void updateLFU(robj *val) {
+    unsigned long counter = LFUDecrAndReturn(val);
+    counter = LFULogIncr(counter);
+    val->lru = (LFUGetTimeInMinutes()<<8) | counter;
+}
+
 /* Low level key lookup API, not actually called directly from commands
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
@@ -57,9 +66,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             !(flags & LOOKUP_NOTOUCH))
         {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-                PORT_LONG ldt = val->lru >> 8;
-                PORT_LONG counter = LFULogIncr(val->lru & 255);
-                val->lru = (ldt << 8) | counter;
+                updateLFU(val);
             } else {
                 val->lru = LRU_CLOCK();
             }
@@ -183,6 +190,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
         int saved_lru = old->lru;
         dictReplace(db->dict, key->ptr, val);
         val->lru = saved_lru;
+        /* LFU should be not only copied but also updated
+         * when a key is overwritten. */
+        updateLFU(val);
     } else {
         dictReplace(db->dict, key->ptr, val);
     }
@@ -1091,6 +1101,25 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
+/* This function is called when we are going to perform some operation
+ * in a given key, but such key may be already logically expired even if
+ * it still exists in the database. The main way this function is called
+ * is via lookupKey*() family of functions.
+ *
+ * The behavior of the function depends on the replication role of the
+ * instance, because slave instances do not expire keys, they wait
+ * for DELs from the master for consistency matters. However even
+ * slaves will try to have a coherent return value for the function,
+ * so that read commands executed in the slave side will be able to
+ * behave like if the key is expired even if still present (because the
+ * master has yet to propagate the DEL).
+ *
+ * In masters as a side effect of finding a key which is expired, such
+ * key will be evicted from the database. Also this may trigger the
+ * propagation of a DEL/UNLINK command in AOF / replication stream.
+ *
+ * The return value of the function is 0 if the key is still valid,
+ * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
     mstime_t when = getExpire(db,key);
     mstime_t now;
@@ -1100,7 +1129,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
 
-    /* If we are in the context of a Lua script, we claim that time is
+    /* If we are in the context of a Lua script, we pretend that time is
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
@@ -1148,11 +1177,13 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         if (j >= argc) {
-            /* Modules command do not have dispatch time arity checks, so
-             * we need to handle the case where the user passed an invalid
-             * number of arguments here. In this case we return no keys
-             * and expect the module command to report an arity error. */
-            if (cmd->flags & CMD_MODULE) {
+            /* Modules commands, and standard commands with a not fixed number
+             * of arugments (negative arity parameter) do not have dispatch
+             * time arity checks, so we need to handle the case where the user
+             * passed an invalid number of arguments here. In this case we
+             * return no keys and expect the command implementation to report
+             * an arity or syntax error. */
+            if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
                 zfree(keys);
                 *numkeys = 0;
                 return NULL;

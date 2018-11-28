@@ -132,6 +132,7 @@ static struct config {
     char *pattern;
     char *rdb_filename;
     int bigkeys;
+    int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
     int output; /* output mode, see OUTPUT_* defines */
@@ -184,20 +185,25 @@ static PORT_LONGLONG mstime(void) {
 }
 
 static void cliRefreshPrompt(void) {
-    int len;
-
     if (config.eval_ldb) return;
-    if (config.hostsocket != NULL)
-        len = snprintf(config.prompt, sizeof(config.prompt), "redis %s",
-            config.hostsocket);
-    else
-        len = anetFormatAddr(config.prompt, sizeof(config.prompt),
-            config.hostip, config.hostport);
+
+    sds prompt = sdsempty();
+    if (config.hostsocket != NULL) {
+        prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
+    } else {
+        char addr[256];
+        anetFormatAddr(addr, sizeof(addr), config.hostip, config.hostport);
+        prompt = sdscatlen(prompt,addr,strlen(addr));
+    }
+
     /* Add [dbnum] if needed */
     if (config.dbnum != 0)
-        len += snprintf(config.prompt + len, sizeof(config.prompt) - len, "[%d]",
-            config.dbnum);
-    snprintf(config.prompt + len, sizeof(config.prompt) - len, "> ");
+        prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
+
+    /* Copy the prompt in the static buffer. */
+    prompt = sdscatlen(prompt,"> ",2);
+    snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
+    sdsfree(prompt);
 }
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
@@ -240,6 +246,92 @@ static sds getDotfilePath(char *envoverride, char *dotfilename) {
 #endif
     }
     return dotPath;
+}
+
+/* URL-style percent decoding. */
+#define isHexChar(c) (isdigit(c) || (c >= 'a' && c <= 'f'))
+#define decodeHexChar(c) (isdigit(c) ? c - '0' : c - 'a' + 10)
+#define decodeHex(h, l) ((decodeHexChar(h) << 4) + decodeHexChar(l))
+
+static sds percentDecode(const char *pe, size_t len) {
+    const char *end = pe + len;
+    sds ret = sdsempty();
+    const char *curr = pe;
+
+    while (curr < end) {
+        if (*curr == '%') {
+            if ((end - curr) < 2) {
+                fprintf(stderr, "Incomplete URI encoding\n");
+                exit(1);
+            }
+
+            char h = tolower(*(++curr));
+            char l = tolower(*(++curr));
+            if (!isHexChar(h) || !isHexChar(l)) {
+                fprintf(stderr, "Illegal character in URI encoding\n");
+                exit(1);
+            }
+            char c = decodeHex(h, l);
+            ret = sdscatlen(ret, &c, 1);
+            curr++;
+        } else {
+            ret = sdscatlen(ret, curr++, 1);
+        }
+    }
+
+    return ret;
+}
+
+/* Parse a URI and extract the server connection information.
+ * URI scheme is based on the the provisional specification[1] excluding support
+ * for query parameters. Valid URIs are:
+ *   scheme:    "redis://"
+ *   authority: [<username> ":"] <password> "@"] [<hostname> [":" <port>]]
+ *   path:      ["/" [<db>]]
+ *
+ *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
+static void parseRedisUri(const char *uri) {
+
+    const char *scheme = "redis://";
+    const char *curr = uri;
+    const char *end = uri + strlen(uri);
+    const char *userinfo, *username, *port, *host, *path;
+
+    /* URI must start with a valid scheme. */
+    if (strncasecmp(scheme, curr, strlen(scheme))) {
+        fprintf(stderr,"Invalid URI scheme\n");
+        exit(1);
+    }
+    curr += strlen(scheme);
+    if (curr == end) return;
+
+    /* Extract user info. */
+    if ((userinfo = strchr(curr,'@'))) {
+        if ((username = strchr(curr, ':')) && username < userinfo) {
+            /* If provided, username is ignored. */
+            curr = username + 1;
+        }
+
+        config.auth = percentDecode(curr, userinfo - curr);
+        curr = userinfo + 1;
+    }
+    if (curr == end) return;
+
+    /* Extract host and port. */
+    path = strchr(curr, '/');
+    if (*curr != '/') {
+        host = path ? path - 1 : end;
+        if ((port = strchr(curr, ':'))) {
+            config.hostport = atoi(port + 1);
+            host = port - 1;
+        }
+        config.hostip = sdsnewlen(curr, host - curr + 1);
+    }
+    curr = path ? path + 1 : end;
+    if (curr == end) return;
+
+    /* Extract database number. */
+    config.dbnum = atoi(curr);
 }
 
 /*------------------------------------------------------------------------------
@@ -403,8 +495,7 @@ static void cliOutputHelp(int argc, char **argv) {
     if (argc == 0) {
         cliOutputGenericHelp();
         return;
-    }
-    else if (argc > 0 && argv[0][0] == '@') {
+    } else if (argc > 0 && argv[0][0] == '@') {
         len = sizeof(commandGroups) / sizeof(char*);
         for (i = 0; i < len; i++) {
             if (strcasecmp(argv[0] + 1, commandGroups[i]) == 0) {
@@ -430,8 +521,7 @@ static void cliOutputHelp(int argc, char **argv) {
                     cliOutputCommandHelp(help, 1);
                 }
             }
-        }
-        else {
+        } else {
             if (group == help->group) {
                 cliOutputCommandHelp(help, 0);
             }
@@ -452,8 +542,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
         startpos = 5;
         while (isspace(buf[startpos])) startpos++;
         mask = CLI_HELP_COMMAND | CLI_HELP_GROUP;
-    }
-    else {
+    } else {
         mask = CLI_HELP_COMMAND;
     }
 
@@ -564,8 +653,7 @@ static int cliConnect(int force) {
 
         if (config.hostsocket == NULL) {
             context = redisConnect(config.hostip, config.hostport);
-        }
-        else {
+        } else {
             context = redisConnectUnix(config.hostsocket);
         }
 
@@ -673,7 +761,7 @@ int isColorTerm(void) {
     return t != NULL && strstr(t, "xterm") != NULL;
 }
 
-/* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
+/* Helper  function for sdsCatColorizedLdbReply() appending colorize strings
  * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o, s, len);
@@ -953,7 +1041,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
-    while (repeat--) {
+    while(repeat-- > 0) {
         redisAppendCommandArgv(context, argc, (const char**) argv, argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -1206,6 +1294,7 @@ static void usage(void) {
         "  -p <port>          Server port (default: 6379).\n"
         "  -s <socket>        Server socket (overrides hostname and port).\n"
         "  -a <password>      Password to use when connecting to the server.\n"
+		"  -u <uri>           Server URI.\n"
         "  -r <repeat>        Execute specified command N times.\n"
         "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
         "                     It is possible to specify sub-second times like -i 0.1.\n"
@@ -1237,6 +1326,8 @@ static void usage(void) {
         "                     no reply is received within <n> seconds.\n"
         "                     Default timeout: %d. Use 0 to wait forever.\n"
         "  --bigkeys          Sample Redis keys looking for big keys.\n"
+		"  --hotkeys          Sample Redis keys looking for hot keys.\n"
+		"                     only works when maxmemory-policy is *lfu.\n"
         "  --scan             List all keys using the SCAN command.\n"
         "  --pattern <pat>    Useful with --scan to specify a SCAN pattern.\n"
         "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
@@ -1405,57 +1496,68 @@ static void repl(void) {
     cliRefreshPrompt();
     while ((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
+            PORT_LONG repeat = 1;
+            int skipargs = 0;
+            char *endptr = NULL;
+
             argv = cliSplitArgs(line, &argc);
+
+            /* check if we have a repeat command option and
+             * need to skip the first arg */
+            if (argv && argc > 0) {
+                errno = 0;
+                repeat = strtol(argv[0], &endptr, 10);
+                if (argc > 1 && *endptr == '\0') {
+                    if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
+                        fputs("Invalid redis-cli repeat command option value.\n", stdout);
+                        sdsfreesplitres(argv, argc);
+                        linenoiseFree(line);
+                        continue;
+                    }
+                    skipargs = 1;
+                } else {
+                    repeat = 1;
+                }
+            }
+
+            /* Won't save auth command in history file */
+            if (!(argv && argc > 0 && !strcasecmp(argv[0+skipargs], "auth"))) {
             if (history) linenoiseHistoryAdd(line);
             if (historyfile) linenoiseHistorySave(historyfile);
+            }
 
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 linenoiseFree(line);
                 continue;
-            }
-            else if (argc > 0) {
+            } else if (argc > 0) {
                 if (strcasecmp(argv[0], "quit") == 0 ||
                     strcasecmp(argv[0], "exit") == 0)
                 {
                     exit(0);
-                }
-                else if (argv[0][0] == ':') {
+                } else if (argv[0][0] == ':') {
                     cliSetPreferences(argv, argc, 1);
+                    sdsfreesplitres(argv,argc);
+                    linenoiseFree(line);
                     continue;
-                }
-                else if (strcasecmp(argv[0], "restart") == 0) {
+                } else if (strcasecmp(argv[0],"restart") == 0) {
                     if (config.eval) {
                         config.eval_ldb = 1;
                         config.output = OUTPUT_RAW;
                         return; /* Return to evalMode to restart the session. */
-                    }
-                    else {
+                    } else {
                         printf("Use 'restart' only in Lua debugging mode.");
                     }
-                }
-                else if (argc == 3 && !strcasecmp(argv[0], "connect")) {
+                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                     sdsfree(config.hostip);
                     config.hostip = sdsnew(argv[1]);
                     config.hostport = atoi(argv[2]);
                     cliRefreshPrompt();
                     cliConnect(1);
-                }
-                else if (argc == 1 && !strcasecmp(argv[0], "clear")) {
+                } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
-                }
-                else {
+                } else {
                     PORT_LONGLONG start_time = mstime(), elapsed;
-                    int repeat, skipargs = 0;
-                    char *endptr;
-
-                    repeat = strtol(argv[0], &endptr, 10);
-                    if (argc > 1 && *endptr == '\0' && repeat) {
-                        skipargs = 1;
-                    }
-                    else {
-                        repeat = 1;
-                    }
 
                     issueCommandRepeat(argc - skipargs, argv + skipargs, repeat);
 
@@ -1492,8 +1594,7 @@ static int noninteractive(int argc, char **argv) {
         argv = zrealloc(argv, (argc + 1) * sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = issueCommand(argc + 1, argv);
-    }
-    else {
+    } else {
         retval = issueCommand(argc, argv);
     }
     return retval;
@@ -2109,7 +2210,9 @@ static void pipeMode(void) {
 #define TYPE_SET    2
 #define TYPE_HASH   3
 #define TYPE_ZSET   4
-#define TYPE_NONE   5
+#define TYPE_STREAM 5
+#define TYPE_NONE   6
+#define TYPE_COUNT  7
 
 static redisReply *sendScan(PORT_ULONGLONG *it) {
     redisReply *reply = redisCommand(context, "SCAN %llu", *it);
@@ -2393,6 +2496,129 @@ static void findBigKeys(void) {
     }
 
     /* Success! */
+    exit(0);
+}
+
+static void getKeyFreqs(redisReply *keys, PORT_ULONGLONG *freqs) {
+    redisReply *reply;
+    unsigned int i;
+
+    /* Pipeline OBJECT freq commands */
+    for(i=0;i<keys->elements;i++) {
+        redisAppendCommand(context, "OBJECT freq %s", keys->element[i]->str);
+    }
+
+    /* Retrieve freqs */
+    for(i=0;i<keys->elements;i++) {
+        if(redisGetReply(context, (void**)&reply)!=REDIS_OK) {
+            fprintf(stderr, "Error getting freq for key '%s' (%d: %s)\n",
+                keys->element[i]->str, context->err, context->errstr);
+            exit(1);
+        } else if(reply->type != REDIS_REPLY_INTEGER) {
+            if(reply->type == REDIS_REPLY_ERROR) {
+                fprintf(stderr, "Error: %s\n", reply->str);
+                exit(1);
+            } else {
+                fprintf(stderr, "Warning: OBJECT freq on '%s' failed (may have been deleted)\n", keys->element[i]->str);
+                freqs[i] = 0;
+            }
+        } else {
+            freqs[i] = reply->integer;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+#define HOTKEYS_SAMPLE 16
+static void findHotKeys(void) {
+    redisReply *keys, *reply;
+    PORT_ULONGLONG counters[HOTKEYS_SAMPLE] = {0};
+    sds hotkeys[HOTKEYS_SAMPLE] = {NULL};
+    PORT_ULONGLONG sampled = 0, total_keys, *freqs = NULL, it = 0;
+    unsigned int arrsize = 0, i, k;
+    double pct;
+
+    /* Total keys pre scanning */
+    total_keys = getDbSize();
+
+    /* Status message */
+    printf("\n# Scanning the entire keyspace to find hot keys as well as\n");
+    printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
+    printf("# per 100 SCAN commands (not usually needed).\n\n");
+
+    /* SCAN loop */
+    do {
+        /* Calculate approximate percentage completion */
+        pct = 100 * (double)sampled/total_keys;
+
+        /* Grab some keys and point to the keys array */
+        reply = sendScan(&it);
+        keys  = reply->element[1];
+
+        /* Reallocate our freqs array if we need to */
+        if(keys->elements > arrsize) {
+            freqs = zrealloc(freqs, sizeof(PORT_ULONGLONG)*keys->elements);
+
+            if(!freqs) {
+                fprintf(stderr, "Failed to allocate storage for keys!\n");
+                exit(1);
+            }
+
+            arrsize = keys->elements;
+        }
+
+        getKeyFreqs(keys, freqs);
+
+        /* Now update our stats */
+        for(i=0;i<keys->elements;i++) {
+            sampled++;
+            /* Update overall progress */
+            if(sampled % 1000000 == 0) {
+                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+            }
+
+            /* Use eviction pool here */
+            k = 0;
+            while (k < HOTKEYS_SAMPLE && freqs[i] > counters[k]) k++;
+            if (k == 0) continue;
+            k--;
+            if (k == 0 || counters[k] == 0) {
+                sdsfree(hotkeys[k]);
+            } else {
+                sdsfree(hotkeys[0]);
+                memmove(counters,counters+1,sizeof(counters[0])*k);
+                memmove(hotkeys,hotkeys+1,sizeof(hotkeys[0])*k);
+            }
+            counters[k] = freqs[i];
+            hotkeys[k] = sdsnew(keys->element[i]->str);
+            printf(
+               "[%05.2f%%] Hot key '%s' found so far with counter %llu\n",
+               pct, keys->element[i]->str, freqs[i]);
+        }
+
+        /* Sleep if we've been directed to do so */
+        if(sampled && (sampled %100) == 0 && config.interval) {
+            usleep(config.interval);
+        }
+
+        freeReplyObject(reply);
+    } while(it != 0);
+
+    if (freqs) zfree(freqs);
+
+    /* We're done */
+    printf("\n-------- summary -------\n\n");
+
+    printf("Sampled %llu keys in the keyspace!\n", sampled);
+
+    for (i=1; i<= HOTKEYS_SAMPLE; i++) {
+        k = HOTKEYS_SAMPLE - i;
+        if(counters[k]>0) {
+            printf("hot key found with counter: %llu\tkeyname: %s\n", counters[k], hotkeys[k]);
+            sdsfree(hotkeys[k]);
+        }
+    }
+
     exit(0);
 }
 
@@ -2782,6 +3008,7 @@ int main(int argc, char **argv) {
     config.pipe_mode = 0;
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
+    config.hotkeys = 0;
     config.stdinarg = 0;
     config.auth = NULL;
     config.eval = NULL;
@@ -2840,6 +3067,12 @@ int main(int argc, char **argv) {
     if (config.bigkeys) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         findBigKeys();
+    }
+
+    /* Find hot keys */
+    if (config.hotkeys) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        findHotKeys();
     }
 
     /* Stat mode */

@@ -685,7 +685,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
-            do {
+            while(node) {
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
@@ -695,7 +695,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                     if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
-            } while ((node = node->next));
+                node = node->next;
+            }
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -835,13 +836,10 @@ size_t rdbSavedObjectLen(robj *o) {
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
-                        PORT_LONGLONG expiretime, PORT_LONGLONG now)
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, PORT_LONGLONG expiretime)
 {
     /* Save the expire time */
     if (expiretime != -1) {
-        /* If this key is already expired skip it */
-        if (expiretime < now) return 0;
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
         if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
     }
@@ -854,11 +852,15 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
 }
 
 /* Save an AUX field. */
-int rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
-    if (rdbSaveType(rdb,RDB_OPCODE_AUX) == -1) return -1;
-    if (rdbSaveRawString(rdb,key,keylen) == -1) return -1;
-    if (rdbSaveRawString(rdb,val,vallen) == -1) return -1;
-    return 1;
+ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
+    ssize_t ret, len = 0;
+    if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) return -1;
+    len += ret;
+    if ((ret = rdbSaveRawString(rdb,key,keylen)) == -1) return -1;
+    len += ret;
+    if ((ret = rdbSaveRawString(rdb,val,vallen)) == -1) return -1;
+    len += ret;
+    return len;
 }
 
 /* Wrapper for rdbSaveAuxField() used when key/val length can be obtained
@@ -911,7 +913,6 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     dictEntry *de;
     char magic[10];
     int j;
-    PORT_LONGLONG now = mstime();
     uint64_t cksum;
     size_t processed = 0;
 
@@ -955,7 +956,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
@@ -970,6 +971,20 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
     }
     di = NULL; /* So that we don't release it again on error. */
+
+    /* If we are storing the replication information on disk, persist
+     * the script cache as well: on successful PSYNC after a restart, we need
+     * to be able to process any EVALSHA inside the replication backlog the
+     * master will send us. */
+    if (rsi && dictSize(server.lua_scripts)) {
+        di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            robj *body = dictGetVal(de);
+            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
+                goto werr;
+        }
+        dictReleaseIterator(di);
+    }
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -1523,7 +1538,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
-int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
+int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     uint64_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
@@ -1623,6 +1638,13 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 }
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
+            } else if (!strcasecmp(auxkey->ptr,"lua")) {
+                /* Load the script back in memory. */
+                if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
+                    rdbExitReportCorruptRDB(
+                        "Can't load Lua script from RDB file! "
+                        "BODY: %s", auxval->ptr);
+                }
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
@@ -1644,7 +1666,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
+        if (server.masterhost == NULL && !loading_aof && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
             continue;
@@ -1658,10 +1680,11 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
         decrRefCount(key);
     }
     /* Verify the checksum if RDB version is >= 5 */
-    if (rdbver >= 5 && server.rdb_checksum) {
+    if (rdbver >= 5) {
         uint64_t cksum, expected = rdb->cksum;
 
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
+        if (server.rdb_checksum) {
         memrev64ifbe(&cksum);
         if (cksum == 0) {
             serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
@@ -1669,6 +1692,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
             serverLog(LL_WARNING,"Wrong RDB checksum. Aborting now.");
             rdbExitReportCorruptRDB("RDB CRC error");
         }
+    }
     }
     return C_OK;
 
@@ -1693,7 +1717,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     if ((fp = fopen(filename,IF_WIN32("rb","r"))) == NULL) return C_ERR;
     startLoading(fp);
     rioInitWithFile(&rdb,fp);
-    retval = rdbLoadRio(&rdb,rsi);
+    retval = rdbLoadRio(&rdb,rsi,0);
     fclose(fp);
     stopLoading();
     return retval;
@@ -2041,6 +2065,9 @@ void bgsaveCommand(client *c) {
         }
     }
 
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
@@ -2053,7 +2080,7 @@ void bgsaveCommand(client *c) {
                 "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
                 "possible.");
         }
-    } else if (rdbSaveBackground(server.rdb_filename,NULL) == C_OK) {
+    } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);
@@ -2074,21 +2101,36 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     *rsi = rsi_init;
 
     /* If the instance is a master, we can populate the replication info
-     * in all the cases, even if sometimes in incomplete (but safe) form. */
-    if (!server.masterhost) {
-        if (server.repl_backlog) rsi->repl_stream_db = server.slaveseldb;
-        /* Note that if repl_backlog is NULL, it means that histories
-         * following from this point will trigger a full synchronization
-         * generating a SELECT statement, so we can leave the currently
-         * selected DB set to -1. This allows a restarted master to reload
-         * its replication ID/offset when there are no connected slaves. */
+     * only when repl_backlog is not NULL. If the repl_backlog is NULL,
+     * it means that the instance isn't in any replication chains. In this
+     * scenario the replication info is useless, because when a slave
+     * connects to us, the NULL repl_backlog will trigger a full
+     * synchronization, at the same time we will use a new replid and clear
+     * replid2. */
+    if (!server.masterhost && server.repl_backlog) {
+        /* Note that when server.slaveseldb is -1, it means that this master
+         * didn't apply any write commands after a full synchronization.
+         * So we can let repl_stream_db be 0, this allows a restarted slave
+         * to reload replication ID/offset, it's safe because the next write
+         * command must generate a SELECT statement. */
+        rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
         return rsi;
     }
 
-    /* If the instance is a slave we need a connected master in order to
-     * fetch the currently selected DB. */
+    /* If the instance is a slave we need a connected master
+     * in order to fetch the currently selected DB. */
     if (server.master) {
         rsi->repl_stream_db = server.master->db->id;
+        return rsi;
+    }
+
+    /* If we have a cached master we can use it in order to populate the
+     * replication selected DB info inside the RDB file: the slave can
+     * increment the master_repl_offset only from data arriving from the
+     * master, so if we are disconnected the offset in the cached master
+     * is valid. */
+    if (server.cached_master) {
+        rsi->repl_stream_db = server.cached_master->db->id;
         return rsi;
     }
     return NULL;

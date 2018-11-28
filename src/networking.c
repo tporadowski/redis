@@ -395,6 +395,12 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyString(c, "-ERR ", 5);
     addReplyString(c, s, len);
     addReplyString(c, "\r\n", 2);
+    if (c->flags & CLIENT_MASTER) {
+        char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
+        serverLog(LL_WARNING,"== CRITICAL == This slave is sending an error "
+                             "to its master: '%s' after processing the command "
+                             "'%s'", s, cmdname);
+    }
 }
 
 void addReplyError(client *c, const char *err) {
@@ -1018,10 +1024,15 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * scenario think about 'KEYS *' against the loopback interface).
          *
          * However if we are over the maxmemory limit we ignore that and
-         * just deliver as much data as it is possible to deliver. */
+         * just deliver as much data as it is possible to deliver.
+         *
+         * Moreover, we also send as much as possible if the client is
+         * a slave (otherwise, on high-speed traffic, the replication
+         * buffer will grow indefinitely) */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
-                zmalloc_used_memory() < server.maxmemory)) break;
+             zmalloc_used_memory() < server.maxmemory) &&
+            !(c->flags & CLIENT_SLAVE)) break;
     }
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
@@ -1105,14 +1116,26 @@ int handleClientsWithPendingWrites(void) {
         /* Try to write buffers to the client socket. */
         if (writeToClient(c->fd, c, 0) == C_ERR) continue;
 
-        /* If there is nothing left, do nothing. Otherwise install
-         * the write handler. */
-        if (clientHasPendingReplies(c) &&
-            aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+        /* If after the synchronous writes above we still have data to
+         * output to the client, we need to install the writable handler. */
+        if (clientHasPendingReplies(c)) {
+            int ae_flags = AE_WRITABLE;
+            /* For the fsync=always policy, we want that a given FD is never
+             * served for reading and writing in the same event loop iteration,
+             * so that in the middle of receiving the query, and serving it
+             * to the client, we'll call beforeSleep() that will do the
+             * actual fsync of AOF to disk. AE_BARRIER ensures that. */
+            if (server.aof_state == AOF_ON &&
+                server.aof_fsync == AOF_FSYNC_ALWAYS)
+            {
+                ae_flags |= AE_BARRIER;
+            }
+            if (aeCreateFileEvent(server.el, c->fd, ae_flags,
                 sendReplyToClient, c) == AE_ERR)
         {
             freeClientAsync(c);
         }
+    }
     }
     return processed;
 }
@@ -1213,7 +1236,7 @@ int processInlineBuffer(client *c) {
 /* Helper function. Trims query buffer to make the function that processes
  * multi bulk requests idempotent. */
 #define PROTO_DUMP_LEN 128
-static void setProtocolError(const char *errstr, client *c, int pos) {
+static void setProtocolError(const char *errstr, client *c, PORT_LONG pos) {
     if (server.verbosity <= LL_VERBOSE) {
         sds client = catClientInfoString(sdsempty(), c);
 
@@ -1255,7 +1278,8 @@ static void setProtocolError(const char *errstr, client *c, int pos) {
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
-    int pos = 0, ok;
+    PORT_LONG pos = 0;
+	int ok;
     PORT_LONGLONG ll;
 
     if (c->multibulklen == 0) {
@@ -1286,7 +1310,7 @@ int processMultibulkBuffer(client *c) {
             return C_ERR;
         }
 
-        pos = (int) ((newline - c->querybuf) + 2);                                   WIN_PORT_FIX /* cast (int) */
+        pos = (PORT_LONG) ((newline - c->querybuf) + 2);                                   WIN_PORT_FIX /* cast (int) */
             if (ll <= 0) {
                 sdsrange(c->querybuf, pos, -1);
                 return C_OK;
@@ -1327,13 +1351,13 @@ int processMultibulkBuffer(client *c) {
             }
 
             ok = string2ll(c->querybuf + pos + 1, newline - (c->querybuf + pos + 1), &ll);
-            if (!ok || ll < 0 || ll > 512 * 1024 * 1024) {
+            if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c, "Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length", c, pos);
                 return C_ERR;
             }
 
-            pos += (int) (newline - (c->querybuf + pos) + 2);                          WIN_PORT_FIX /* cast (int) */
+            pos += (PORT_LONG) (newline - (c->querybuf + pos) + 2);                          WIN_PORT_FIX /* cast (int) */
                 if (ll >= PROTO_MBULK_BIG_ARG) {
                     size_t qblen;
 
@@ -1353,7 +1377,7 @@ int processMultibulkBuffer(client *c) {
         }
 
         /* Read bulk argument */
-        if (sdslen(c->querybuf) - pos < (unsigned) (c->bulklen + 2)) {
+        if (sdslen(c->querybuf) - pos < (size_t) (c->bulklen + 2)) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         }
@@ -1363,7 +1387,7 @@ int processMultibulkBuffer(client *c) {
              * just use the current sds string. */
             if (pos == 0 &&
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
-                (signed) sdslen(c->querybuf) == c->bulklen + 2)
+                sdslen(c->querybuf) == (size_t)c->bulklen + 2)
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING, c->querybuf);
                 sdsIncrLen(c->querybuf, -2); /* remove CRLF */
@@ -1376,7 +1400,7 @@ int processMultibulkBuffer(client *c) {
             else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf + pos, c->bulklen);
-                pos += (int) c->bulklen + 2;                                       WIN_PORT_FIX /* cast (int) */
+                pos += (PORT_LONG) c->bulklen + 2;                                       WIN_PORT_FIX /* cast (int) */
             }
             c->bulklen = -1;
             c->multibulklen--;
@@ -1479,7 +1503,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
-        int remaining = (int) ((unsigned) (c->bulklen + 2) - sdslen(c->querybuf));    WIN_PORT_FIX /* cast (int) */
+        ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
             if (remaining < readlen) readlen = remaining;
     }

@@ -74,7 +74,7 @@ static unsigned int dict_force_resize_ratio = 5;
 
 static int _dictExpandIfNeeded(dict *ht);
 static PORT_ULONG _dictNextPower(PORT_ULONG size);
-static int _dictKeyIndex(dict *ht, const void *key, unsigned int hash, dictEntry **existing);
+static PORT_LONG _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -192,7 +192,7 @@ int dictExpand(dict *d, PORT_ULONG size)
  * since part of the hash table may be composed of empty spaces, it is not
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
- * work it does would be unbound and the function may block for a PORT_LONG time. */
+ * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
 
     // On Windows we choose not to execute the dict rehash since it's not
@@ -215,7 +215,7 @@ int dictRehash(dict *d, int n) {
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
-            unsigned int h;
+            uint64_t h;
 
             nextde = de->next;
             /* Get the index in the new hash table */
@@ -379,7 +379,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
-    unsigned int h, idx;
+    uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
 
@@ -493,7 +493,7 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    unsigned int h, idx, table;
+    uint64_t h, idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -627,7 +627,7 @@ void dictReleaseIterator(dictIterator *iter)
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;
-    unsigned int h;
+    PORT_ULONG h;
     int listlen, listele;
 
     if (dictSize(d) == 0) return NULL;
@@ -636,7 +636,7 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = (unsigned int) (d->rehashidx + (random() % (d->ht[0].size +     WIN_PORT_FIX /* cast (unsigned int) */
+            h = (PORT_ULONG) (d->rehashidx + (random() % (d->ht[0].size +     WIN_PORT_FIX /* cast (unsigned int) */
                                             d->ht[1].size -
                                             d->rehashidx)));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
@@ -875,6 +875,15 @@ PORT_ULONG dictScan(dict *d,
             de = next;
         }
 
+        /* Set unmasked bits so incrementing the reversed cursor
+         * operates on the masked bits */
+        v |= ~m0;
+
+        /* Increment the reverse cursor */
+        v = rev(v);
+        v++;
+        v = rev(v);
+
     } else {
         t0 = &d->ht[0];
         t1 = &d->ht[1];
@@ -909,21 +918,15 @@ PORT_ULONG dictScan(dict *d,
                 de = next;
             }
 
-            /* Increment bits not covered by the smaller mask */
-            v = (((v | m0) + 1) & ~m0) | (v & m0);
+            /* Increment the reverse cursor not covered by the smaller mask.*/
+            v |= ~m1;
+            v = rev(v);
+            v++;
+            v = rev(v);
 
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
-
-    /* Set unmasked bits so incrementing the reversed cursor
-     * operates on the masked bits of the smaller table */
-    v |= ~m0;
-
-    /* Increment the reverse cursor */
-    v = rev(v);
-    v++;
-    v = rev(v);
 
     return v;
 }
@@ -972,9 +975,9 @@ static PORT_ULONG _dictNextPower(PORT_ULONG size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static int _dictKeyIndex(dict *d, const void *key, unsigned int hash, dictEntry **existing)
+static PORT_LONG _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
 {
-    unsigned int idx, table;
+    PORT_ULONG idx, table;
     dictEntry *he;
     if (existing) *existing = NULL;
 
@@ -1012,7 +1015,7 @@ void dictDisableResize(void) {
     dict_can_resize = 0;
 }
 
-unsigned int dictGetHash(dict *d, const void *key) {
+uint64_t dictGetHash(dict *d, const void *key) {
     return dictHashKey(d, key);
 }
 
@@ -1021,9 +1024,9 @@ unsigned int dictGetHash(dict *d, const void *key) {
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
-dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash) {
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
     dictEntry *he, **heref;
-    unsigned int idx, table;
+    PORT_ULONG idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {

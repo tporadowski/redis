@@ -313,6 +313,8 @@ void debugCommand(client *c) {
         "structsize -- Return the size of different Redis core C structures.");
         blen++; addReplyStatus(c,
         "htstats <dbid> -- Return hash table statistics of the specified Redis database.");
+        blen++; addReplyStatus(c,
+        "change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.");
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
@@ -375,13 +377,13 @@ void debugCommand(client *c) {
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
-        char extra[128] = {0};
+        char extra[138] = {0};
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%u", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%Iu", ql->len);		WIN_PORT_FIX /* %lu -> %Iu */
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */
@@ -558,6 +560,11 @@ void debugCommand(client *c) {
         stats = sdscat(stats,buf);
 
         addReplyBulkSds(c,stats);
+    } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
+        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        changeReplicationId();
+        clearReplicationId2();
+        addReply(c,shared.ok);
     } else {
         addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
             (char*)c->argv[1]->ptr);

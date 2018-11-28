@@ -133,9 +133,9 @@ void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 void rioFreeFdset(rio *r);
 
-size_t rioWriteBulkCount(rio *r, char prefix, int count);
+size_t rioWriteBulkCount(rio *r, char prefix, PORT_LONG count);	WIN_PORT_FIX
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);
-size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l);
+size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l); 			WIN_PORT_FIX
 size_t rioWriteBulkDouble(rio *r, double d);
 
 struct redisObject;

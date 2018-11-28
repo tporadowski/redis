@@ -174,6 +174,7 @@ POSIX_ONLY(#define LOG_MAX_LEN    1024) /* Default maximum length of syslog mess
 #define CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES (100<<20) /* don't defrag if frag overhead is below 100mb */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MIN 25 /* 25% CPU min (at lower threshold) */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
+#define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -600,7 +601,7 @@ typedef struct redisObject {
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits decreas time). */
+                            * and most significant 16 bits access time). */
     int refcount;
     void *ptr;
 } robj;
@@ -952,6 +953,8 @@ struct redisServer {
     PORT_LONGLONG stat_numcommands;     /* Number of processed commands */
     PORT_LONGLONG stat_numconnections;  /* Number of connections received */
     PORT_LONGLONG stat_expiredkeys;     /* Number of expired keys */
+    double stat_expired_stale_perc; /* Percentage of keys probably expired */
+    PORT_LONGLONG stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     PORT_LONGLONG stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     PORT_LONGLONG stat_keyspace_hits;   /* Number of successful lookups of keys */
     PORT_LONGLONG stat_keyspace_misses; /* Number of failed lookups of keys */
@@ -969,7 +972,7 @@ struct redisServer {
     list *slowlog;                  /* SLOWLOG list of commands */
     PORT_LONGLONG slowlog_entry_id;     /* SLOWLOG current entry ID */
     PORT_LONGLONG slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
-    PORT_ULONG slowlog_max_len;     /* SLOWLOG max number of items logged */
+    unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
     PORT_LONGLONG stat_net_input_bytes; /* Bytes read from network. */
     PORT_LONGLONG stat_net_output_bytes; /* Bytes written to network. */
@@ -1133,8 +1136,9 @@ struct redisServer {
     PORT_ULONGLONG maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
-    unsigned int lfu_log_factor;    /* LFU logarithmic counter factor. */
-    unsigned int lfu_decay_time;    /* LFU counter decay factor. */
+    int lfu_log_factor;             /* LFU logarithmic counter factor. */
+    int lfu_decay_time;             /* LFU counter decay factor. */
+    PORT_LONGLONG proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */
@@ -1172,6 +1176,8 @@ struct redisServer {
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
+    int cluster_slave_no_failover;  /* Prevent slave from starting a failover
+                                       if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
@@ -1334,6 +1340,8 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+
 
 /* Utils */
 PORT_LONGLONG ustime(void);
@@ -1800,6 +1808,7 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
+sds luaCreateFunction(client *c, lua_State *lua, robj *body);
 
 /* Blocked clients */
 void processUnblockedClients(void);
@@ -1821,6 +1830,7 @@ void evictionPoolAlloc(void);
 #define LFU_INIT_VAL 5
 PORT_ULONG LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
+PORT_ULONG LFUDecrAndReturn(robj *o);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
