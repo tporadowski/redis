@@ -1355,6 +1355,21 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
 #endif
+
+		/* Ensure background save doesn't overwrite synced data */
+        if (server.rdb_child_pid != -1) {
+            serverLog(LL_NOTICE,
+                "Replica is about to load the RDB file received from the "
+                "master, but there is a pending RDB child running. "
+                "Killing process %ld and removing its temp file to avoid "
+                "any race",
+                    (long) server.rdb_child_pid);
+
+#ifndef _WIN32 //TODO what to do on windows?
+            kill(server.rdb_child_pid,SIGUSR1);
+            rdbRemoveTempFile(server.rdb_child_pid);
+#endif
+        }
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
             cancelReplicationHandshake();
@@ -1394,6 +1409,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 #endif
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
+        server.repl_down_since = 0;
         /* After a full resynchroniziation we use the replication ID and
          * offset of the master. The secondary ID / offset are cleared since
          * we are starting a new history. */
@@ -2267,6 +2283,8 @@ void replicationCacheMaster(client *c) {
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
+    c->sentlen = 0;
+    c->reply_bytes = 0;
     c->bufpos = 0;
     resetClient(c);
 
@@ -2336,9 +2354,10 @@ void replicationResurrectCachedMaster(int newfd) {
     server.master->authenticated = 1;
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
+    server.repl_down_since = 0;
 
     /* Re-add to the list of clients. */
-    listAddNodeTail(server.clients,server.master);
+    linkClient(server.master);
     if (aeCreateFileEvent(server.el, newfd, AE_READABLE,
                           readQueryFromClient, server.master)) {
         serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));

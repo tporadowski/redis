@@ -77,6 +77,16 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a, b);
 }
 
+/* This function links the client to the global linked list of clients.
+ * unlinkClient() does the opposite, among other things. */
+void linkClient(client *c) {
+    listAddNodeTail(server.clients,c);
+    /* Note that we remember the linked list node where the client is stored,
+     * this way removing the client in unlinkClient() will not require
+     * a linear scan, but just a constant time operation. */
+    c->client_list_node = listLast(server.clients);
+}
+
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -143,9 +153,10 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType, NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns, decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns, listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients, c);
+    if (fd != -1) linkClient(c);
     initClientMultiState(c);
     return c;
 }
@@ -395,11 +406,13 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyString(c, "-ERR ", 5);
     addReplyString(c, s, len);
     addReplyString(c, "\r\n", 2);
-    if (c->flags & CLIENT_MASTER) {
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+        char* to = c->flags & CLIENT_MASTER? "master": "slave";
+        char* from = c->flags & CLIENT_MASTER? "slave": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
-        serverLog(LL_WARNING,"== CRITICAL == This slave is sending an error "
-                             "to its master: '%s' after processing the command "
-                             "'%s'", s, cmdname);
+        serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
+                             "to its %s: '%s' after processing the command "
+                             "'%s'", from, to, s, cmdname);
     }
 }
 
@@ -618,6 +631,7 @@ void addReplyBulkLongLong(client *c, PORT_LONGLONG ll) {
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
     listRelease(dst->reply);
+    dst->sentlen = 0;
     dst->reply = listDup(src->reply);
     memcpy(dst->buf, src->buf, src->bufpos);
     dst->bufpos = src->bufpos;
@@ -779,9 +793,10 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients, c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients, ln);
+        if (c->client_list_node) {
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el, c->fd, AE_READABLE);
@@ -1173,7 +1188,7 @@ void resetClient(client *c) {
  * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
-    int argc, j;
+    int argc, j, linefeed_chars = 1;
     sds *argv, aux;
     size_t querylen;
 
@@ -1191,7 +1206,7 @@ int processInlineBuffer(client *c) {
 
     /* Handle the \r\n case. */
     if (newline && newline != c->querybuf && *(newline - 1) == '\r')
-        newline--;
+        newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
     querylen = newline - (c->querybuf);
@@ -1211,7 +1226,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf, (int) (querylen + 2), -1);                                 WIN_PORT_FIX /* cast (int) */
+    sdsrange(c->querybuf,querylen+linefeed_chars,-1);
 
     /* Setup argv array on client structure */
         if (argc) {

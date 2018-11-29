@@ -227,6 +227,8 @@ int dbExists(redisDb *db, robj *key) {
  * The function makes sure to return keys not already expired. */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
+    int maxtries = 100;
+    int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
     while(1) {
         sds key;
@@ -238,6 +240,17 @@ robj *dbRandomKey(redisDb *db) {
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
+            if (allvolatile && server.masterhost && --maxtries == 0) {
+                /* If the DB is composed only of keys with an expire set,
+                 * it could happen that all the keys are already logically
+                 * expired in the slave, so the function cannot stop because
+                 * expireIfNeeded() is false, nor it can stop because
+                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * To prevent the infinite loop we do some tries, but if there
+                 * are the conditions for an infinite loop, eventually we
+                 * return a key name that may be already expired. */
+                return keyobj;
+            }
             if (expireIfNeeded(db,keyobj)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
@@ -475,8 +488,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbExists(c->db,c->argv[j])) count++;
+        if (lookupKeyRead(c->db,c->argv[j])) count++;
     }
     addReplyLongLong(c,count);
 }

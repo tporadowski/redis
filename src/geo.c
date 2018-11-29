@@ -108,7 +108,7 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
 }
 
 /* Input Argument Helper */
-/* Decode lat/PORT_LONG from a zset member's score.
+/* Decode lat/long from a zset member's score.
  * Returns C_OK on successful decoding, otherwise C_ERR is returned. */
 int longLatFromMember(robj *zobj, robj *member, double *xy) {
     double score = 0;
