@@ -2154,6 +2154,14 @@ void slaveofCommand(client *c) {
     } else {
         PORT_LONG port;
 
+		if (c->flags & CLIENT_SLAVE)
+		{
+			/* If a client is already a replica they cannot run this command,
+		 * because it involves flushing all replicas (including this client) */
+			addReplyError(c,"Command is not valid when client is a replica.");
+			return;
+		}
+
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
 
