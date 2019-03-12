@@ -56,7 +56,7 @@ POSIX_ONLY(#include <sys/time.h>)
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen) {
+	while (patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (pattern[1] == '*') {
