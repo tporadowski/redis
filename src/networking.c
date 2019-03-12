@@ -2083,6 +2083,7 @@ int checkClientOutputBufferLimits(client *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(client *c) {
+	if (c->fd == -1) return; /* It is unsafe to free fake clients. */
     POSIX_ONLY(serverAssert(c->reply_bytes < PORT_ULONG_MAX - (1024 * 64));)
         if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
