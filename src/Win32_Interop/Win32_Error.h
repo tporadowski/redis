@@ -30,12 +30,17 @@ extern "C"
 {
 #endif
 
+#define ESOCKTNOSUPPORT WSAESOCKTNOSUPPORT /* Socket type not supported */
+#define EPFNOSUPPORT    WSAEPFNOSUPPORT    /* Protocol family not supported */
+
+
 /* Converts error codes returned by GetLastError/WSAGetLastError to errno codes */
 int translate_sys_error(int sys_error);
 void set_errno_from_last_error();
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);
+
 
 #ifdef __cplusplus
 }
