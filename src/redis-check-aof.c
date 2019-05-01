@@ -52,8 +52,8 @@ POSIX_ONLY(#include <unistd.h>)
 
 #define ERROR(...) { \
     char __buf[1024]; \
-    sprintf(__buf, __VA_ARGS__); \
-    sprintf(error, "0x%16llx: %s", (PORT_LONGLONG)epos, __buf); \
+    snprintf(__buf, sizeof(__buf), __VA_ARGS__); \
+    snprintf(error, sizeof(error), "0x%16llx: %s", (long long)epos, __buf); \
 }
 
 static char error[1024];
