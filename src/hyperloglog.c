@@ -611,6 +611,7 @@ int hllSparseToDense(robj *o) {
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
+			if ((runlen + idx) > HLL_REGISTERS) break; /* Overflow. */
 			if ((runlen + idx) > HLL_REGISTERS) {
 				sdsfree(dense);
 				return C_ERR;
@@ -1087,7 +1088,8 @@ int hllMerge(uint8_t *max, robj *hll) {
                 regval = HLL_SPARSE_VAL_VALUE(p);
 				if ((runlen + i) > HLL_REGISTERS)
 					return C_ERR;
-                while(runlen--) {
+				if ((runlen + i) > HLL_REGISTERS) break; /* Overflow. */
+				while(runlen--) {
                     if (regval > max[i]) max[i] = (uint8_t)regval;              WIN_PORT_FIX /* cast (uint8_t) */
                     i++;
                 }
