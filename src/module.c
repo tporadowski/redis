@@ -3455,9 +3455,7 @@ void moduleHandleBlockedClients(void) {
     /* Here we unblock all the pending clients blocked in modules operations
      * so we can read every pending "awake byte" in the pipe. */
     char buf[1];
-#ifndef _WIN32
     while (read(server.module_blocked_pipe[0], buf, 1) == 1);
-#endif
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;

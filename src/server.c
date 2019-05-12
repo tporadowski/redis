@@ -1987,14 +1987,12 @@ void initServer(void) {
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
-#ifndef _WIN32
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
         moduleBlockedClientPipeReadable, NULL) == AE_ERR) {
         serverPanic(
             "Error registering the readable event for the module "
             "blocked clients subsystem.");
     }
-#endif
 
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {
