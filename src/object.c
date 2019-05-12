@@ -552,8 +552,8 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
-int getDoubleFromObject(const robj *o, double *target) {
-    double value;
+int getDoubleFromObject(const robj *o, PORT_LONGDOUBLE *target) {
+    PORT_LONGDOUBLE value;
     char *eptr;
 
     if (o == NULL) {
@@ -580,8 +580,8 @@ int getDoubleFromObject(const robj *o, double *target) {
     return C_OK;
 }
 
-int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
-    double value;
+int getDoubleFromObjectOrReply(client *c, robj *o, PORT_LONGDOUBLE *target, const char *msg) {
+    PORT_LONGDOUBLE value;
     if (getDoubleFromObject(o, &value) != C_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -729,7 +729,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*listTypeLength(o);
+            asize += (PORT_LONGDOUBLE)elesize/samples*listTypeLength(o);
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
@@ -746,7 +746,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
             }
             dictReleaseIterator(di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             intset *is = o->ptr;
             asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
@@ -767,7 +767,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
                 znode = znode->level[0].forward;
             }
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -786,7 +786,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
             }
             dictReleaseIterator(di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown hash encoding");
         }

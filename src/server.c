@@ -1265,13 +1265,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
-#ifndef _WIN32
     moduleHandleBlockedClients();
 
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
-#endif
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
@@ -1279,12 +1277,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWrites();
 
-#ifndef _WIN32
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
     if (moduleCount()) moduleReleaseGIL();
-#endif
 }
 
 /* This function is called immadiately after the event loop multiplexing
@@ -1292,9 +1288,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-#ifndef _WIN32
     if (moduleCount()) moduleAcquireGIL();
-#endif
 }
 
 /* =========================== Server initialization ======================== */
@@ -1991,8 +1985,6 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el, server.sofd, AE_READABLE,
         acceptUnixHandler, NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
-    //TODO
-#ifndef _WIN32
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
@@ -2001,7 +1993,6 @@ void initServer(void) {
             "Error registering the readable event for the module "
             "blocked clients subsystem.");
     }
-#endif
 
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {
@@ -3862,9 +3853,7 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*) hashseed);
     server.sentinel_mode = checkForSentinelMode(argc, argv);
     initServerConfig();
-#ifndef _WIN32
     moduleInitModulesSystem();
-#endif
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -3995,9 +3984,7 @@ int main(int argc, char **argv) {
 #ifdef __linux__
         linuxMemoryWarnings();
 #endif
-#ifndef _WIN32
         moduleLoadFromQueue();
-#endif
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {

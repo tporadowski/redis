@@ -27,7 +27,7 @@
 #include "Win32_CommandLine.h"
 
 // Win32_FDAPI.h includes modified winsock definitions that are useful in BindParam below. It
-// also redefines the CRT close(FD) call as a macro. This conflicts with the fstream close 
+// also redefines the CRT close(FD) call as a macro. This conflicts with the fstream close
 // definition. #undef solves the warning messages.
 #undef close
 
@@ -51,14 +51,16 @@ string stripQuotes(string s) {
         if (s.at(0) == '\'' &&  s.at(s.length() - 1) == '\'') {
             if (s.length() > 2) {
                 return s.substr(1, s.length() - 2);
-            } else {
+            }
+            else {
                 return string("");
             }
         }
         if (s.at(0) == '\"' &&  s.at(s.length() - 1) == '\"') {
             if (s.length() > 2) {
                 return s.substr(1, s.length() - 2);
-            } else {
+            }
+            else {
                 return string("");
             }
         }
@@ -102,7 +104,7 @@ public:
     }
 
     vector<string> Extract(vector<string> tokens, int startIndex = 0) {
-        if ((int)(tokens.size() - 1) < parameterCount + startIndex) {
+        if ((int) (tokens.size() - 1) < parameterCount + startIndex) {
             stringstream err;
             err << "Not enough parameters available for " << tokens.at(0);
             throw invalid_argument(err.str());
@@ -133,15 +135,16 @@ typedef class SaveParams : public ParamExtractor {
 public:
     SaveParams() {}
 
-    bool isStringAnInt(string test)  {
+    bool isStringAnInt(string test) {
         int x;
         char c;
         istringstream s(test);
- 
+
         if (!(s >> x) ||            // not convertable to an int
             (s >> c)) {             // some character past the int
             return false;
-        } else {
+        }
+        else {
             return true;
         }
     }
@@ -151,16 +154,18 @@ public:
         int argIndex = argStartIndex + 1;
 
         // save [seconds] [changes]
-        // or 
+        // or
         // save ""      -- turns off RDB persistence
         if (strcmp(argv[argIndex], "\"\"") == 0 || strcmp(argv[argIndex], "''") == 0 || strcmp(argv[argIndex], "") == 0) {
             params.push_back(argv[argIndex]);
-        } else if (
-            isStringAnInt(argv[argIndex]) && 
-            isStringAnInt(argv[argIndex+1])) {
+        }
+        else if (
+            isStringAnInt(argv[argIndex]) &&
+            isStringAnInt(argv[argIndex + 1])) {
             params.push_back(argv[argIndex]);
-            params.push_back(argv[argIndex+1]);
-        } else {
+            params.push_back(argv[argIndex + 1]);
+        }
+        else {
             stringstream err;
             err << "Not enough parameters available for " << argv[argStartIndex];
             throw invalid_argument(err.str());
@@ -173,21 +178,22 @@ public:
         unsigned int parameterIndex = 1 + startIndex;
         if ((tokens.size() > parameterIndex) &&
             (tokens.at(parameterIndex) == string("\"\"") ||
-            tokens.at(parameterIndex) == string("''"))) {
+                tokens.at(parameterIndex) == string("''"))) {
             params.push_back(tokens.at(parameterIndex));
-        } else if ((tokens.size() > parameterIndex + 1) &&
-                   isStringAnInt(tokens.at(parameterIndex)) &&
-                   isStringAnInt(tokens.at(parameterIndex + 1))) {
+        }
+        else if ((tokens.size() > parameterIndex + 1) &&
+            isStringAnInt(tokens.at(parameterIndex)) &&
+            isStringAnInt(tokens.at(parameterIndex + 1))) {
             params.push_back(tokens.at(parameterIndex));
             params.push_back(tokens.at(parameterIndex + 1));
-        } else {
+        }
+        else {
             stringstream err;
             err << "Not enough parameters available for " << tokens.at(startIndex);
             throw invalid_argument(err.str());
         }
         return params;
     };
-
 } SaveParams;
 
 static SaveParams savep = SaveParams();
@@ -209,21 +215,23 @@ public:
         DWORD err;
         if (ERROR_SUCCESS ==
             (err = f_WSAStringToAddressA(
-            address.c_str(),
-            AF_INET,
-            NULL,
-            (LPSOCKADDR)&sockaddr4,
-            &addr4Length))) {
+                address.c_str(),
+                AF_INET,
+                NULL,
+                (LPSOCKADDR) &sockaddr4,
+                &addr4Length))) {
             return true;
-        } else if (ERROR_SUCCESS ==
+        }
+        else if (ERROR_SUCCESS ==
             (err = f_WSAStringToAddressA(
-            address.c_str(),
-            AF_INET6,
-            NULL,
-            (LPSOCKADDR)&sockaddr6,
-            &addr6Length))) {
+                address.c_str(),
+                AF_INET6,
+                NULL,
+                (LPSOCKADDR) &sockaddr6,
+                &addr6Length))) {
             return true;
-        } else {
+        }
+        else {
             return false;
         }
     }
@@ -240,7 +248,8 @@ public:
                 param = stripQuotes(param);
                 params.push_back(param);
                 argIndex++;
-            } else {
+            }
+            else {
                 break;
             }
         }
@@ -260,13 +269,13 @@ public:
                 transform(param.begin(), param.end(), param.begin(), ::tolower);
                 param = stripQuotes(param);
                 params.push_back(param);
-            } else {
+            }
+            else {
                 break;
             }
         }
         return params;
     };
-
 } BindParams;
 
 static BindParams bp = BindParams();
@@ -311,7 +320,7 @@ public:
         vector<string> params;
         params.push_back(argv[argStartIndex + 1]);
         vector<string> subParams = subCommands[argv[argStartIndex + 1]]->Extract(argStartIndex + 1, argc, argv);
-		for (string p : subParams) {
+        for (string p : subParams) {
             transform(p.begin(), p.end(), p.begin(), ::tolower);
             p = stripQuotes(p);
             params.push_back(p);
@@ -343,7 +352,6 @@ public:
         }
         return params;
     };
-
 } SentinelParams;
 
 static SentinelParams sp = SentinelParams();
@@ -369,8 +377,8 @@ static RedisParamterMapper g_redisArgMap =
     { "port",                           &fp1 },    // port [port number]
     { "tcp-backlog",                    &fp1 },    // tcp-backlog [number]
     { "bind",                           &bp },     // bind [address] [address] ...
-    { "unixsocket",                     &fp1 },    // unixsocket [path] 
-    { "timeout",                        &fp1 },    // timeout [value] 
+    { "unixsocket",                     &fp1 },    // unixsocket [path]
+    { "timeout",                        &fp1 },    // timeout [value]
     { "tcp-keepalive",                  &fp1 },    // tcp-keepalive [value]
     { "loglevel",                       &fp1 },    // lovlevel [value]
     { "logfile",                        &fp1 },    // logfile [file]
@@ -379,12 +387,12 @@ static RedisParamterMapper g_redisArgMap =
     { "syslog-facility",                &fp1 },    // syslog-facility [string]
     { "databases",                      &fp1 },    // databases [number]
     { "save",                           &savep },  // save [seconds] [changes] or save ""
-    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no] 
+    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no]
     { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
     { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
     { "dbfilename",                     &fp1 },    // dbfilename [filename]
     { cDir,                             &fp1 },    // dir [path]
-    { "slaveof",                        &fp2 },    // slaveof [masterip] [master port] 
+    { "slaveof",                        &fp2 },    // slaveof [masterip] [master port]
     { "masterauth",                     &fp1 },    // masterauth [master-password]
     { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
     { "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
@@ -444,7 +452,10 @@ static RedisParamterMapper g_redisArgMap =
     {"cluster-node-timeout",            &fp1},     // [number]
     {"cluster-slave-validity-factor",   &fp1},     // [number]
     {"cluster-migration-barrier",       &fp1},     // [1/0]
-    {"cluster-require-full-coverage",   &fp1}      // [yes/no]
+    {"cluster-require-full-coverage",   &fp1},     // [yes/no]
+
+    //modules
+    {"loadmodule",                      &fp1}      // [filename]
 };
 
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
@@ -463,12 +474,12 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-vector<string> Tokenize(string line)  {
+vector<string> Tokenize(string line) {
     vector<string> tokens;
     stringstream token;
 
     // no need to parse empty lines, or comment lines (which may have unbalanced quotes)
-    if ((line.length() == 0)  || 
+    if ((line.length() == 0) ||
         ((line.length() != 0) && (*line.begin()) == '#')) {
         return tokens;
     }
@@ -478,13 +489,14 @@ vector<string> Tokenize(string line)  {
         if (isspace(c) && token.str().length() > 0) {
             tokens.push_back(token.str());
             token.str("");
-        } else if (c == '\'' || c == '\"') {
+        }
+        else if (c == '\'' || c == '\"') {
             char endQuote = c;
             string::const_iterator endQuoteIt = sit;
             while (++endQuoteIt != line.end()) {
                 if (*endQuoteIt == endQuote) break;
             }
-            if (endQuoteIt != line.end())  {
+            if (endQuoteIt != line.end()) {
                 while (++sit != endQuoteIt) {
                     token << (*sit);
                 }
@@ -499,11 +511,13 @@ vector<string> Tokenize(string line)  {
                 tokens.push_back(path);
 
                 token.str("");
-            } else {
+            }
+            else {
                 // stuff the imbalanced quote character and continue
                 token << (*sit);
             }
-        } else {
+        }
+        else {
             token << c;
         }
     }
@@ -523,7 +537,8 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
         if (NULL == PathCombineA(fullConfFilePath, cwd.c_str(), confFile.c_str())) {
             throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
         }
-    } else {
+    }
+    else {
         strcpy(fullConfFilePath, confFile.c_str());
     }
 
@@ -532,7 +547,8 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
         stringstream ss;
         ss << "Failed to open the .conf file: " << confFile << " CWD=" << cwd.c_str();
         throw invalid_argument(ss.str());
-    } else  {
+    }
+    else {
         char confFileDir[MAX_PATH];
         strcpy(confFileDir, fullConfFilePath);
         if (FALSE == PathRemoveFileSpecA(confFileDir)) {
@@ -548,9 +564,11 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
             string parameter = tokens.at(0);
             if (parameter.at(0) == '#') {
                 continue;
-            } else if (parameter.compare(cInclude) == 0) {
+            }
+            else if (parameter.compare(cInclude) == 0) {
                 ParseConfFile(tokens.at(1), cwd, argMap);
-            } else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
+            }
+            else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown conf file parameter : " + parameter;
                 throw invalid_argument(err.str());
@@ -612,7 +630,8 @@ void ParseCommandLineArguments(int argc, char** argv) {
                     // The test-memory argument is followed by a integer value
                     n++;
                 }
-            } else {
+            }
+            else {
                 // -- arguments processed before calling redis.c::main()
                 if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
                     stringstream err;
@@ -631,8 +650,9 @@ void ParseCommandLineArguments(int argc, char** argv) {
                     catch (invalid_argument iaerr) {
                         // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
                     }
-                } else if (argument == cServiceRun) {
-                    // When the service starts the current directory is %systemdir%. This needs to be changed to the 
+                }
+                else if (argument == cServiceRun) {
+                    // When the service starts the current directory is %systemdir%. This needs to be changed to the
                     // directory the executable is in so that the .conf file can be loaded.
                     char szFilePath[MAX_PATH];
                     if (GetModuleFileNameA(NULL, szFilePath, MAX_PATH) == 0) {
@@ -645,15 +665,18 @@ void ParseCommandLineArguments(int argc, char** argv) {
                     if (FALSE == SetCurrentDirectoryA(currentDir.c_str())) {
                         throw std::system_error(GetLastError(), system_category(), "SetCurrentDirectory failed");
                     }
-                } else {
+                }
+                else {
                     params = g_redisArgMap[argument]->Extract(n, argc, argv);
                 }
                 g_argMap[argument].push_back(params);
                 n += (int) params.size();
             }
-        } else if (string(argv[n]).substr(0, 1) == "-") {
+        }
+        else if (string(argv[n]).substr(0, 1) == "-") {
             // Do nothing, the - arguments are passed to redis.c::main() as they are
-        } else {
+        }
+        else {
             confFile = true;
             confFilePath = argv[n];
         }
@@ -663,7 +686,7 @@ void ParseCommandLineArguments(int argc, char** argv) {
     if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
         throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetCurrentDirectoryA failed");
     }
-    
+
     if (confFile) {
         ParseConfFile(confFilePath, cwd, g_argMap);
     }
@@ -689,4 +712,3 @@ void ParseCommandLineArguments(int argc, char** argv) {
 vector<string> GetAccessPaths() {
     return g_pathsAccessed;
 }
-
