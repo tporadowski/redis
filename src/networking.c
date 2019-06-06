@@ -43,7 +43,7 @@
 
 WIN32_ONLY(extern int WSIOCP_QueueAccept(int listenfd);)
 
-static void setProtocolError(const char *errstr, client *c, int pos);
+static void setProtocolError(const char *errstr, client *c, PORT_LONG pos); WIN_PORT_FIX /* PORT_LONG */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -1199,7 +1199,7 @@ int processInlineBuffer(client *c) {
     if (newline == NULL) {
         if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c, "Protocol error: too big inline request");
-            setProtocolError("too big inline request", c, 0);
+            setProtocolError("too big inline request", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
         }
         return C_ERR;
     }
@@ -1215,7 +1215,7 @@ int processInlineBuffer(client *c) {
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c, "Protocol error: unbalanced quotes in request");
-        setProtocolError("unbalanced quotes in inline request", c, 0);
+        setProtocolError("unbalanced quotes in inline request", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
         return C_ERR;
     }
 
@@ -1306,7 +1306,7 @@ int processMultibulkBuffer(client *c) {
         if (newline == NULL) {
             if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                 addReplyError(c, "Protocol error: too big mbulk count string");
-                setProtocolError("too big mbulk count string", c, 0);
+                setProtocolError("too big mbulk count string", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
             }
             return C_ERR;
         }
@@ -1347,7 +1347,7 @@ int processMultibulkBuffer(client *c) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                     addReplyError(c,
                         "Protocol error: too big bulk count string");
-                    setProtocolError("too big bulk count string", c, 0);
+                    setProtocolError("too big bulk count string", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
                     return C_ERR;
                 }
                 break;
