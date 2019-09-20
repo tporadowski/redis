@@ -368,7 +368,7 @@ float zmalloc_get_fragmentation_ratio(size_t rss) {
  * Example: zmalloc_get_smap_bytes_by_field("Rss:",-1);
  */
 #if defined(HAVE_PROC_SMAPS)
-size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
+size_t zmalloc_get_smap_bytes_by_field(char *field, PORT_LONG pid) {
     char line[1024];
     size_t bytes = 0;
     int flen = strlen(field);

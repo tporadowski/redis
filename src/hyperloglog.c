@@ -485,7 +485,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, PORT_LONG *regp) {
  * The function always succeed, however if as a result of the operation
  * the approximated cardinality changed, 1 is returned. Otherwise 0
  * is returned. */
-int hllDenseSet(uint8_t *registers, long index, uint8_t count) {
+int hllDenseSet(uint8_t *registers, PORT_LONG index, uint8_t count) {
     uint8_t oldcount;
 
     HLL_DENSE_GET_REGISTER(oldcount,registers,index);
@@ -504,7 +504,7 @@ int hllDenseSet(uint8_t *registers, long index, uint8_t count) {
  * This is just a wrapper to hllDenseSet(), performing the hashing of the
  * element in order to retrieve the index and zero-run count. */
 int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
-    long index;
+    PORT_LONG index;
     uint8_t count = hllPatLen(ele,elesize,&index);
     /* Update the register if this element produced a longer run of zeroes. */
     return hllDenseSet(registers,index,count);
@@ -652,7 +652,7 @@ int hllSparseToDense(robj *o) {
  * sparse to dense: this happens when a register requires to be set to a value
  * not representable with the sparse representation, or when the resulting
  * size would be greater than server.hll_sparse_max_bytes. */
-int hllSparseSet(robj *o, long index, uint8_t count) {
+int hllSparseSet(robj *o, PORT_LONG index, uint8_t count) {
     struct hllhdr *hdr;
     uint8_t oldcount, *sparse, *end, *p, *prev, *next;
     PORT_LONG first, span;
@@ -902,7 +902,7 @@ promote: /* Promote to dense representation. */
  * This function is actually a wrapper for hllSparseSet(), it only performs
  * the hashshing of the elmenet to obtain the index and zeros run length. */
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
-    long index;
+    PORT_LONG index;
     uint8_t count = hllPatLen(ele,elesize,&index);
     /* Update the register if this element produced a longer run of zeroes. */
     return hllSparseSet(o,index,count);

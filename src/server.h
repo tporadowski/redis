@@ -973,7 +973,7 @@ struct redisServer {
     list *slowlog;                  /* SLOWLOG list of commands */
     PORT_LONGLONG slowlog_entry_id;     /* SLOWLOG current entry ID */
     PORT_LONGLONG slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
-    unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+	PORT_ULONG  slowlog_max_len;     /* SLOWLOG max number of items logged */
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
     PORT_LONGLONG stat_net_input_bytes; /* Bytes read from network. */
     PORT_LONGLONG stat_net_output_bytes; /* Bytes written to network. */
