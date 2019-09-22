@@ -163,7 +163,7 @@ void BugReportEnd(){
     serverLogRaw(LL_WARNING,
         "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
         "       Please report this bug by following the instructions at:\n\n"
-        "     http://github.com/MSOpenTech/redis/wiki/Submitting-an-Issue\n\n"
+        "     https://github.com/tporadowski/redis/wiki/Submitting-an-Issue\n\n"
         "    Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
         );
 }
