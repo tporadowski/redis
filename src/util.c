@@ -56,7 +56,7 @@ POSIX_ONLY(#include <sys/time.h>)
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen) {
+	while (patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (pattern[1] == '*') {
@@ -93,7 +93,7 @@ int stringmatchlen(const char *pattern, int patternLen,
             }
             match = 0;
             while(1) {
-                if (pattern[0] == '\\') {
+                if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
                     if (pattern[0] == string[0])

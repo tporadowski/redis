@@ -108,7 +108,7 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
 }
 
 /* Input Argument Helper */
-/* Decode lat/PORT_LONG from a zset member's score.
+/* Decode lat/long from a zset member's score.
  * Returns C_OK on successful decoding, otherwise C_ERR is returned. */
 int longLatFromMember(robj *zobj, robj *member, double *xy) {
     double score = 0;
@@ -659,7 +659,7 @@ void georadiusGeneric(client *c, int flags) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
             setKey(c->db,storekey,zobj);
             decrRefCount(zobj);
-            notifyKeyspaceEvent(NOTIFY_LIST,"georadiusstore",storekey,
+            notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {

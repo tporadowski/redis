@@ -165,7 +165,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 /* ------------------- File descriptors set implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure.
- * The function returns success as PORT_LONG as we are able to correctly write
+ * The function returns success as long as we are able to correctly write
  * to at least one file descriptor.
  *
  * When buf is NULL and len is 0, the function performs a flush operation
@@ -315,7 +315,7 @@ void rioSetAutoSync(rio *r, off_t bytes) {
  * generating the Redis protocol for the Append Only File. */
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
-size_t rioWriteBulkCount(rio *r, char prefix, int count) {
+size_t rioWriteBulkCount(rio *r, char prefix, PORT_LONG count) {
     char cbuf[128];
     int clen;
 
@@ -331,7 +331,7 @@ size_t rioWriteBulkCount(rio *r, char prefix, int count) {
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     size_t nwritten;
 
-    if ((nwritten = rioWriteBulkCount(r,'$',(int)len)) == 0) return 0;          WIN_PORT_FIX /* cast (int) */
+    if ((nwritten = rioWriteBulkCount(r,'$',(PORT_LONG)len)) == 0) return 0;          WIN_PORT_FIX /* cast (PORT_LONG) */
     if (len > 0 && rioWrite(r,buf,len) == 0) return 0;
     if (rioWrite(r,"\r\n",2) == 0) return 0;
     return nwritten+len+2;

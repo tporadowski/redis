@@ -284,7 +284,7 @@ struct redisCommand redisCommandTable[] = {
     {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
+    {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
     {"memory",memoryCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
@@ -462,8 +462,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     DICT_NOTUSED(privdata);
 
     l1 = (int) sdslen((sds) key1);                                                WIN_PORT_FIX /* cast (int) */
-        l2 = (int) sdslen((sds) key2);                                                WIN_PORT_FIX /* cast (int) */
-        if (l1 != l2) return 0;
+    l2 = (int) sdslen((sds) key2);                                                WIN_PORT_FIX /* cast (int) */
+    if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
 
@@ -926,12 +926,15 @@ void databasesCron(void) {
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db % server.dbnum);
-                rehash_db++;
+                int work_done = incrementallyRehash(rehash_db);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */
                     break;
+                } else {
+                    /* If this db didn't need rehash, we'll try the next one. */
+                    rehash_db++;
+                    rehash_db %= server.dbnum;
                 }
             }
         }
@@ -1121,7 +1124,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     }
     else {
         /* If there is not a background saving/rewrite in progress check if
-         * we have to save/rewrite now */
+         * we have to save/rewrite now. */
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams + j;
 
@@ -1144,8 +1147,9 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
             }
         }
 
-        /* Trigger an AOF rewrite if needed */
-        if (server.rdb_child_pid == -1 &&
+         /* Trigger an AOF rewrite if needed. */
+         if (server.aof_state == AOF_ON &&
+             server.rdb_child_pid == -1 &&
             server.aof_child_pid == -1 &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
@@ -1227,9 +1231,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
 #ifdef WIN32
-    //1) check if child has signaled parent to stop sending diffs
-    //2) check if more data can be written to the child and write it
-    aofProcessDiffRewriteEvents(eventLoop);
+	//1) check if child has signaled parent to stop sending diffs
+	//2) check if more data can be written to the child and write it
+	aofProcessDiffRewriteEvents(eventLoop);
 #endif
 
     /* Call the Redis Cluster before sleep function. Note that this function
@@ -1366,6 +1370,7 @@ void createSharedObjects(void) {
     shared.rpop = createStringObject("RPOP", 4);
     shared.lpop = createStringObject("LPOP", 4);
     shared.lpush = createStringObject("LPUSH", 5);
+	shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING, (void*) (PORT_LONG) j));
@@ -1420,6 +1425,7 @@ void initServerConfig(void) {
     server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
     server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
     server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
+    server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
@@ -1479,6 +1485,7 @@ void initServerConfig(void) {
     server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
     server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
+    server.cluster_slave_no_failover = CLUSTER_DEFAULT_SLAVE_NO_FAILOVER;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.cluster_announce_ip = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP;
     server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
@@ -1597,16 +1604,29 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Check if we still have accesses to the executable that started this
      * server instance. */
-    if (access(server.executable, X_OK) == -1) return C_ERR;
+    if (access(server.executable,X_OK) == -1) {
+        serverLog(LL_WARNING,"Can't restart: this process has no "
+                             "permissions to execute %s", server.executable);
+        return C_ERR;
+    }
 
     /* Config rewriting. */
     if (flags & RESTART_SERVER_CONFIG_REWRITE &&
         server.configfile &&
-        rewriteConfig(server.configfile) == -1) return C_ERR;
+        rewriteConfig(server.configfile) == -1)
+    {
+        serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
+                             "failed");
+        return C_ERR;
+    }
 
     /* Perform a proper shutdown. */
     if (flags & RESTART_SERVER_GRACEFULLY &&
-        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK) return C_ERR;
+        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
+    {
+        serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
+        return C_ERR;
+    }
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
@@ -1618,6 +1638,8 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay * 1000);
+    zfree(server.exec_argv[0]);
+    server.exec_argv[0] = zstrdup(server.executable);
     execve(server.executable, server.exec_argv, environ);
 
     /* If an error occurred here, there is nothing we can do, but exit. */
@@ -1803,6 +1825,10 @@ int listenToPort(int port, int *fds, int *count) {
                 "Creating Server TCP listening socket %s:%d: %s",
                 server.bindaddr[j] ? server.bindaddr[j] : "*",
                 port, server.neterr);
+			if (errno == ENOPROTOOPT || errno == EPROTONOSUPPORT ||
+				errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+				errno == EAFNOSUPPORT || errno == EADDRNOTAVAIL)
+				continue;
             return C_ERR;
         }
         anetNonBlock(NULL, fds[*count]);
@@ -1820,6 +1846,8 @@ void resetServerStats(void) {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
+    server.stat_expired_stale_perc = 0;
+    server.stat_expired_time_cap_reached_count = 0;
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
@@ -2339,8 +2367,9 @@ void call(client *c, int flags) {
             propagate_flags &= ~PROPAGATE_AOF;
 
         /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. */
-        if (propagate_flags != PROPAGATE_NONE)
+         * propagation is needed. Note that modules commands handle replication
+         * in an explicit way, so we never replicate them automatically. */
+        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd, c->db->id, c->argv, c->argc, propagate_flags);
     }
 
@@ -2398,8 +2427,13 @@ int processCommand(client *c) {
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
-        addReplyErrorFormat(c, "unknown command '%s'",
-            (char*) c->argv[0]->ptr);
+        sds args = sdsempty();
+        int i;
+        for (i=1; i < c->argc && sdslen(args) < 128; i++)
+            args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+        addReplyErrorFormat(c,"unknown command `%s`, with args beginning with: %s",
+            (char*)c->argv[0]->ptr, args);
+        sdsfree(args);
         return C_OK;
     }
     else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
@@ -3188,6 +3222,8 @@ sds genRedisInfoString(char *section) {
             "sync_partial_ok:%lld\r\n"
             "sync_partial_err:%lld\r\n"
             "expired_keys:%lld\r\n"
+            "expired_stale_perc:%.2f\r\n"
+            "expired_time_cap_reached_count:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
@@ -3212,6 +3248,8 @@ sds genRedisInfoString(char *section) {
             server.stat_sync_partial_ok,
             server.stat_sync_partial_err,
             server.stat_expiredkeys,
+            server.stat_expired_stale_perc*100,
+            server.stat_expired_time_cap_reached_count,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,

@@ -1355,6 +1355,21 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
 #endif
+
+		/* Ensure background save doesn't overwrite synced data */
+        if (server.rdb_child_pid != -1) {
+            serverLog(LL_NOTICE,
+                "Replica is about to load the RDB file received from the "
+                "master, but there is a pending RDB child running. "
+                "Killing process %ld and removing its temp file to avoid "
+                "any race",
+                    (long) server.rdb_child_pid);
+
+#ifndef _WIN32 //TODO what to do on windows?
+            kill(server.rdb_child_pid,SIGUSR1);
+            rdbRemoveTempFile(server.rdb_child_pid);
+#endif
+        }
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
             cancelReplicationHandshake();
@@ -1394,6 +1409,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 #endif
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
+        server.repl_down_since = 0;
         /* After a full resynchroniziation we use the replication ID and
          * offset of the master. The secondary ID / offset are cleared since
          * we are starting a new history. */
@@ -1446,6 +1462,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
             cmd = sdscat(cmd,arg);
         }
         cmd = sdscatlen(cmd,"\r\n",2);
+        va_end(ap);
 
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),server.repl_syncio_timeout*1000)      WIN_PORT_FIX /* cast (ssize_t) */
@@ -1456,7 +1473,6 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
                     IF_WIN32(wsa_strerror(errno),strerror(errno)));
         }
         sdsfree(cmd);
-        va_end(ap);
     }
 
     /* Read the reply from the server. */
@@ -2097,6 +2113,12 @@ void replicationUnsetMaster(void) {
      * with PSYNC version 2, there is no need for full resync after a
      * master switch. */
     server.slaveseldb = -1;
+
+    /* Once we turn from slave to master, we consider the starting time without
+     * slaves (that is used to count the replication backlog time to live) as
+     * starting from now. Otherwise the backlog will be freed after a
+     * failover if slaves do not connect immediately. */
+    server.repl_no_slaves_since = server.unixtime;
 }
 
 /* This function is called when the slave lose the connection with the
@@ -2131,6 +2153,15 @@ void slaveofCommand(client *c) {
         }
     } else {
         PORT_LONG port;
+
+		if (c->flags & CLIENT_SLAVE)
+		{
+			/* If a client is already a replica they cannot run this command,
+			* because it involves flushing all replicas (including this
+			* client) */
+			addReplyError(c,"Command is not valid when client is a replica.");
+			return;
+		}
 
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
@@ -2261,6 +2292,8 @@ void replicationCacheMaster(client *c) {
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
+    c->sentlen = 0;
+    c->reply_bytes = 0;
     c->bufpos = 0;
     resetClient(c);
 
@@ -2330,9 +2363,10 @@ void replicationResurrectCachedMaster(int newfd) {
     server.master->authenticated = 1;
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
+    server.repl_down_since = 0;
 
     /* Re-add to the list of clients. */
-    listAddNodeTail(server.clients,server.master);
+    linkClient(server.master);
     if (aeCreateFileEvent(server.el, newfd, AE_READABLE,
                           readQueryFromClient, server.master)) {
         serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
@@ -2515,6 +2549,11 @@ void waitCommand(client *c) {
     mstime_t timeout;
     PORT_LONG numreplicas, ackreplicas;
     PORT_LONGLONG offset = c->woff;
+
+    if (server.masterhost) {
+        addReplyError(c,"WAIT cannot be used with slave instances. Please also note that since Redis 4.0 if a slave is configured to be writable (which is not the default) writes to slaves are just local and are not propagated.");
+        return;
+    }
 
     /* Argument parsing. */
     if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
@@ -2740,6 +2779,23 @@ void replicationCron(void) {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
 
         if (idle > server.repl_backlog_time_limit) {
+            /* When we free the backlog, we always use a new
+             * replication ID and clear the ID2. This is needed
+             * because when there is no backlog, the master_repl_offset
+             * is not updated, but we would still retain our replication
+             * ID, leading to the following problem:
+             *
+             * 1. We are a master instance.
+             * 2. Our slave is promoted to master. It's repl-id-2 will
+             *    be the same as our repl-id.
+             * 3. We, yet as master, receive some updates, that will not
+             *    increment the master_repl_offset.
+             * 4. Later we are turned into a slave, connecto to the new
+             *    master that will accept our PSYNC request by second
+             *    replication ID, but there will be data inconsistency
+             *    because we received writes. */
+            changeReplicationId();
+            clearReplicationId2();
             freeReplicationBacklog();
             serverLog(LL_NOTICE,
                 "Replication backlog freed after %d seconds "

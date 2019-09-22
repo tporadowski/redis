@@ -34,7 +34,7 @@
  * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
 
-/* Count number of bits set in the binary array pointed by 's' and PORT_LONG
+/* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with a input string length up to 512 MB. */
 size_t redisPopcount(void *s, PORT_LONG count) {
@@ -92,7 +92,7 @@ size_t redisPopcount(void *s, PORT_LONG count) {
 }
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
- * zero (if 'bit' is 0) in the bitmap starting at 's' and PORT_LONG 'count' bytes.
+ * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
  *
  * The function is guaranteed to return a value >= 0 if 'bit' is 0 since if
  * no zero bit is found, it returns count*8 assuming the string is zero
@@ -167,7 +167,7 @@ PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
 
     /* Last word left, scan bit by bit. The first thing we need is to
      * have a single "1" set in the most significant position in an
-     * PORT_ULONG. We don't know the size of the PORT_LONG so we use a
+     * unsigned long. We don't know the size of the long so we use a
      * simple trick. */
     one = PORT_ULONG_MAX; /* All bits set to 1.*/
     one >>= 1;       /* All bits set to 1 but the MSB. */

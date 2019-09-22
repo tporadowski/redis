@@ -214,25 +214,20 @@ ssize_t aofRewriteBufferWrite(int fd) {
  /* Starts a background task that performs fsync() against the specified
   * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateBackgroundJob(BIO_AOF_FSYNC, (void*) (PORT_LONG) fd, NULL, NULL);
+    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
-/* Called when the user switches from "appendonly yes" to "appendonly no"
- * at runtime using the CONFIG command. */
-void stopAppendOnly(void) {
-    serverAssert(server.aof_state != AOF_OFF);
-    flushAppendOnlyFile(1);
-    aof_fsync(server.aof_fd);
-    close(server.aof_fd);
+/* Kills an AOFRW child process if exists */
+static void killAppendOnlyChild(void) {
 
-    server.aof_fd = -1;
-    server.aof_selected_db = -1;
-    server.aof_state = AOF_OFF;
-    /* rewrite operation in progress? kill it, wait child exit */
-    if (server.aof_child_pid != -1) {
-        POSIX_ONLY(int statloc;)
+	POSIX_ONLY(int statloc;)
 
-            serverLog(LL_NOTICE, "Killing running AOF rewrite child: %Id", WIN_PORT_FIX /* %ld -> %Id */
+     /* No AOFRW child? return. */
+    if (server.aof_child_pid != -1)return;
+        
+	/* Kill AOFRW child, wait for child exit. */
+
+    serverLog(LL_NOTICE, "Killing running AOF rewrite child: %Id", WIN_PORT_FIX /* %ld -> %Id */
             (PORT_LONG) server.aof_child_pid);
 #ifdef _WIN32
         AbortForkOperation();
@@ -246,20 +241,36 @@ void stopAppendOnly(void) {
         aofRemoveTempFile(server.aof_child_pid);
         server.aof_child_pid = -1;
         server.aof_rewrite_time_start = -1;
-        /* close pipes used for IPC between the two processes. */
+    /* Close pipes used for IPC between the two processes. */
         aofClosePipes();
-    }
+    
+}
+
+/* Called when the user switches from "appendonly yes" to "appendonly no"
+ * at runtime using the CONFIG command. */
+void stopAppendOnly(void) {
+    serverAssert(server.aof_state != AOF_OFF);
+    flushAppendOnlyFile(1);
+    aof_fsync(server.aof_fd);
+    close(server.aof_fd);
+
+    server.aof_fd = -1;
+    server.aof_selected_db = -1;
+    server.aof_state = AOF_OFF;
+	killAppendOnlyChild();
+
+
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+    int newfd;
 
-    server.aof_last_fsync = server.unixtime;
-    server.aof_fd = open(server.aof_filename, O_WRONLY | O_APPEND | O_CREAT WIN32_ONLY(| _O_BINARY), IF_WIN32(_S_IREAD | _S_IWRITE, 0644));
+    newfd = open(server.aof_filename, O_WRONLY | O_APPEND | O_CREAT WIN32_ONLY(| _O_BINARY), IF_WIN32(_S_IREAD | _S_IWRITE, 0644));
     serverAssert(server.aof_state == AOF_OFF);
-    if (server.aof_fd == -1) {
+    if (newfd == -1) {
         char *cwdp = IF_WIN32(_getcwd, getcwd)(cwd, MAXPATHLEN);
 
         serverLog(LL_WARNING,
@@ -273,17 +284,54 @@ int startAppendOnly(void) {
     if (server.rdb_child_pid != -1) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING, "AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
-    }
-    else if (rewriteAppendOnlyFileBackground() == C_ERR) {
-        close(server.aof_fd);
-        WIN32_ONLY(server.aof_fd = -1;)
-            serverLog(LL_WARNING, "Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
-        return C_ERR;
+    } else {
+        /* If there is a pending AOF rewrite, we need to switch it off and
+         * start a new one: the old one cannot be reused becuase it is not
+         * accumulating the AOF buffer. */
+        if (server.aof_child_pid != -1) {
+            serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
+            killAppendOnlyChild();
+	    }
+	    if (rewriteAppendOnlyFileBackground() == C_ERR) {
+	        close(newfd);
+	        serverLog(LL_WARNING, "Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
+	        return C_ERR;
+	    }
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
     server.aof_state = AOF_WAIT_REWRITE;
+    server.aof_last_fsync = server.unixtime;
+    server.aof_fd = newfd;
     return C_OK;
+}
+
+/* This is a wrapper to the write syscall in order to retry on short writes
+ * or if the syscall gets interrupted. It could look strange that we retry
+ * on short writes given that we are writing to a block device: normally if
+ * the first call is short, there is a end-of-space condition, so the next
+ * is likely to fail. However apparently in modern systems this is no longer
+ * true, and in general it looks just more resilient to retry the write. If
+ * there is an actual error condition we'll get it at the next try. */
+ssize_t aofWrite(int fd, const char *buf, size_t len) {
+    ssize_t nwritten = 0, totwritten = 0;
+
+    while(len) {
+        nwritten = write(fd, buf, len);
+
+        if (nwritten < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return totwritten ? totwritten : -1;
+        }
+
+        len -= nwritten;
+        buf += nwritten;
+        totwritten += nwritten;
+    }
+
+    return totwritten;
 }
 
 /* Write the append only file buffer on disk.
@@ -344,7 +392,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = write(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
+    nwritten = aofWrite(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
@@ -353,11 +401,9 @@ void flushAppendOnlyFile(int force) {
      * useful for graphing / monitoring purposes. */
     if (sync_in_progress) {
         latencyAddSampleIfNeeded("aof-write-pending-fsync", latency);
-    }
-    else if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) {
+    } else if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) {
         latencyAddSampleIfNeeded("aof-write-active-child", latency);
-    }
-    else {
+    } else {
         latencyAddSampleIfNeeded("aof-write-alone", latency);
     }
     latencyAddSampleIfNeeded("aof-write", latency);
@@ -365,7 +411,7 @@ void flushAppendOnlyFile(int force) {
     /* We performed the write so reset the postponed flush sentinel to zero. */
     server.aof_flush_postponed_start = 0;
 
-    if (nwritten != (signed) sdslen(server.aof_buf)) {
+    if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
         static time_t last_write_error_log = 0;
         int can_log = 0;
 
@@ -382,8 +428,7 @@ void flushAppendOnlyFile(int force) {
                     IF_WIN32(wsa_strerror(errno), strerror(errno)));
                 server.aof_last_write_errno = errno;
             }
-        }
-        else {
+        } else {
             if (can_log) {
                 serverLog(LL_WARNING, "Short write while writing to "
                     "the AOF file: (nwritten=%lld, "
@@ -468,8 +513,7 @@ void flushAppendOnlyFile(int force) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always", latency);
         server.aof_last_fsync = server.unixtime;
-    }
-    else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
         server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) aof_background_fsync(server.aof_fd);
         server.aof_last_fsync = server.unixtime;
@@ -557,8 +601,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         cmd->proc == expireatCommand) {
         /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
         buf = catAppendOnlyExpireAtCommand(buf, cmd, argv[1], argv[2]);
-    }
-    else if (cmd->proc == setexCommand || cmd->proc == psetexCommand) {
+    } else if (cmd->proc == setexCommand || cmd->proc == psetexCommand) {
         /* Translate SETEX/PSETEX to SET and PEXPIREAT */
         tmpargv[0] = createStringObject("SET", 3);
         tmpargv[1] = argv[1];
@@ -566,8 +609,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         buf = catAppendOnlyGenericCommand(buf, 3, tmpargv);
         decrRefCount(tmpargv[0]);
         buf = catAppendOnlyExpireAtCommand(buf, cmd, argv[1], argv[2]);
-    }
-    else if (cmd->proc == setCommand && argc > 3) {
+    } else if (cmd->proc == setCommand && argc > 3) {
         int i;
         robj *exarg = NULL, *pxarg = NULL;
         /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
@@ -583,8 +625,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         if (pxarg)
             buf = catAppendOnlyExpireAtCommand(buf, server.pexpireCommand, argv[1],
                 pxarg);
-    }
-    else {
+    } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
          * for the replication itself. */
@@ -666,6 +707,7 @@ int loadAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     PORT_LONG loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
         serverLog(LL_WARNING, "Fatal error: can't open the append log file for reading: %s", strerror(errno));
@@ -703,7 +745,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE, "Reading RDB preamble from AOF file...");
         if (fseek(fp, 0, SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb, fp);
-        if (rdbLoadRio(&rdb, NULL) != C_OK) {
+        if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
             serverLog(LL_WARNING, "Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         }
@@ -768,16 +810,28 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            serverLog(LL_WARNING, "Unknown command '%s' reading the append only file", (char*) argv[0]->ptr);
+            serverLog(LL_WARNING,
+                "Unknown command '%s' reading the append only file",
+                (char*)argv[0]->ptr);
             exit(1);
         }
 
+        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
+        if (fakeClient->flags & CLIENT_MULTI &&
+            fakeClient->cmd->proc != execCommand)
+        {
+            queueMultiCommand(fakeClient);
+        } else {
         cmd->proc(fakeClient);
+        }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 &&
+                     listLength(fakeClient->reply) == 0);
+
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
@@ -789,8 +843,15 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
-    if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was
+     * a short read, even if technically the protocol is correct: we want
+     * to remove the unprocessed tail and continue. */
+    if (fakeClient->flags & CLIENT_MULTI) {
+        serverLog(LL_WARNING,
+            "Revert incomplete MULTI/EXEC transaction in AOF file");
+        valid_up_to = valid_before_multi;
+        goto uxeof;
+    }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
@@ -804,7 +865,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
         if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-        serverLog(LL_WARNING, "Unrecoverable error reading the append only file: %s", IF_WIN32(wsa_strerror(errno), strerror(errno)));
+        serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
         exit(1);
     }
 
@@ -1078,6 +1139,22 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hashTypeReleaseIterator(hi);
 
     return 1;
+}
+
+/* Call the module type callback in order to rewrite a data type
+ * that is exported by a module and is not handled by Redis itself.
+ * The function returns 0 on error, 1 on success. */
+int rewriteModuleObject(rio *r, robj *key, robj *o) {
+    RedisModuleIO io;
+    moduleValue *mv = o->ptr;
+    moduleType *mt = mv->type;
+    moduleInitIOContext(io,mt,r);
+    mt->aof_rewrite(&io,key,mv->value);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    return io.error ? 0 : 1;
 }
 
 /* This function is called by the child rewriting the AOF file to read
@@ -1739,19 +1816,21 @@ cleanup:
         server.aof_rewrite_scheduled = 1;
 }
 
+#ifdef _WIN32
 void aofProcessDiffRewriteEvents(aeEventLoop* eventLoop)
 {
-    // only do these checks in the parent process and if an aof rewrite is in progress
-    if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
-        //1) check if more data can be written to the child and write it.
-        // in which case we dont need to send any more diffs to the parent
-        if (server.aof_stop_sending_diff == 0) {
-            aofChildWriteDiffData(eventLoop, server.aof_pipe_write_data_to_child, NULL, 0);
-        }
+	// only do these checks in the parent process and if an aof rewrite is in progress
+	if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
+		//1) check if more data can be written to the child and write it.
+		// in which case we dont need to send any more diffs to the parent
+		if (server.aof_stop_sending_diff == 0) {
+			aofChildWriteDiffData(eventLoop,server.aof_pipe_write_data_to_child,NULL,0);
+		}
 
-        //2) check if child has signaled parent to stop sending diffs
-        if (server.aof_stop_sending_diff == 0) {
-            aofChildPipeReadable(eventLoop, server.aof_pipe_read_ack_from_child, NULL, 0);
-        }
-    }
+		//2) check if child has signaled parent to stop sending diffs
+		if (server.aof_stop_sending_diff == 0) {
+			aofChildPipeReadable(eventLoop,server.aof_pipe_read_ack_from_child,NULL,0);
+		}
+	}
 }
+#endif

@@ -523,12 +523,12 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     switch(c[0]) {
     case '+':
         if (c[1] != '\0') return C_ERR;
-        *ex = 0;
+        *ex = 1;
         *dest = shared.maxstring;
         return C_OK;
     case '-':
         if (c[1] != '\0') return C_ERR;
-        *ex = 0;
+        *ex = 1;
         *dest = shared.minstring;
         return C_OK;
     case '(':
@@ -601,9 +601,8 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
-    if (sdscmplex(range->min,range->max) > 1 ||
-            (sdscmp(range->min,range->max) == 0 &&
-            (range->minex || range->maxex)))
+	int cmp = sdscmplex(range->min,range->max);
+	if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
         return 0;
     x = zsl->tail;
     if (x == NULL || !zslLexValueGteMin(x->ele,range))
@@ -876,9 +875,8 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *p;
 
     /* Test for ranges that will always be empty. */
-    if (sdscmplex(range->min,range->max) > 1 ||
-            (sdscmp(range->min,range->max) == 0 &&
-            (range->minex || range->maxex)))
+	int cmp = sdscmplex(range->min,range->max);
+	if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
         return 0;
 
     p = ziplistIndex(zl,-2); /* Last element. */
@@ -2860,7 +2858,10 @@ void genericZrangebylexCommand(client *c, int reverse) {
         while (remaining) {
             if (remaining >= 3 && !strcasecmp(c->argv[pos]->ptr,"limit")) {
                 if ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL) != C_OK) ||
-                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) return;
+					(getLongFromObjectOrReply(c,c->argv[pos + 2],&limit,NULL) != C_OK)) {
+					zslFreeLexRange(&range);
+					return;
+				}
                 pos += 3; remaining -= 3;
             } else {
                 zslFreeLexRange(&range);

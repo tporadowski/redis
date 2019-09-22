@@ -43,7 +43,7 @@
 
 WIN32_ONLY(extern int WSIOCP_QueueAccept(int listenfd);)
 
-static void setProtocolError(const char *errstr, client *c, int pos);
+static void setProtocolError(const char *errstr, client *c, PORT_LONG pos); WIN_PORT_FIX /* PORT_LONG */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -75,6 +75,16 @@ void freeClientReplyValue(void *o) {
 
 int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a, b);
+}
+
+/* This function links the client to the global linked list of clients.
+ * unlinkClient() does the opposite, among other things. */
+void linkClient(client *c) {
+    listAddNodeTail(server.clients,c);
+    /* Note that we remember the linked list node where the client is stored,
+     * this way removing the client in unlinkClient() will not require
+     * a linear scan, but just a constant time operation. */
+    c->client_list_node = listLast(server.clients);
 }
 
 client *createClient(int fd) {
@@ -143,9 +153,10 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType, NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns, decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns, listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients, c);
+    if (fd != -1) linkClient(c);
     initClientMultiState(c);
     return c;
 }
@@ -395,6 +406,14 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyString(c, "-ERR ", 5);
     addReplyString(c, s, len);
     addReplyString(c, "\r\n", 2);
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+        char* to = c->flags & CLIENT_MASTER? "master": "slave";
+        char* from = c->flags & CLIENT_MASTER? "slave": "master";
+        char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
+        serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
+                             "to its %s: '%s' after processing the command "
+                             "'%s'", from, to, s, cmdname);
+    }
 }
 
 void addReplyError(client *c, const char *err) {
@@ -612,6 +631,7 @@ void addReplyBulkLongLong(client *c, PORT_LONGLONG ll) {
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
     listRelease(dst->reply);
+    dst->sentlen = 0;
     dst->reply = listDup(src->reply);
     memcpy(dst->buf, src->buf, src->bufpos);
     dst->bufpos = src->bufpos;
@@ -773,9 +793,10 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients, c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients, ln);
+        if (c->client_list_node) {
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el, c->fd, AE_READABLE);
@@ -1018,10 +1039,15 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * scenario think about 'KEYS *' against the loopback interface).
          *
          * However if we are over the maxmemory limit we ignore that and
-         * just deliver as much data as it is possible to deliver. */
+         * just deliver as much data as it is possible to deliver.
+         *
+         * Moreover, we also send as much as possible if the client is
+         * a slave (otherwise, on high-speed traffic, the replication
+         * buffer will grow indefinitely) */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
-                zmalloc_used_memory() < server.maxmemory)) break;
+             zmalloc_used_memory() < server.maxmemory) &&
+            !(c->flags & CLIENT_SLAVE)) break;
     }
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
@@ -1105,14 +1131,26 @@ int handleClientsWithPendingWrites(void) {
         /* Try to write buffers to the client socket. */
         if (writeToClient(c->fd, c, 0) == C_ERR) continue;
 
-        /* If there is nothing left, do nothing. Otherwise install
-         * the write handler. */
-        if (clientHasPendingReplies(c) &&
-            aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+        /* If after the synchronous writes above we still have data to
+         * output to the client, we need to install the writable handler. */
+        if (clientHasPendingReplies(c)) {
+            int ae_flags = AE_WRITABLE;
+            /* For the fsync=always policy, we want that a given FD is never
+             * served for reading and writing in the same event loop iteration,
+             * so that in the middle of receiving the query, and serving it
+             * to the client, we'll call beforeSleep() that will do the
+             * actual fsync of AOF to disk. AE_BARRIER ensures that. */
+            if (server.aof_state == AOF_ON &&
+                server.aof_fsync == AOF_FSYNC_ALWAYS)
+            {
+                ae_flags |= AE_BARRIER;
+            }
+            if (aeCreateFileEvent(server.el, c->fd, ae_flags,
                 sendReplyToClient, c) == AE_ERR)
         {
             freeClientAsync(c);
         }
+    }
     }
     return processed;
 }
@@ -1150,7 +1188,7 @@ void resetClient(client *c) {
  * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
-    int argc, j;
+    int argc, j, linefeed_chars = 1;
     sds *argv, aux;
     size_t querylen;
 
@@ -1161,14 +1199,14 @@ int processInlineBuffer(client *c) {
     if (newline == NULL) {
         if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c, "Protocol error: too big inline request");
-            setProtocolError("too big inline request", c, 0);
+            setProtocolError("too big inline request", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
         }
         return C_ERR;
     }
 
     /* Handle the \r\n case. */
     if (newline && newline != c->querybuf && *(newline - 1) == '\r')
-        newline--;
+        newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
     querylen = newline - (c->querybuf);
@@ -1177,7 +1215,7 @@ int processInlineBuffer(client *c) {
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c, "Protocol error: unbalanced quotes in request");
-        setProtocolError("unbalanced quotes in inline request", c, 0);
+        setProtocolError("unbalanced quotes in inline request", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
         return C_ERR;
     }
 
@@ -1188,7 +1226,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf, (int) (querylen + 2), -1);                                 WIN_PORT_FIX /* cast (int) */
+    sdsrange(c->querybuf,querylen+linefeed_chars,-1);
 
     /* Setup argv array on client structure */
         if (argc) {
@@ -1213,7 +1251,7 @@ int processInlineBuffer(client *c) {
 /* Helper function. Trims query buffer to make the function that processes
  * multi bulk requests idempotent. */
 #define PROTO_DUMP_LEN 128
-static void setProtocolError(const char *errstr, client *c, int pos) {
+static void setProtocolError(const char *errstr, client *c, PORT_LONG pos) {
     if (server.verbosity <= LL_VERBOSE) {
         sds client = catClientInfoString(sdsempty(), c);
 
@@ -1255,7 +1293,8 @@ static void setProtocolError(const char *errstr, client *c, int pos) {
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
-    int pos = 0, ok;
+    PORT_LONG pos = 0;
+	int ok;
     PORT_LONGLONG ll;
 
     if (c->multibulklen == 0) {
@@ -1267,7 +1306,7 @@ int processMultibulkBuffer(client *c) {
         if (newline == NULL) {
             if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                 addReplyError(c, "Protocol error: too big mbulk count string");
-                setProtocolError("too big mbulk count string", c, 0);
+                setProtocolError("too big mbulk count string", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
             }
             return C_ERR;
         }
@@ -1286,7 +1325,7 @@ int processMultibulkBuffer(client *c) {
             return C_ERR;
         }
 
-        pos = (int) ((newline - c->querybuf) + 2);                                   WIN_PORT_FIX /* cast (int) */
+        pos = (PORT_LONG) ((newline - c->querybuf) + 2);                                   WIN_PORT_FIX /* cast (int) */
             if (ll <= 0) {
                 sdsrange(c->querybuf, pos, -1);
                 return C_OK;
@@ -1308,7 +1347,7 @@ int processMultibulkBuffer(client *c) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                     addReplyError(c,
                         "Protocol error: too big bulk count string");
-                    setProtocolError("too big bulk count string", c, 0);
+                    setProtocolError("too big bulk count string", c, (PORT_LONG)0); WIN_PORT_FIX /* cast (PORT_LONG) */
                     return C_ERR;
                 }
                 break;
@@ -1327,13 +1366,13 @@ int processMultibulkBuffer(client *c) {
             }
 
             ok = string2ll(c->querybuf + pos + 1, newline - (c->querybuf + pos + 1), &ll);
-            if (!ok || ll < 0 || ll > 512 * 1024 * 1024) {
+            if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c, "Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length", c, pos);
                 return C_ERR;
             }
 
-            pos += (int) (newline - (c->querybuf + pos) + 2);                          WIN_PORT_FIX /* cast (int) */
+            pos += (PORT_LONG) (newline - (c->querybuf + pos) + 2);                          WIN_PORT_FIX /* cast (int) */
                 if (ll >= PROTO_MBULK_BIG_ARG) {
                     size_t qblen;
 
@@ -1353,7 +1392,7 @@ int processMultibulkBuffer(client *c) {
         }
 
         /* Read bulk argument */
-        if (sdslen(c->querybuf) - pos < (unsigned) (c->bulklen + 2)) {
+        if (sdslen(c->querybuf) - pos < (size_t) (c->bulklen + 2)) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         }
@@ -1363,7 +1402,7 @@ int processMultibulkBuffer(client *c) {
              * just use the current sds string. */
             if (pos == 0 &&
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
-                (signed) sdslen(c->querybuf) == c->bulklen + 2)
+                sdslen(c->querybuf) == (size_t)c->bulklen + 2)
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING, c->querybuf);
                 sdsIncrLen(c->querybuf, -2); /* remove CRLF */
@@ -1376,7 +1415,7 @@ int processMultibulkBuffer(client *c) {
             else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf + pos, c->bulklen);
-                pos += (int) c->bulklen + 2;                                       WIN_PORT_FIX /* cast (int) */
+                pos += (PORT_LONG) c->bulklen + 2;                                       WIN_PORT_FIX /* cast (int) */
             }
             c->bulklen = -1;
             c->multibulklen--;
@@ -1479,7 +1518,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
-        int remaining = (int) ((unsigned) (c->bulklen + 2) - sdslen(c->querybuf));    WIN_PORT_FIX /* cast (int) */
+        ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
             if (remaining < readlen) readlen = remaining;
     }
@@ -2044,6 +2083,7 @@ int checkClientOutputBufferLimits(client *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(client *c) {
+	if (c->fd == -1) return; /* It is unsafe to free fake clients. */
     POSIX_ONLY(serverAssert(c->reply_bytes < PORT_ULONG_MAX - (1024 * 64));)
         if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {

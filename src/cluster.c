@@ -118,7 +118,7 @@ int clusterLoadConfig(char *filename) {
     }
 
     /* Parse the file. Note that single lines of the cluster config file can
-     * be really PORT_LONG as they include all the hash slots of the node.
+     * be really long as they include all the hash slots of the node.
      * This means in the worst possible case, half of the Redis slots will be
      * present in a single line, possibly in importing or migrating state, so
      * together with the node ID of the sender/receiver.
@@ -260,6 +260,7 @@ int clusterLoadConfig(char *filename) {
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j] + 1);
+                if (slot < 0 || slot >= CLUSTER_SLOTS) goto fmterr;
                 p += 3;
                 cn = clusterLookupNode(p);
                 if (!cn) {
@@ -282,6 +283,8 @@ int clusterLoadConfig(char *filename) {
             else {
                 start = stop = atoi(argv[j]);
             }
+            if (start < 0 || start >= CLUSTER_SLOTS) goto fmterr;
+            if (stop < 0 || stop >= CLUSTER_SLOTS) goto fmterr;
             while (start <= stop) clusterAddSlot(n, start++);
         }
 
@@ -438,6 +441,22 @@ int clusterLockConfig(char *filename) {
     return C_OK;
 }
 
+/* Some flags (currently just the NOFAILOVER flag) may need to be updated
+ * in the "myself" node based on the current configuration of the node,
+ * that may change at runtime via CONFIG SET. This function changes the
+ * set of flags in myself->flags accordingly. */
+void clusterUpdateMyselfFlags(void) {
+    int oldflags = myself->flags;
+    int nofailover = server.cluster_slave_no_failover ?
+                     CLUSTER_NODE_NOFAILOVER : 0;
+    myself->flags &= ~CLUSTER_NODE_NOFAILOVER;
+    myself->flags |= nofailover;
+    if (myself->flags != oldflags) {
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_UPDATE_STATE);
+    }
+}
+
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -531,6 +550,7 @@ void clusterInit(void) {
 
     server.cluster->mf_end = 0;
     resetManualFailover();
+    clusterUpdateMyselfFlags();
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -1862,6 +1882,18 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
+        /* Copy the CLUSTER_NODE_NOFAILOVER flag from what the sender
+         * announced. This is a dynamic flag that we receive from the
+         * sender, and the latest status must be trusted. We need it to
+         * be propagated because the slave ranking used to understand the
+         * delay of each slave in the voting process, needs to know
+         * what are the instances really competing. */
+        if (sender) {
+            int nofailover = flags & CLUSTER_NODE_NOFAILOVER;
+            sender->flags &= ~CLUSTER_NODE_NOFAILOVER;
+            sender->flags |= nofailover;
+        }
+
         /* Update the node address if it changed. */
         if (sender && type == CLUSTERMSG_TYPE_PING &&
             !nodeInHandshake(sender) &&
@@ -2261,7 +2293,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
-        aeCreateFileEvent(server.el, link->fd, AE_WRITABLE,
+        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE|AE_BARRIER,
             clusterWriteHandler, link);
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
@@ -2803,6 +2835,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     clusterSendFailoverAuth(node);
     server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = mstime();
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+    clusterSendFailoverAuth(node);
     serverLog(LL_WARNING, "Failover auth granted to %.40s for epoch %llu",
         node->name, (PORT_ULONGLONG) server.cluster->currentEpoch);
 }
@@ -2831,6 +2865,7 @@ int clusterGetSlaveRank(void) {
     myoffset = replicationGetSlaveOffset();
     for (j = 0; j < master->numslaves; j++)
         if (master->slaves[j] != myself &&
+            !nodeCantFailover(master->slaves[j]) &&
             master->slaves[j]->repl_offset > myoffset) rank++;
     return rank;
 }
@@ -2968,7 +3003,9 @@ void clusterHandleSlaveFailover(void) {
      * of an automatic or manual failover:
      * 1) We are a slave.
      * 2) Our master is flagged as FAIL, or this is a manual failover.
-     * 3) It is serving slots. */
+     * 3) We don't have the no failover configuration set, and this is
+     *    not a manual failover.
+     * 4) It is serving slots. */
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
@@ -3350,6 +3387,9 @@ void clusterCron(void) {
      * the value of 1 second. */
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
+
+    /* Update myself flags. */
+    clusterUpdateMyselfFlags();
 
     /* Check if we have disconnected nodes and re-establish the connection.
      * Also update a few stats while we are here, that can be used to make
@@ -3951,7 +3991,8 @@ static struct redisNodeFlags redisNodeFlagsTable[] = {
     {CLUSTER_NODE_PFAIL,        "fail?,"},
     {CLUSTER_NODE_FAIL,         "fail,"},
     {CLUSTER_NODE_HANDSHAKE,    "handshake,"},
-    {CLUSTER_NODE_NOADDR,       "noaddr,"}
+    {CLUSTER_NODE_NOADDR,       "noaddr,"},
+    {CLUSTER_NODE_NOFAILOVER,   "nofailover,"}
 };
 
 /* Concatenate the comma separated list of node flags to the given SDS
@@ -4560,8 +4601,7 @@ void clusterCommand(client *c) {
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE |
             CLUSTER_TODO_SAVE_CONFIG);
         addReply(c, shared.ok);
-    }
-    else if (!strcasecmp(c->argv[1]->ptr, "replicate") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
         /* CLUSTER REPLICATE <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
@@ -5030,17 +5070,18 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE]
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password]
  *
  * On in the multiple keys form:
  *
- * MIGRATE host port "" dbid timeout [COPY | REPLACE] KEYS key1 key2 ... keyN */
+ * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password] KEYS key1
+ * key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
-    int copy, replace, j;
+    int copy=0, replace=0, j;
+	char *password = NULL;
     PORT_LONG timeout;
     PORT_LONG dbid;
-    PORT_LONGLONG ttl, expireat;
     robj **ov = NULL; /* Objects to migrate. */
     robj **kv = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
@@ -5053,19 +5094,21 @@ void migrateCommand(client *c) {
     int first_key = 3; /* Argument index of the first key. */
     int num_keys = 1;  /* By default only migrate the 'key' argument. */
 
-    /* Initialization */
-    copy = 0;
-    replace = 0;
-
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
+        int moreargs = j < c->argc-1;
         if (!strcasecmp(c->argv[j]->ptr, "copy")) {
             copy = 1;
-        }
-        else if (!strcasecmp(c->argv[j]->ptr, "replace")) {
+        } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"auth")) {
+            if (!moreargs) {
+                addReply(c,shared.syntaxerr);
+                return;
         }
-        else if (!strcasecmp(c->argv[j]->ptr, "keys")) {
+            j++;
+            password = c->argv[j]->ptr;
+        } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
                     "When using MIGRATE KEYS option, the key argument"
@@ -5124,6 +5167,14 @@ try_again:
 
     rioInitWithBuffer(&cmd, sdsempty());
 
+    /* Authentication */
+    if (password) {
+        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"AUTH",4));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,password,
+            sdslen(password)));
+    }
+
     /* Send the SELECT command if the current DB is not already selected. */
     int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
     if (select) {
@@ -5141,7 +5192,9 @@ try_again:
             ttl = expireat - mstime();
             if (ttl < 1) ttl = 1;
         }
-        serverAssertWithInfo(c, NULL, rioWriteBulkCount(&cmd, '*', replace ? 5 : 4));
+        serverAssertWithInfo(c,NULL,
+            rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+
         if (server.cluster_enabled)
             serverAssertWithInfo(c, NULL,
                 rioWriteBulkString(&cmd, "RESTORE-ASKING", 14));
@@ -5207,8 +5260,13 @@ try_again:
 #endif
     }
 
+    char buf0[1024]; /* Auth reply. */
     char buf1[1024]; /* Select reply. */
     char buf2[1024]; /* Restore reply. */
+
+    /* Read the AUTH reply if needed. */
+    if (password && syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
+        goto socket_err;
 
     /* Read the SELECT reply if needed. */
     if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
@@ -5226,13 +5284,21 @@ try_again:
             socket_error = 1;
             break;
         }
-        if ((select && buf1[0] == '-') || buf2[0] == '-') {
+        if ((password && buf0[0] == '-') ||
+            (select && buf1[0] == '-') ||
+            buf2[0] == '-')
+        {
             /* On error assume that last_dbid is no longer valid. */
             if (!error_from_target) {
                 cs->last_dbid = -1;
-                addReplyErrorFormat(c, "Target instance replied with error: %s",
-                    (select && buf1[0] == '-') ? buf1 + 1 : buf2 + 1);
+                char *errbuf;
+                if (password && buf0[0] == '-') errbuf = buf0;
+                else if (select && buf1[0] == '-') errbuf = buf1;
+                else errbuf = buf2;
+
                 error_from_target = 1;
+                addReplyErrorFormat(c,"Target instance replied with error: %s",
+                    errbuf+1);
             }
         }
         else {
@@ -5300,7 +5366,7 @@ try_again:
     }
     else {
         /* On error we already sent it in the for loop above, and set
-         * the curretly selected socket to -1 to force SELECT the next time. */
+         * the currently selected socket to -1 to force SELECT the next time. */
     }
 
     sdsfree(cmd.io.buffer.ptr);

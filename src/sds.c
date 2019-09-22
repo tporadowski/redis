@@ -180,7 +180,7 @@ void sdsfree(sds s) {
  * the output will be "6" as the string was modified but the logical length
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
-    int reallen = (int)strlen(s);                                               WIN_PORT_FIX /* cast (int) */
+    size_t reallen = strlen(s);
     sdssetlen(s, reallen);
 }
 
@@ -253,16 +253,23 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
-    int hdrlen;
+    int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
-    sh = (char*)s-sdsHdrSize(oldtype);
+    sh = (char*)s-oldhdrlen;
 
+    /* Check what would be the minimum SDS header that is just good enough to
+     * fit this string. */
     type = sdsReqType(len);
     hdrlen = sdsHdrSize(type);
-    if (oldtype==type) {
-        newsh = s_realloc(sh, hdrlen+len+1);
+
+    /* If the type is the same, or at least a large enough type is still
+     * required, we just realloc(), letting the allocator to do the copy
+     * only if really needed. Otherwise if the change is huge, we manually
+     * reallocate the string to use the different header type. */
+    if (oldtype==type || type > SDS_TYPE_8) {
+        newsh = s_realloc(sh, oldhdrlen+len+1);
         if (newsh == NULL) return NULL;
-        s = (char*)newsh+hdrlen;
+        s = (char*)newsh+oldhdrlen;
     } else {
         newsh = s_malloc(hdrlen+len+1);
         if (newsh == NULL) return NULL;
@@ -317,7 +324,7 @@ void *sdsAllocPtr(sds s) {
  * ... check for nread <= 0 and handle it ...
  * sdsIncrLen(s, nread);
  */
-void sdsIncrLen(sds s, int incr) {
+void sdsIncrLen(sds s, ssize_t incr) {
     unsigned char flags = s[-1];
     size_t len;
     switch(flags&SDS_TYPE_MASK) {
@@ -720,7 +727,7 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  */
-void sdsrange(sds s, int start, int end) {
+void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
@@ -781,7 +788,7 @@ int sdscmp(const sds s1, const sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return (int)(l1-l2);                                          WIN_PORT_FIX /* cast (int) */
+    if (cmp == 0) return l1>l2? 1: (l1<l2? -1: 0);
     return cmp;
 }
 
@@ -801,8 +808,9 @@ int sdscmp(const sds s1, const sds s2) {
  * requires length arguments. sdssplit() is just the
  * same function but for zero-terminated strings.
  */
-sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count) {
-    int elements = 0, slots = 5, start = 0, j;
+sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count) {
+    int elements = 0, slots = 5;
+    long start = 0, j;
     sds *tokens;
 
     if (seplen < 1 || len < 0) return NULL;
