@@ -45,7 +45,7 @@
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
 void updateLFU(robj *val) {
-    unsigned long counter = LFUDecrAndReturn(val);
+    PORT_ULONG counter = LFUDecrAndReturn(val);
     counter = LFULogIncr(counter);
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
@@ -435,11 +435,7 @@ void flushallCommand(client *c) {
     server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
-#ifdef _WIN32
-        AbortForkOperation();
-#else
-        kill(server.rdb_child_pid,SIGUSR1);
-#endif
+        IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid, SIGUSR1));
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {

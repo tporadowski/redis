@@ -46,7 +46,7 @@
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
-long long rdbLoadMillisecondTime(rio *rdb);
+PORT_LONGLONG rdbLoadMillisecondTime(rio *rdb);
 int rdbCheckMode = 0;
 
 struct {
@@ -194,7 +194,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
     int type, rdbver;
     char buf[1024];
-    long long expiretime, now = mstime();
+    PORT_LONGLONG expiretime, now = mstime();
     static rio rdb; /* Pointed by global struct riostate. */
 
     int closefile = (fp == NULL);

@@ -214,18 +214,18 @@ ssize_t aofRewriteBufferWrite(int fd) {
  /* Starts a background task that performs fsync() against the specified
   * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
+    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(PORT_LONG)fd,NULL,NULL);
 }
 
 /* Kills an AOFRW child process if exists */
 static void killAppendOnlyChild(void) {
 
-	POSIX_ONLY(int statloc;)
+    POSIX_ONLY(int statloc;)
 
      /* No AOFRW child? return. */
     if (server.aof_child_pid != -1)return;
         
-	/* Kill AOFRW child, wait for child exit. */
+    /* Kill AOFRW child, wait for child exit. */
 
     serverLog(LL_NOTICE, "Killing running AOF rewrite child: %Id", WIN_PORT_FIX /* %ld -> %Id */
             (PORT_LONG) server.aof_child_pid);
@@ -257,7 +257,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
-	killAppendOnlyChild();
+    killAppendOnlyChild();
 
 
 }
@@ -291,12 +291,12 @@ int startAppendOnly(void) {
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
-	    }
-	    if (rewriteAppendOnlyFileBackground() == C_ERR) {
-	        close(newfd);
-	        serverLog(LL_WARNING, "Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
-	        return C_ERR;
-	    }
+        }
+        if (rewriteAppendOnlyFileBackground() == C_ERR) {
+            close(newfd);
+            serverLog(LL_WARNING, "Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
+            return C_ERR;
+        }
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
@@ -1819,18 +1819,18 @@ cleanup:
 #ifdef _WIN32
 void aofProcessDiffRewriteEvents(aeEventLoop* eventLoop)
 {
-	// only do these checks in the parent process and if an aof rewrite is in progress
-	if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
-		//1) check if more data can be written to the child and write it.
-		// in which case we dont need to send any more diffs to the parent
-		if (server.aof_stop_sending_diff == 0) {
-			aofChildWriteDiffData(eventLoop,server.aof_pipe_write_data_to_child,NULL,0);
-		}
+    // only do these checks in the parent process and if an aof rewrite is in progress
+    if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
+        //1) check if more data can be written to the child and write it.
+        // in which case we dont need to send any more diffs to the parent
+        if (server.aof_stop_sending_diff == 0) {
+            aofChildWriteDiffData(eventLoop,server.aof_pipe_write_data_to_child,NULL,0);
+        }
 
-		//2) check if child has signaled parent to stop sending diffs
-		if (server.aof_stop_sending_diff == 0) {
-			aofChildPipeReadable(eventLoop,server.aof_pipe_read_ack_from_child,NULL,0);
-		}
-	}
+        //2) check if child has signaled parent to stop sending diffs
+        if (server.aof_stop_sending_diff == 0) {
+            aofChildPipeReadable(eventLoop,server.aof_pipe_read_ack_from_child,NULL,0);
+        }
+    }
 }
 #endif

@@ -30,6 +30,9 @@
 
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/Win32_FDAPI.h"
+#include "Win32_Interop/Win32_ThreadControl.h"
+#include "Win32_Interop/Win32_QFork.h"
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/Win32_Time.h"
 #include "Win32_Interop/Win32_Error.h"
@@ -1363,12 +1366,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "master, but there is a pending RDB child running. "
                 "Killing process %ld and removing its temp file to avoid "
                 "any race",
-                    (long) server.rdb_child_pid);
+                    (PORT_LONG) server.rdb_child_pid);
 
-#ifndef _WIN32 //TODO what to do on windows?
-            kill(server.rdb_child_pid,SIGUSR1);
+            IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid, SIGUSR1));
             rdbRemoveTempFile(server.rdb_child_pid);
-#endif
         }
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
