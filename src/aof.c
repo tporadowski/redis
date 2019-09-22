@@ -214,7 +214,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
  /* Starts a background task that performs fsync() against the specified
   * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
+    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(PORT_LONG)fd,NULL,NULL);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -223,7 +223,7 @@ static void killAppendOnlyChild(void) {
 	POSIX_ONLY(int statloc;)
 
      /* No AOFRW child? return. */
-    if (server.aof_child_pid != -1)return;
+    if (server.aof_child_pid == -1)return;
         
 	/* Kill AOFRW child, wait for child exit. */
 

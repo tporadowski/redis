@@ -109,7 +109,7 @@ void latencyAddSample(char *event, mstime_t latency) {
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
-    if (latency > ts->max) ts->max = latency;
+    if (latency > ts->max) ts->max = (int32_t)latency;                          WIN_PORT_FIX /* cast (int32_t) */
 
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */

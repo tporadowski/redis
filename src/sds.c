@@ -810,7 +810,7 @@ int sdscmp(const sds s1, const sds s2) {
  */
 sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count) {
     int elements = 0, slots = 5;
-    long start = 0, j;
+    PORT_LONG start = 0, j;
     sds *tokens;
 
     if (seplen < 1 || len < 0) return NULL;
