@@ -223,7 +223,7 @@ static void killAppendOnlyChild(void) {
     POSIX_ONLY(int statloc;)
 
      /* No AOFRW child? return. */
-    if (server.aof_child_pid != -1)return;
+    if (server.aof_child_pid == -1)return;
         
     /* Kill AOFRW child, wait for child exit. */
 

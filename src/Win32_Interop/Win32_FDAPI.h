@@ -220,6 +220,8 @@ extern int FDAPI_setmode(int fd, int mode);
 extern size_t FDAPI_fwrite(const void *buffer, size_t size, size_t count, FILE *file);
 extern int FDAPI_fileno(FILE *file);
 
+int FDAPI_pipe_for_modules(int* pfds);
+
 // Macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS
 #define close(fd)                   FDAPI_close(fd)

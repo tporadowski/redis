@@ -474,8 +474,20 @@ int FDAPI_pipe(int *pfds) {
         // Not passing _O_NOINHERIT, the underlying handles are inheritable by default
         result = crt_pipe(pfds, 8192, _O_BINARY);
         if (result == 0) {
-            //pfds[0] = RFDMap::getInstance().addCrtFD(pfds[0]);
-            //pfds[1] = RFDMap::getInstance().addCrtFD(pfds[1]);
+            pfds[0] = RFDMap::getInstance().addCrtFD(pfds[0]);
+            pfds[1] = RFDMap::getInstance().addCrtFD(pfds[1]);
+        }
+    } CATCH_AND_REPORT();
+
+    return result;
+}
+
+int FDAPI_pipe_for_modules(int* pfds) {
+    int result = -1;
+    try {
+        // Not passing _O_NOINHERIT, the underlying handles are inheritable by default
+        result = crt_pipe(pfds, 8192, _O_BINARY);
+        if (result == 0) {
             //[tporadowski] when pipe is created for communication with modules - pretend it is a socket to
             //  get proper SocketInfo instance created and added in RFDMap; it is later needed
             //  when creating AE events in server.c/initServer()

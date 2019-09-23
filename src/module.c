@@ -3902,7 +3902,7 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribersClient->flags |= CLIENT_MODULE;
 
     moduleRegisterCoreAPI();
-    if (pipe(server.module_blocked_pipe) == -1) {
+    if (IF_WIN32(FDAPI_pipe_for_modules,pipe)(server.module_blocked_pipe) == -1) {
         serverLog(LL_WARNING,
             "Can't create the pipe for module blocking commands: %s",
             IF_WIN32(wsa_strerror(errno), strerror(errno)));
