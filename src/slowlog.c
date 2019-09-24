@@ -61,7 +61,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, PORT_LONGLONG
                 sdscatprintf(sdsempty(),"... (%d more arguments)",
                 argc-slargc+1));
         } else {
-            /* Trim too PORT_LONG strings as well... */
+            /* Trim too long strings as well... */
             if (argv[j]->type == OBJ_STRING &&
                 sdsEncodedObject(argv[j]) &&
                 sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)

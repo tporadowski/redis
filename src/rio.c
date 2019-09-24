@@ -337,7 +337,7 @@ size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     return nwritten+len+2;
 }
 
-/* Write a PORT_LONGLONG value in format: "$<count>\r\n<payload>\r\n". */
+/* Write a long long value in format: "$<count>\r\n<payload>\r\n". */
 size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l) {
     char lbuf[32];
     unsigned int llen;

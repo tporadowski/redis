@@ -75,31 +75,6 @@ POSIX_ONLY(#include <pthread.h>)
 #define free(ptr) je_free(ptr)
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
-#elif defined(USE_DLMALLOC)
-#define malloc(size) g_malloc(size)
-#define calloc(count,size) g_calloc(count,size)
-#define realloc(ptr,size) g_realloc(ptr,size)
-#define free(ptr) g_free(ptr)
-#endif
-
-#if defined(__ATOMIC_RELAXED)
-#define update_zmalloc_stat_add(__n) __atomic_add_fetch(&used_memory, (__n), __ATOMIC_RELAXED)
-#define update_zmalloc_stat_sub(__n) __atomic_sub_fetch(&used_memory, (__n), __ATOMIC_RELAXED)
-#elif defined(HAVE_ATOMIC)
-#define update_zmalloc_stat_add(__n) __sync_add_and_fetch(&used_memory, (__n))
-#define update_zmalloc_stat_sub(__n) __sync_sub_and_fetch(&used_memory, (__n))
-#else
-#define update_zmalloc_stat_add(__n) do { \
-    pthread_mutex_lock(&used_memory_mutex); \
-    used_memory += (__n); \
-    pthread_mutex_unlock(&used_memory_mutex); \
-} while(0)
-
-#define update_zmalloc_stat_sub(__n) do { \
-    pthread_mutex_lock(&used_memory_mutex); \
-    used_memory -= (__n); \
-    pthread_mutex_unlock(&used_memory_mutex); \
-} while(0)
 #endif
 
 #define update_zmalloc_stat_alloc(__n) do { \
@@ -115,7 +90,6 @@ POSIX_ONLY(#include <pthread.h>)
 } while(0)
 
 static size_t used_memory = 0;
-static int zmalloc_thread_safe = 0;
 #ifdef _WIN32
 pthread_mutex_t used_memory_mutex;
 #else
@@ -213,7 +187,7 @@ void *zrealloc(void *ptr, size_t size) {
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
-    /* Assume at least that all the allocations are padded at sizeof(PORT_LONG) by
+    /* Assume at least that all the allocations are padded at sizeof(long) by
      * the underlying allocator. */
     if (size&(sizeof(PORT_LONG)-1)) size += sizeof(PORT_LONG)-(size&(sizeof(PORT_LONG)-1));
     return size+PREFIX_SIZE;
@@ -251,24 +225,6 @@ size_t zmalloc_used_memory(void) {
     atomicGet(used_memory,um);
     return um;
 }
-
-#ifdef _WIN32
-void zmalloc_free_used_memory_mutex(void) {
-    /* Windows fix: Callabe mutex destroy.  */
-    if (zmalloc_thread_safe)
-        pthread_mutex_destroy(&used_memory_mutex);
-}
-void zmalloc_enable_thread_safeness(void) {
-    if (!zmalloc_thread_safe)
-        pthread_mutex_init(&used_memory_mutex,0);
-
-    zmalloc_thread_safe = 1;
-}
-#else
-void zmalloc_enable_thread_safeness(void) {
-    zmalloc_thread_safe = 1;
-}
-#endif
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;

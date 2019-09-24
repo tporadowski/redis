@@ -52,14 +52,14 @@
 #include <limits.h>
 POSIX_ONLY(#include <unistd.h>)
 #include <errno.h>
-POSIX_ONLY(#include <inttypes.h>)
 #ifndef _WIN32
+#include <inttypes.h>
 #include <pthread.h>
+#include <syslog.h>
+#include <netinet/in.h>
 #else
 #include "Win32_Interop\Win32_PThread.h"
 #endif
-POSIX_ONLY(#include <syslog.h>)
-POSIX_ONLY(#include <netinet/in.h>)
 #include <lua.h>
 #include <signal.h>
 
@@ -195,7 +195,7 @@ POSIX_ONLY(#define LOG_MAX_LEN    1024) /* Default maximum length of syslog mess
 #define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
-#define LONG_STR_SIZE      21          /* Bytes needed for PORT_LONG -> str + '\0' */
+#define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define AOF_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
 
 /* When configuring the server eventloop, we setup it so that the total number
@@ -439,7 +439,7 @@ POSIX_ONLY(#define CONFIG_DEFAULT_VERBOSITY LL_NOTICE)
 #define NOTIFY_ZSET (1<<7)        /* z */
 #define NOTIFY_EXPIRED (1<<8)     /* x */
 #define NOTIFY_EVICTED (1<<9)     /* e */
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED)      /* A */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED) /* A flag */
 
 /* Get the first bind addr or NULL */
 #define NET_FIRST_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
@@ -737,7 +737,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
- 	listNode *client_list_node; /* list node in client list */
+    listNode *client_list_node; /* list node in client list */
     WIN32_ONLY(char replFileCopy[_MAX_PATH];)
 
     /* Response buffer */
@@ -904,7 +904,7 @@ struct redisServer {
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
-    int arch_bits;              /* 32 or 64 depending on sizeof(PORT_LONG) */
+    int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
@@ -1425,7 +1425,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 void listTypeTryConversion(robj *subject, robj *value);
 void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
-PORT_ULONG listTypeLength(robj *subject);
+PORT_ULONG listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, PORT_LONG index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);

@@ -36,7 +36,6 @@
 #include <math.h>
 #include <ctype.h>
 
-
 #ifdef __CYGWIN__
 #define strtold(a,b) ((PORT_LONGDOUBLE)strtod((a),(b)))
 #endif
@@ -143,14 +142,14 @@ robj *createStringObjectFromLongLong(PORT_LONGLONG value) {
     return o;
 }
 
-/* Create a string object from a PORT_LONGDOUBLE. If humanfriendly is non-zero
+/* Create a string object from a long double. If humanfriendly is non-zero
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
  * and the output of snprintf() is not modified.
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(PORT_LONGDOUBLE value, int humanfriendly) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,humanfriendly);
     return createStringObject(buf,len);
 }
@@ -536,7 +535,7 @@ int equalStringObjects(robj *a, robj *b) {
     if (a->encoding == OBJ_ENCODING_INT &&
         b->encoding == OBJ_ENCODING_INT){
         /* If both strings are integer encoded just check if the stored
-         * PORT_LONG is the same. */
+         * long is the same. */
         return a->ptr == b->ptr;
     } else {
         return compareStringObjects(a,b) == 0;
@@ -552,8 +551,8 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
-int getDoubleFromObject(const robj *o, PORT_LONGDOUBLE *target) {
-    PORT_LONGDOUBLE value;
+int getDoubleFromObject(const robj *o, double *target) {
+    double value;
     char *eptr;
 
     if (o == NULL) {
@@ -580,8 +579,8 @@ int getDoubleFromObject(const robj *o, PORT_LONGDOUBLE *target) {
     return C_OK;
 }
 
-int getDoubleFromObjectOrReply(client *c, robj *o, PORT_LONGDOUBLE *target, const char *msg) {
-    PORT_LONGDOUBLE value;
+int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
+    double value;
     if (getDoubleFromObject(o, &value) != C_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -604,7 +603,7 @@ int getLongDoubleFromObject(robj *o, PORT_LONGDOUBLE *target) {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = IF_WIN32(wstrtod,strtold)(o->ptr,&eptr);                    // TODO: verify for 32-bit
+            value = IF_WIN32(wstrtod,strtold)(o->ptr, &eptr);                    // TODO: verify for 32-bit
             if (sdslen(o->ptr) == 0 ||
                 isspace(((const char*)o->ptr)[0]) ||
                 (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
@@ -638,7 +637,6 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, PORT_LONGDOUBLE *target, 
 
 int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
     PORT_LONGLONG value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
@@ -733,7 +731,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (PORT_LONGDOUBLE)elesize/samples*ql->len;
+            asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
@@ -750,7 +748,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
             }
             dictReleaseIterator(di);
-            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
+            if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             intset *is = o->ptr;
             asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
@@ -771,7 +769,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
                 znode = znode->level[0].forward;
             }
-            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
+            if (samples) asize += (double)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -790,7 +788,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 samples++;
             }
             dictReleaseIterator(di);
-            if (samples) asize += (PORT_LONGDOUBLE)elesize/samples*dictSize(d);
+            if (samples) asize += (double)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown hash encoding");
         }

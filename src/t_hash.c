@@ -287,8 +287,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, (unsigned char*)field, (unsigned int)sdslen(field), 1); WIN_PORT_FIX /* cast (unsigned int) */
             if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr);
-                zl = ziplistDelete(zl,&fptr);
+                zl = ziplistDelete(zl,&fptr); /* Delete the key. */
+                zl = ziplistDelete(zl,&fptr); /* Delete the value. */
                 o->ptr = zl;
                 deleted = 1;
             }

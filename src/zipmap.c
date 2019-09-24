@@ -169,8 +169,8 @@ static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, uns
     return k;
 }
 
-static unsigned int zipmapRequiredLength(unsigned int klen, unsigned int vlen) { WIN_PORT_FIX /* PORT_ULONG -> unsigned int */
-    unsigned int l;
+static PORT_ULONG zipmapRequiredLength(unsigned int klen, unsigned int vlen) { WIN_PORT_FIX /* PORT_ULONG -> unsigned int */
+    PORT_ULONG l;
 
     l = klen+vlen+3;
     if (klen >= ZIPMAP_BIGLEN) l += 4;

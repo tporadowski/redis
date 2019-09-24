@@ -349,6 +349,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 #else
+        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -695,7 +696,7 @@ int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *client
     UNUSED(id);
     UNUSED(clientData);
 
-    if (config.liveclients == 0) {
+    if (config.liveclients == 0 && config.requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
     }

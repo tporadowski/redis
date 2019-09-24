@@ -601,8 +601,8 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
-	int cmp = sdscmplex(range->min,range->max);
-	if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
+    int cmp = sdscmplex(range->min,range->max);
+    if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
         return 0;
     x = zsl->tail;
     if (x == NULL || !zslLexValueGteMin(x->ele,range))
@@ -715,7 +715,7 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
 
     serverAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
     if (vstr == NULL) {
-        /* Store string representation of PORT_LONGLONG in buf. */
+        /* Store string representation of long long in buf. */
         vlen = ll2string((char*)vbuf,sizeof(vbuf),vlong);
         vstr = vbuf;
     }
@@ -875,8 +875,8 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *p;
 
     /* Test for ranges that will always be empty. */
-	int cmp = sdscmplex(range->min,range->max);
-	if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
+    int cmp = sdscmplex(range->min,range->max);
+    if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
         return 0;
 
     p = ziplistIndex(zl,-2); /* Last element. */
@@ -1794,10 +1794,10 @@ typedef struct {
 
 
 /* Use dirty flags for pointers that need to be cleaned up in the next
- * iteration over the zsetopval. The dirty flag for the PORT_LONGLONG value is
- * special, since PORT_LONGLONG values don't need cleanup. Instead, it means that
- * we already checked that "ell" holds a PORT_LONGLONG, or tried to convert another
- * representation into a PORT_LONGLONG value. When this was successful,
+ * iteration over the zsetopval. The dirty flag for the long long value is
+ * special, since long long values don't need cleanup. Instead, it means that
+ * we already checked that "ell" holds a long long, or tried to convert another
+ * representation into a long long value. When this was successful,
  * OPVAL_VALID_LL is set as well. */
 #define OPVAL_DIRTY_SDS 1
 #define OPVAL_DIRTY_LL 2
@@ -1981,7 +1981,7 @@ int zuiLongLongFromValue(zsetopval *val) {
             if (string2ll((char*)val->estr,val->elen,&val->ell))
                 val->flags |= OPVAL_VALID_LL;
         } else {
-            /* The PORT_LONGLONG was already set, flag as valid. */
+            /* The long long was already set, flag as valid. */
             val->flags |= OPVAL_VALID_LL;
         }
     }
@@ -2858,10 +2858,10 @@ void genericZrangebylexCommand(client *c, int reverse) {
         while (remaining) {
             if (remaining >= 3 && !strcasecmp(c->argv[pos]->ptr,"limit")) {
                 if ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL) != C_OK) ||
-					(getLongFromObjectOrReply(c,c->argv[pos + 2],&limit,NULL) != C_OK)) {
-					zslFreeLexRange(&range);
-					return;
-				}
+                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) {
+                    zslFreeLexRange(&range);
+                    return;
+                }
                 pos += 3; remaining -= 3;
             } else {
                 zslFreeLexRange(&range);

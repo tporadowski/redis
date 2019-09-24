@@ -1186,7 +1186,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
         if (c != NULL) {
             addReplyErrorFormat(c,
                 "Error compiling script (new function): %s\n",
-            lua_tostring(lua,-1));
+                lua_tostring(lua,-1));
         }
         lua_pop(lua,1);
         sdsfree(sha);
@@ -1194,10 +1194,11 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
         return NULL;
     }
     sdsfree(funcdef);
+
     if (lua_pcall(lua,0,0,0)) {
         if (c != NULL) {
-        addReplyErrorFormat(c,"Error running script (new function): %s\n",
-            lua_tostring(lua,-1));
+            addReplyErrorFormat(c,"Error running script (new function): %s\n",
+                lua_tostring(lua,-1));
         }
         lua_pop(lua,1);
         sdsfree(sha);
@@ -1209,7 +1210,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
      * EVALSHA commands as EVAL using the original script. */
     int retval = dictAdd(server.lua_scripts,sha,body);
     serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
-        incrRefCount(body);
+    incrRefCount(body);
     return sha;
 }
 
@@ -1636,7 +1637,7 @@ int ldbStartSession(client *c) {
             closeListeningSockets(0);
         } else {
             /* Parent */
-            listAddNodeTail(ldb.children,(void*)(PORT_ULONG)cp);
+            listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
             freeClientAsync(c); /* Close the client in the parent side. */
             return 0;
         }
@@ -1724,8 +1725,8 @@ void ldbKillForkedSessions(void) {
 
     listRewind(ldb.children,&li);
     while((ln = listNext(&li))) {
-        pid_t pid = (PORT_ULONG) ln->value;
-        serverLog(LL_WARNING,"Killing debugging session %ld",(PORT_LONG)pid);
+        pid_t pid = (unsigned long) ln->value;
+        serverLog(LL_WARNING,"Killing debugging session %ld",(long)pid);
         kill(pid,SIGKILL);
     }
     listRelease(ldb.children);

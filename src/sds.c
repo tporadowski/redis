@@ -472,7 +472,7 @@ int sdsll2str(char *s, PORT_LONGLONG value) {
     return (int)l;                                                              WIN_PORT_FIX /* cast (int) */
 }
 
-/* Identical sdsll2str(), but for PORT_ULONGLONG type. */
+/* Identical sdsll2str(), but for unsigned long long type. */
 int sdsull2str(char *s, PORT_ULONGLONG v) {
     char *p, aux;
     size_t l;
@@ -501,7 +501,7 @@ int sdsull2str(char *s, PORT_ULONGLONG v) {
     return (int)l;
 }
 
-/* Create an sds string from a PORT_LONGLONG value. It is much faster than:
+/* Create an sds string from a long long value. It is much faster than:
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
@@ -587,20 +587,20 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %s - C String
  * %S - SDS string
  * %i - signed int
- * %I - 64 bit signed integer (PORT_LONGLONG, int64_t)
+ * %I - 64 bit signed integer (long long, int64_t)
  * %u - unsigned int
- * %U - 64 bit unsigned integer (PORT_ULONGLONG, uint64_t)
+ * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
  * %% - Verbatim "%" character.
  */
 sds sdscatfmt(sds s, char const *fmt, ...) {
     size_t initlen = sdslen(s);
     const char *f = fmt;
-    int i;
+    PORT_LONG i;
     va_list ap;
 
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
-    i = (int)initlen; /* Position of the next byte to write to dest str. */
+    i = initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
         size_t l;
@@ -741,9 +741,9 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
     }
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
-        if (start >= (signed)len) {
+        if (start >= (ssize_t)len) {
             newlen = 0;
-        } else if (end >= (signed)len) {
+        } else if (end >= (ssize_t)len) {
             end = (int)len-1;                                                   WIN_PORT_FIX /* cast (int) */
             newlen = (start > end) ? 0 : (end-start)+1;
         }
@@ -757,14 +757,14 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
 
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
-    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
+    size_t len = sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 /* Apply toupper() to every character of the sds string 's'. */
 void sdstoupper(sds s) {
-    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
+    size_t len = sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }

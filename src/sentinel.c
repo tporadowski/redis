@@ -258,8 +258,8 @@ struct sentinelState {
     int announce_port;  /* Port that is gossiped to other sentinels if
                            non zero. */
     PORT_ULONG simfailure_flags; /* Failures simulation. */
-	int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
-                                  paths at runtime? */	
+    int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
+                                  paths at runtime? */
 } sentinel;
 
 /* A script execution job. */
@@ -456,7 +456,7 @@ dictType instancesDictType = {
     dictInstancesValDestructor /* val destructor */
 };
 
-/* Instance runid (sds) -> votes (PORT_LONG casted to void*)
+/* Instance runid (sds) -> votes (long casted to void*)
  *
  * This is useful into sentinelGetObjectiveLeader() function in order to
  * count the votes and understand who is the leader. */
@@ -875,7 +875,7 @@ void sentinelRunPendingScripts(void) {
         } else {
             sentinel.running_scripts++;
             sj->pid = pid;
-            sentinelEvent(LL_DEBUG,"+script-child",NULL,"%ld",(PORT_LONG)pid);
+            sentinelEvent(LL_DEBUG,"+script-child",NULL,"%ld",(long)pid);
         }
 #endif
     }
@@ -954,11 +954,11 @@ void sentinelCollectTerminatedScripts(void) {
 
         if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
         sentinelEvent(LL_DEBUG,"-script-child",NULL,"%ld %d %d",
-            (PORT_LONG)pid, exitcode, bysignal);
+            (long)pid, exitcode, bysignal);
 
         ln = sentinelGetScriptListNodeByPid(pid);
         if (ln == NULL) {
-            serverLog(LL_WARNING,"wait3() returned a pid (%ld) we can't find in our scripts execution queue!", (PORT_LONG)pid);
+            serverLog(LL_WARNING,"wait3() returned a pid (%ld) we can't find in our scripts execution queue!", (long)pid);
             continue;
         }
         sj = ln->value;
@@ -2738,7 +2738,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
      * also have a limit of SENTINEL_MAX_PENDING_COMMANDS. We don't
      * want to use a lot of memory just because a link is not working
      * properly (note that anyway there is a redundant protection about this,
-     * that is, the link will be disconnected and reconnected if a PORT_LONG
+     * that is, the link will be disconnected and reconnected if a long
      * timeout condition is detected. */
     if (ri->link->pending_commands >=
         SENTINEL_MAX_PENDING_COMMANDS * ri->link->refcount) return;
@@ -2776,13 +2776,13 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         if (retval == C_OK) ri->link->pending_commands++;
     }
 
-        /* Send PING to all the three kinds of instances. */
+    /* Send PING to all the three kinds of instances. */
     if ((now - ri->link->last_pong_time) > ping_period &&
                (now - ri->link->last_ping_time) > ping_period/2) {
         sentinelSendPing(ri);
     }
 
-        /* PUBLISH hello messages to all the three kinds of instances. */
+    /* PUBLISH hello messages to all the three kinds of instances. */
     if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         sentinelSendHello(ri);
     }
@@ -3000,7 +3000,7 @@ void addReplyDictOfRedisInstances(client *c, dict *instances) {
     dictEntry *de;
 
     di = dictGetIterator(instances);
-    addReplyMultiBulkLen(c, (PORT_LONG) dictSize(instances));                   WIN_PORT_FIX /* cast (PORT_LONG) */
+    addReplyMultiBulkLen(c,(PORT_LONG)dictSize(instances));                   WIN_PORT_FIX /* cast (PORT_LONG) */
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
@@ -3450,7 +3450,7 @@ void sentinelRoleCommand(client *c) {
 
     addReplyMultiBulkLen(c,2);
     addReplyBulkCBuffer(c,"sentinel",8);
-    addReplyMultiBulkLen(c, (PORT_LONG) dictSize(sentinel.masters));
+    addReplyMultiBulkLen(c,(PORT_LONG)dictSize(sentinel.masters));
 
     di = dictGetIterator(sentinel.masters);
     while((de = dictNext(di)) != NULL) {

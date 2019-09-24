@@ -56,7 +56,7 @@ POSIX_ONLY(#include <sys/time.h>)
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-	while (patternLen && stringLen) {
+    while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (pattern[1] == '*') {
@@ -272,7 +272,7 @@ uint32_t sdigits10(int64_t v) {
     }
 }
 
-/* Convert a PORT_LONGLONG into a string. Returns the number of
+/* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
  * If the buffer is not big enough to store the string, 0 is returned.
  *
@@ -337,17 +337,17 @@ int ll2string(char *dst, size_t dstlen, PORT_LONGLONG svalue) {
     return length;
 }
 
-/* Convert a string into a PORT_LONGLONG. Returns 1 if the string could be parsed
- * into a (non-overflowing) PORT_LONGLONG, 0 otherwise. The value will be set to
+/* Convert a string into a long long. Returns 1 if the string could be parsed
+ * into a (non-overflowing) long long, 0 otherwise. The value will be set to
  * the parsed value when appropriate.
  *
  * Note that this function demands that the string strictly represents
- * a PORT_LONGLONG: no spaces or other characters before or after the string
+ * a long long: no spaces or other characters before or after the string
  * representing the number are accepted, nor zeroes at the start if not
  * for the string "0" representing the zero number.
  *
  * Because of its strictness, it is safe to use this function to check if
- * you can convert a string into a PORT_LONGLONG, and obtain back the string
+ * you can convert a string into a long long, and obtain back the string
  * from the number without any loss in the string representation. */
 int string2ll(const char *s, size_t slen, PORT_LONGLONG *value) {
     const char *p = s;
@@ -479,12 +479,12 @@ int d2string(char *buf, size_t len, double value) {
     } else {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
-         * PORT_LONGLONG. We are assuming that PORT_LONGLONG is 64 bit here.
+         * long long. We are assuming that long long is 64 bit here.
          * Also we are assuming that there are no implementations around where
          * double has precision < 52 bit.
          *
          * Under this assumptions we test if a double is inside an interval
-         * where casting to PORT_LONGLONG is safe. Then using two castings we
+         * where casting to long long is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
@@ -499,7 +499,7 @@ int d2string(char *buf, size_t len, double value) {
     return (int)len;                                                            WIN_PORT_FIX /* cast (int) */
 }
 
-/* Convert a PORT_LONGDOUBLE into a string. If humanfriendly is non-zero
+/* Convert a long double into a string. If humanfriendly is non-zero
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
  * and the output of snprintf() is not modified.

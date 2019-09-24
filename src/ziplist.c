@@ -444,7 +444,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if ((prevlensize) == 1) {                                                  \
         (prevlen) = (ptr)[0];                                                  \
     } else if ((prevlensize) == 5) {                                           \
-        assert(sizeof((prevlensize)) == 4);                                    \
+        assert(sizeof((prevlen)) == 4);                                    \
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
         memrev32ifbe(&prevlen);                                                \
     }                                                                          \
@@ -1284,13 +1284,13 @@ static unsigned char *createIntList() {
     return zl;
 }
 
-PORT_LONGLONG usec(void) {
+static PORT_LONGLONG usec(void) {
 #ifdef _WIN32
     return GetHighResRelativeTime(1000000);
 #else
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
 #endif
 }
 

@@ -213,7 +213,7 @@ void pushGenericCommand(client *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
-    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : (robj*)0)); 
+    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
@@ -596,9 +596,9 @@ void rpoplpushCommand(client *c) {
         signalModifiedKey(c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
-		if (c->cmd->proc == brpoplpushCommand) {
-			rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
-		}
+        if (c->cmd->proc == brpoplpushCommand) {
+            rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
+        }
     }
 }
 

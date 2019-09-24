@@ -96,7 +96,6 @@ size_t zmalloc_get_private_dirty(PORT_LONG pid);
 size_t zmalloc_get_smap_bytes_by_field(char *field, PORT_LONG pid);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
-WIN32_ONLY(void zmalloc_free_used_memory_mutex(void);)
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);

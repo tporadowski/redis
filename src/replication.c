@@ -39,6 +39,7 @@
 #endif
 
 #include "server.h"
+
 POSIX_ONLY(#include <sys/time.h>)
 POSIX_ONLY(#include <unistd.h>)
 #include <fcntl.h>
@@ -1289,7 +1290,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 (nread == -1) ? wsa_strerror(errno) : "connection lost");
         }
 #else
-        serverLog(LL_WARNING, "I/O error trying to sync with MASTER: %s",
+        serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
             (nread == -1) ? strerror(errno) : "connection lost");
 #endif
         cancelReplicationHandshake();
@@ -1368,7 +1369,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "any race",
                     (PORT_LONG) server.rdb_child_pid);
 
-            IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid, SIGUSR1));
+            IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid,SIGUSR1));
             rdbRemoveTempFile(server.rdb_child_pid);
         }
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
@@ -1464,7 +1465,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         }
         cmd = sdscatlen(cmd,"\r\n",2);
         va_end(ap);
-
+        
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),server.repl_syncio_timeout*1000)      WIN_PORT_FIX /* cast (ssize_t) */
             == -1)
@@ -1951,7 +1952,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL|O_BINARY,_S_IREAD|_S_IWRITE);
 #else
         snprintf(tmpfile,256,
-            "temp-%d.%ld.rdb",(int)server.unixtime,(PORT_LONG int)getpid());
+            "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
 #endif
         if (dfd != -1) break;
@@ -2086,7 +2087,6 @@ void replicationSetMaster(char *ip, int port) {
      * our own parameters, to later PSYNC with the new master. */
     if (was_master) replicationCacheMasterUsingMyself();
     server.repl_state = REPL_STATE_CONNECT;
-    server.repl_down_since = 0;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
@@ -2155,14 +2155,14 @@ void slaveofCommand(client *c) {
     } else {
         PORT_LONG port;
 
-		if (c->flags & CLIENT_SLAVE)
-		{
-			/* If a client is already a replica they cannot run this command,
-			* because it involves flushing all replicas (including this
-			* client) */
-			addReplyError(c,"Command is not valid when client is a replica.");
-			return;
-		}
+        if (c->flags & CLIENT_SLAVE)
+        {
+            /* If a client is already a replica they cannot run this command,
+             * because it involves flushing all replicas (including this
+             * client) */
+            addReplyError(c, "Command is not valid when client is a replica.");
+            return;
+        }
 
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
@@ -2743,7 +2743,7 @@ void replicationCron(void) {
 #else
             if (write(slave->fd, "\n", 1) == -1) {
 #endif
-                /* Don't worry, it's just a ping. */
+                /* Don't worry about socket errors, it's just a ping. */
             }
         }
     }

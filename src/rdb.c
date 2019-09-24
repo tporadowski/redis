@@ -409,7 +409,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     }
 
     /* Store verbatim */
-    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) return -1;                   WIN_PORT_FIX /* cast (uint32_t) */
+    if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
         if (rdbWriteRaw(rdb,s,len) == -1) return -1;
@@ -418,7 +418,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     return nwritten;
 }
 
-/* Save a PORT_LONGLONG value as either an encoded string or a string. */
+/* Save a long long value as either an encoded string or a string. */
 ssize_t rdbSaveLongLongAsStringObject(rio *rdb, PORT_LONGLONG value) {
     unsigned char buf[32];
     ssize_t n, nwritten = 0;
@@ -438,7 +438,7 @@ ssize_t rdbSaveLongLongAsStringObject(rio *rdb, PORT_LONGLONG value) {
 }
 
 /* Like rdbSaveRawString() gets a Redis object instead. */
-int rdbSaveStringObject(rio *rdb, robj *obj) {
+ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
      * object is already integer encoded. */
     if (obj->encoding == OBJ_ENCODING_INT) {
@@ -535,12 +535,12 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
     } else {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
-         * PORT_LONGLONG. We are assuming that PORT_LONGLONG is 64 bit here.
+         * long long. We are assuming that long long is 64 bit here.
          * Also we are assuming that there are no implementations around where
          * double has precision < 52 bit.
          *
          * Under this assumptions we test if a double is inside an interval
-         * where casting to PORT_LONGLONG is safe. Then using two castings we
+         * where casting to long long is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
@@ -707,7 +707,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(set);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(set))) == -1) return -1; WIN_PORT_FIX /* cast (uint32_t) */
+            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -773,7 +773,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize((dict*)o->ptr))) == -1) return -1;   WIN_PORT_FIX /* cast (uint32_t) */
+            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -865,12 +865,12 @@ ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t va
 
 /* Wrapper for rdbSaveAuxField() used when key/val length can be obtained
  * with strlen(). */
-int rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
+ssize_t rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
     return rdbSaveAuxField(rdb,key,strlen(key),val,strlen(val));
 }
 
-/* Wrapper for strlen(key) + integer type (up to PORT_LONGLONG range). */
-int rdbSaveAuxFieldStrInt(rio *rdb, char *key, PORT_LONGLONG val) {
+/* Wrapper for strlen(key) + integer type (up to long long range). */
+ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, PORT_LONGLONG val) {
     char buf[LONG_STR_SIZE];
     int vlen = ll2string(buf,sizeof(buf),val);
     return rdbSaveAuxField(rdb,key,strlen(key),buf,vlen);
@@ -1126,7 +1126,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 #endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
-        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+        server.stat_fork_rate = (double) (zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024)); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             closeChildInfoPipe();
@@ -1685,14 +1685,14 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
         if (server.rdb_checksum) {
-        memrev64ifbe(&cksum);
-        if (cksum == 0) {
-            serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
-        } else if (cksum != expected) {
-            serverLog(LL_WARNING,"Wrong RDB checksum. Aborting now.");
-            rdbExitReportCorruptRDB("RDB CRC error");
+            memrev64ifbe(&cksum);
+            if (cksum == 0) {
+                serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
+            } else if (cksum != expected) {
+                serverLog(LL_WARNING,"Wrong RDB checksum. Aborting now.");
+                rdbExitReportCorruptRDB("RDB CRC error");
+            }
         }
-    }
     }
     return C_OK;
 
@@ -2017,7 +2017,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             closeChildInfoPipe();
         } else {
             server.stat_fork_time = ustime()-start;
-            server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+            server.stat_fork_rate = (double) (zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024)); /* GB per second. */
             latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
 
             serverLog(LL_NOTICE,"Background RDB transfer started by pid %d",

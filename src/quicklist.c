@@ -1315,7 +1315,7 @@ void quicklistRotate(quicklist *quicklist) {
 /* pop from quicklist and return result in 'data' ptr.  Value of 'data'
  * is the return value of 'saver' function pointer if the data is NOT a number.
  *
- * If the quicklist element is a PORT_LONGLONG, then the return value is returned in
+ * If the quicklist element is a long long, then the return value is returned in
  * 'sval'.
  *
  * Return value of 0 means no elements available.
