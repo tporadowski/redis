@@ -122,7 +122,7 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     ts->samples[ts->idx].time = (int32_t)time(NULL);                            WIN_PORT_FIX /* cast (int32_t) */
     ts->samples[ts->idx].latency = (int32_t)latency;                            WIN_PORT_FIX /* cast (int32_t) */
-   
+
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
 }

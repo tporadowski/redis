@@ -308,7 +308,7 @@ int dictAdd(dict *d, void *key, void *val)
  */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
-    int index;
+    PORT_LONG index;
     dictEntry *entry;
     dictht *ht;
 
@@ -636,7 +636,7 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = (PORT_ULONG) (d->rehashidx + (random() % (d->ht[0].size +     WIN_PORT_FIX /* cast (unsigned int) */
+            h = (PORT_ULONG) (d->rehashidx + (random() % (d->ht[0].size +     WIN_PORT_FIX /* cast (PORT_ULONG) */
                                             d->ht[1].size -
                                             d->rehashidx)));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
@@ -960,7 +960,7 @@ static PORT_ULONG _dictNextPower(PORT_ULONG size)
 {
     PORT_ULONG i = DICT_HT_INITIAL_SIZE;
 
-    if (size >= PORT_LONG_MAX) return PORT_LONG_MAX;
+    if (size >= PORT_LONG_MAX) return PORT_LONG_MAX + 1LU;
     while(1) {
         if (i >= size)
             return i;

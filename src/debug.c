@@ -56,7 +56,7 @@
 
 /* ================================= Debugging ============================== */
 
-/* Compute the sha1 of string at 's' with 'len' bytes PORT_LONG.
+/* Compute the sha1 of string at 's' with 'len' bytes long.
  * The SHA1 is then xored against the string pointed by digest.
  * Since xor is commutative, this operation is used in order to
  * "add" digests relative to unordered elements.
@@ -1044,7 +1044,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
     if (eip != NULL) {
         serverLog(LL_WARNING,
-        "Crashed running the instuction at: %p", eip);
+        "Crashed running the instruction at: %p", eip);
     }
     if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,
@@ -1143,7 +1143,7 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
     unsigned char *v = value;
     char charset[] = "0123456789abcdef";
 
-    serverLog(level,"%s (hexdump of %Iu bytes):", descr, len);
+    serverLog(level,"%s (hexdump of %Iu bytes):", descr, len);         WIN_PORT_FIX /* %zu -> %Iu */
     b = buf;
     while(len) {
         b[0] = charset[(*v)>>4];

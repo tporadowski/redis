@@ -314,7 +314,6 @@ void loadServerConfigFromString(char *config) {
                     setLogFile(server.logfile);
 #endif
                 }
-
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"always-show-logo") && argc == 2) {
@@ -702,7 +701,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = (PORT_ULONG)(strtol(argv[1],NULL,10));    WIN_PORT_FIX /* cast (PORT_ULONG) */
+            server.slowlog_max_len = (PORT_ULONG)(strtoll(argv[1],NULL,10));    WIN_PORT_FIX /* cast (PORT_ULONG) */
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
@@ -1235,6 +1234,10 @@ void configSetCommand(client *c) {
             }
             freeMemoryIfNeeded();
         }
+    } config_set_memory_field(
+      "proto-max-bulk-len",server.proto_max_bulk_len) {
+    } config_set_memory_field(
+      "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
     } config_set_memory_field("auto-aof-rewrite-min-size",ll) {

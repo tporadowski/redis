@@ -111,7 +111,7 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
  * ASAP big issues with the memory subsystem. */
 int memtest_addressing(PORT_ULONG *l, size_t bytes, int interactive) {
     PORT_ULONG words = (PORT_ULONG)(bytes/sizeof(PORT_ULONG));
-    PORT_ULONG j,*p;
+    PORT_ULONG j, *p;
 
     /* Fill */
     p = l;

@@ -145,7 +145,7 @@ void setproctitle(const char *fmt, ...);
 #else
 #define	LITTLE_ENDIAN	1234	/* least-significant byte first (vax, pc) */
 #define	BIG_ENDIAN	4321	/* most-significant byte first (IBM, net) */
-#define	PDP_ENDIAN	3412	/* LSB first in word, MSW first in PORT_LONG (pdp)*/
+#define	PDP_ENDIAN	3412	/* LSB first in word, MSW first in long (pdp)*/
 
 #if defined(__i386__) || defined(__x86_64__) || defined(__amd64__) || \
    defined(vax) || defined(ns32000) || defined(sun386) || \

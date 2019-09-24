@@ -435,7 +435,7 @@ void flushallCommand(client *c) {
     server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
-        IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid, SIGUSR1));
+        IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid,SIGUSR1));
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
@@ -584,7 +584,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
 int parseScanCursorOrReply(client *c, robj *o, PORT_ULONG *cursor) {
     char *eptr;
 
-    /* Use strtoul() because we need an *unsigned* PORT_LONG, so
+    /* Use strtoul() because we need an *unsigned* long, so
      * getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
     *cursor = strtoul(o->ptr, &eptr, 10);
