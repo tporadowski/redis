@@ -50,10 +50,12 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <netdb.h>
 #endif
 #include <fcntl.h>
 #include <string.h>
+#ifndef _WIN32
+#include <netdb.h>
+#endif
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -577,7 +579,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (IF_WIN32(anetSetExclusiveAddr,anetSetReuseAddr)(err,s) == ANET_ERR) goto error;
-        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;  WIN_PORT_FIX /* cast (socklen_t) */
+        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) s = ANET_ERR;  WIN_PORT_FIX /* cast (socklen_t) */
         goto end;
     }
     if (p == NULL) {
