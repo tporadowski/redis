@@ -34,6 +34,7 @@
 #include "Win32_Common.h"
 #include "Win32_Error.h"
 #include "Win32_Assert.h"
+#include <system_error>
 
 using namespace std;
 
@@ -667,7 +668,7 @@ int FDAPI_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
                 fds[n].revents = pollCopy[n].revents;
             }
 
-            delete pollCopy;
+            delete[] pollCopy;
             pollCopy = NULL;
 
             return ret;
@@ -722,7 +723,7 @@ int FDAPI_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
                 if (f_WSAFDIsSet(pollCopy[i].fd, &excepSet)) fds[i].revents |= POLLERR;
             }
 
-            delete pollCopy;
+            delete[] pollCopy;
             pollCopy = NULL;
 
             return ret;

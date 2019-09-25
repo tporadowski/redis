@@ -152,7 +152,7 @@ int yesnotoi(char *s) {
 }
 
 void appendServerSaveParams(time_t seconds, int changes) {
-    server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
+    server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*((PORT_ULONG)server.saveparamslen+1));  WIN_PORT_FIX /* cat (PORT_ULONG) */
     server.saveparams[server.saveparamslen].seconds = seconds;
     server.saveparams[server.saveparamslen].changes = changes;
     server.saveparamslen++;
@@ -290,7 +290,7 @@ void loadServerConfigFromString(char *config) {
                 if (length == 2) {
                     server.logfile = zstrdup("\0");
                 } else {
-                    size_t l = length - 2 + 1;
+                    size_t l = (size_t) length - 2 + 1;
                     char *p = zmalloc(l);
                     memcpy(p, argv[1]+1, l);
                     server.logfile = p;
@@ -1528,7 +1528,7 @@ void configGetCommand(client *c) {
         sdsfree(aux);
         matches++;
     }
-    setDeferredMultiBulkLength(c,replylen,matches*2);
+    setDeferredMultiBulkLength(c,replylen,(PORT_LONG)matches*2);  WIN_PORT_FIX /* cat (PORT_LONG) */
 }
 
 /*-----------------------------------------------------------------------------
@@ -1579,7 +1579,7 @@ struct rewriteConfigState {
 
 /* Append the new line to the current configuration state. */
 void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
-    state->lines = zrealloc(state->lines, sizeof(char*) * (state->numlines+1));
+    state->lines = zrealloc(state->lines, sizeof(char*) * ((PORT_ULONG)state->numlines+1));  WIN_PORT_FIX /* cat (PORT_ULONG) */
     state->lines[state->numlines++] = line;
 }
 
@@ -2025,7 +2025,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         padding = (int)(sb.st_size - content_size);                             WIN_PORT_FIX /* cast (int) */
         content_padded = sdsgrowzero(content_padded,sb.st_size);
         content_padded[content_size] = '\n';
-        memset(content_padded+content_size+1,'#',padding-1);
+        memset(content_padded+content_size+1,'#',(size_t)padding-1);            WIN_PORT_FIX /* cat (size_t) */
     }
 
     /* 3) Write the new content using a single write(2). */

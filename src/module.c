@@ -552,7 +552,7 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
 void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
     if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST)) return;
     if (pos <= 0) return;
-    ctx->keys_pos = zrealloc(ctx->keys_pos,sizeof(int)*(ctx->keys_count+1));
+    ctx->keys_pos = zrealloc(ctx->keys_pos,sizeof(int)*((PORT_ULONG)ctx->keys_count+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
     ctx->keys_pos[ctx->keys_count++] = pos;
 }
 
@@ -1085,7 +1085,7 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, PORT_LONG len) {
     if (c == NULL) return REDISMODULE_OK;
     if (len == REDISMODULE_POSTPONED_ARRAY_LEN) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
-                (ctx->postponed_arrays_count+1));
+                ((PORT_ULONG)ctx->postponed_arrays_count+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
             addDeferredMultiBulkLength(c);
         ctx->postponed_arrays_count++;
@@ -3968,7 +3968,9 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     }
 
     /* Redis module loaded! Register it. */
+    WIN32_ONLY(if (TRUE) {)
     dictAdd(modules,ctx.module->name,ctx.module);
+    WIN32_ONLY(})
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);

@@ -994,7 +994,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    PORT_ULONG lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();  WIN_PORT_FIX /* unsigned int */
     atomicSet(server.lruclock,lruclock);
 
     /* Record the max memory used since the server was started. */
@@ -1382,8 +1382,17 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
+#ifdef _WIN32
+#pragma warning( suppress : 6031 )
+#endif
     pthread_mutex_init(&server.next_client_id_mutex,NULL);
+#ifdef _WIN32
+#pragma warning( suppress : 6031 )
+#endif
     pthread_mutex_init(&server.lruclock_mutex,NULL);
+#ifdef _WIN32
+#pragma warning( suppress : 6031 )
+#endif
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -2107,7 +2116,7 @@ int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
 {
     redisOp *op;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*((PORT_ULONG)oa->numops+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
     op = oa->ops+oa->numops;
     op->cmd = cmd;
     op->dbid = dbid;
@@ -2834,7 +2843,7 @@ void commandCommand(client *c) {
         dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
         int i;
-        addReplyMultiBulkLen(c, c->argc-2);
+        addReplyMultiBulkLen(c, (PORT_LONG)c->argc-2);  WIN_PORT_FIX /* cast (PORT_LONG) */
         for (i = 2; i < c->argc; i++) {
             addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
         }
@@ -2877,7 +2886,7 @@ void bytesToHuman(char *s, PORT_ULONGLONG n) {
         d = (double)n/(1024);
         sprintf(s,"%.2fK",d);
     } else if (n < (1024LL*1024*1024)) {
-        d = (double)n/(1024*1024);
+        d = (double)(n/(1024*1024));  WIN_PORT_FIX
         sprintf(s,"%.2fM",d);
     } else if (n < (1024LL*1024*1024*1024)) {
         d = (double)n/(1024LL*1024*1024);
@@ -3367,10 +3376,10 @@ sds genRedisInfoString(char *section) {
         "used_cpu_user:%.2f\r\n"
         "used_cpu_sys_children:%.2f\r\n"
         "used_cpu_user_children:%.2f\r\n",
-        (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
-        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
-        (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
-        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);
+        (IF_WIN32(double,float))self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,  WIN_PORT_FIX /* warning 26451 */
+        (IF_WIN32(double,float))self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,  WIN_PORT_FIX /* warning 26451 */
+        (IF_WIN32(double,float))c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,        WIN_PORT_FIX /* warning 26451 */
+        (IF_WIN32(double,float))c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);       WIN_PORT_FIX /* warning 26451 */
     }
 
     /* Command statistics */
@@ -3832,8 +3841,11 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     //"used_memory_mutex" from zmalloc.c is initialized earlier in Win32_QFork.cpp/main(), which later calls this main() function
     //pthread_mutex_init(&used_memory_mutex, NULL);
+#pragma warning( suppress : 6031 )
     pthread_mutex_init(&lazyfree_objects_mutex, NULL);
+#pragma warning( suppress : 6031 )
     pthread_mutex_init(&moduleUnblockedClientsMutex, NULL);
+#pragma warning( suppress : 6031 )
     pthread_mutex_init(&moduleGIL, NULL);
 #endif
 
@@ -3849,7 +3861,7 @@ int main(int argc, char **argv) {
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
-    server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
+    server.exec_argv = zmalloc(sizeof(char*)*((PORT_ULONG)argc+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
     server.exec_argv[argc] = NULL;
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 

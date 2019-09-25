@@ -229,7 +229,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
                 /* Save SDS before overwriting. */
                 sds cached = pool[EVPOOL_SIZE-1].cached;
                 memmove(pool+k+1,pool+k,
-                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
+                    sizeof(pool[0])*((size_t)EVPOOL_SIZE-k-1));  WIN_PORT_FIX /* cast (size_t) */
                 pool[k].cached = cached;
             } else {
                 /* No free space on right? Insert at k-1 */
@@ -251,7 +251,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
         if (klen > EVPOOL_CACHED_SDS_SIZE) {
             pool[k].key = sdsdup(key);
         } else {
-            memcpy(pool[k].cached,key,klen+1);
+            memcpy(pool[k].cached,key,(size_t)klen+1);  WIN_PORT_FIX /* cast (size_t) */
             sdssetlen(pool[k].cached,klen);
             pool[k].key = pool[k].cached;
         }

@@ -157,8 +157,14 @@ void aofRewriteBufferAppend(unsigned char *s, PORT_ULONG len) {
             int numblocks;
 
             block = zmalloc(sizeof(*block));
-            block->free = AOF_RW_BUF_BLOCK_SIZE;
-            block->used = 0;
+#ifdef _WIN32
+            if (block) {
+#endif
+                block->free = AOF_RW_BUF_BLOCK_SIZE;
+                block->used = 0;
+#ifdef _WIN32
+            }
+#endif
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
 
             /* Log every time we cross more 10 or 100 blocks, respectively
@@ -582,6 +588,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
+        WIN32_ONLY(seldb[sizeof(seldb)-1] = 0;) /*get rid of C6053 warning*/
         buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%Iu\r\n%s\r\n", WIN_PORT_FIX /* %lu -> %Iu */
             (PORT_ULONG)strlen(seldb),seldb);
         server.aof_selected_db = dictid;
@@ -922,7 +929,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
 
         while (quicklistNext(li,&entry)) {
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                PORT_LONGLONG cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?  WIN_PORT_FIX /* int -> PORT_LONGLONG */
                     AOF_REWRITE_ITEMS_PER_CMD : items;
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
@@ -958,7 +965,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',(PORT_LONG)2+cmd_items) == 0) return 0;  WIN_PORT_FIX /* cast (PORT_LONG) */
                 if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -976,7 +983,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',(PORT_LONG)2+cmd_items) == 0) return 0;  WIN_PORT_FIX /* cast (PORT_LONG) */
                 if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -1017,7 +1024,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+((PORT_LONG)cmd_items)*2) == 0) return 0;  WIN_PORT_FIX /* cast (PORT_LONG) */
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -1044,7 +1051,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+((PORT_LONG)cmd_items)*2) == 0) return 0;  WIN_PORT_FIX /* cast (PORT_LONG) */
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -1079,7 +1086,7 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
             return (int)rioWriteBulkLongLong(r, vll);                   WIN_PORT_FIX /* cast (int) */
     } else if (hi->encoding == OBJ_ENCODING_HT) {
         sds value = hashTypeCurrentFromHashTable(hi, what);
-        return rioWriteBulkString(r, value, sdslen(value));
+        return (int)rioWriteBulkString(r, value, sdslen(value));        WIN_PORT_FIX /* cast (int) */
     }
 
     serverPanic("Unknown hash encoding");
@@ -1098,7 +1105,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             int cmd_items = (int) ((items > AOF_REWRITE_ITEMS_PER_CMD) ? WIN_PORT_FIX /* cast (int) */
                 AOF_REWRITE_ITEMS_PER_CMD : items);
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+            if (rioWriteBulkCount(r,'*',2+((PORT_LONG)cmd_items)*2) == 0) return 0;  WIN_PORT_FIX /* cast (PORT_LONG) */
             if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
             if (rioWriteBulkObject(r,key) == 0) return 0;
         }
@@ -1134,14 +1141,21 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
  * the difference accumulated from the parent into a buffer, that is
  * concatenated at the end of the rewrite. */
 ssize_t aofReadDiffFromParent(void) {
+#ifndef _WIN32
     char buf[65536]; /* Default pipe buffer size on most Linux systems. */
+#else
+    char* buf = zmalloc(65536); //allocate dynamically and get rid of C6262 warning
+#endif
     ssize_t nread, total = 0;
 
     while ((nread =
-            read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
+            read(server.aof_pipe_read_data_from_parent,buf,IF_WIN32(65536,sizeof(buf)))) > 0) {
         server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
         total += nread;
     }
+#ifdef _WIN32
+    zfree(buf);
+#endif
     return total;
 }
 
@@ -1303,7 +1317,7 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Write the received diff to the file. */
     serverLog(LL_NOTICE,
         "Concatenating %.2f MB of AOF diff received from parent.",
-        (double) sdslen(server.aof_child_diff) / (1024*1024));
+        (double) (sdslen(server.aof_child_diff) / (1024*1024)));  WIN_PORT_FIX
     if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0)
         goto werr;
 
@@ -1475,7 +1489,7 @@ int rewriteAppendOnlyFileBackground(void) {
 #endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
-        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+        server.stat_fork_rate = (double) (zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024)); /* GB per second. */  WIN_PORT_FIX
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             closeChildInfoPipe();
@@ -1521,6 +1535,7 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
+    WIN32_ONLY(tmpfile[sizeof(tmpfile) - 1] = 0;) /*get rid of C6053 warning*/
     unlink(tmpfile);
 }
 
@@ -1590,7 +1605,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
 
         serverLog(LL_NOTICE,
-            "Residual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) aofRewriteBufferSize() / (1024*1024));
+            "Residual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) (aofRewriteBufferSize() / (1024*1024)));  WIN_PORT_FIX
 
         /* The only remaining thing to do is to rename the temporary file to
          * the configured file and switch the file descriptor used to do AOF

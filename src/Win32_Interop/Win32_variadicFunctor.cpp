@@ -27,6 +27,7 @@
 #include <windows.h>
 #include <stdexcept>
 #include <map>
+#include <system_error>
 using namespace std;
 
 DLLMap& DLLMap::getInstance() {

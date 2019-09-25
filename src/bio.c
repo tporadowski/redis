@@ -107,6 +107,9 @@ void bioInit(void) {
 
     /* Initialization of state vars and objects */
     for (j = 0; j < BIO_NUM_OPS; j++) {
+#ifdef _WIN32
+#pragma warning( suppress : 6031 )
+#endif
         pthread_mutex_init(&bio_mutex[j],NULL);
         pthread_cond_init(&bio_newjob_cond[j],NULL);
         pthread_cond_init(&bio_step_cond[j],NULL);
@@ -200,9 +203,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
-            close((PORT_LONG)job->arg1);
+            close((int)(PORT_LONG)job->arg1);  WIN_PORT_FIX /* cast (int) */
         } else if (type == BIO_AOF_FSYNC) {
-            aof_fsync((PORT_LONG)job->arg1);
+            aof_fsync((int)(PORT_LONG)job->arg1);  WIN_PORT_FIX /* cast (int) */
         } else if (type == BIO_LAZY_FREE) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.

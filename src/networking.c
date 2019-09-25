@@ -530,7 +530,7 @@ void addReplyLongLongWithPrefix(client *c, PORT_LONGLONG ll, char prefix) {
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
-    addReplyString(c,buf,len+3);
+    addReplyString(c,buf,(size_t)len+3);  WIN_PORT_FIX /* cast (size_t) */
 }
 
 void addReplyLongLong(client *c, PORT_LONGLONG ll) {
@@ -1910,7 +1910,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
 
     if (i >= c->argc) {
-        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+        c->argv = zrealloc(c->argv,sizeof(robj*)*((PORT_ULONG)i+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
         c->argc = i+1;
         c->argv[i] = NULL;
     }

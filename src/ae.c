@@ -416,7 +416,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 shortest->when_ms - now_ms;
 
             if (ms > 0) {
-                tvp->tv_sec = ms/1000;
+                tvp->tv_sec = (long)ms/1000;  WIN_PORT_FIX /* cast (long) */
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
                 tvp->tv_sec = 0;

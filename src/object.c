@@ -751,7 +751,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             intset *is = o->ptr;
-            asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
+            asize = sizeof(*o)+sizeof(*is)+is->encoding*(size_t)is->length;  WIN_PORT_FIX /* cast (size_t) */
         } else {
             serverPanic("Unknown set encoding");
         }

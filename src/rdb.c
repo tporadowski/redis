@@ -1037,6 +1037,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     int error = 0;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+    WIN32_ONLY(tmpfile[sizeof(tmpfile) - 1] = 0;) /*get rid of C6053 warning*/
     fp = fopen(tmpfile,IF_WIN32("wb","w"));
     if (!fp) {
         char *cwdp = IF_WIN32(_getcwd, getcwd)(cwd, MAXPATHLEN);
@@ -1151,6 +1152,7 @@ void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,sizeof(tmpfile),"temp-%d.rdb", (int) childpid);
+    WIN32_ONLY(tmpfile[sizeof(tmpfile) - 1] = 0;) /*get rid of C6053 warning*/
     unlink(tmpfile);
 }
 
@@ -1910,7 +1912,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
             anetBlock(NULL,slave->fd);
-            anetSendTimeout(NULL,slave->fd,server.repl_timeout*1000);
+            anetSendTimeout(NULL,slave->fd,(PORT_ULONG)server.repl_timeout*1000);  WIN_PORT_FIX /* cast (PORT_ULONG) */
         }
     }
 

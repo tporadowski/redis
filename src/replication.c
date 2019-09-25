@@ -241,7 +241,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
-        feedReplicationBacklog(aux,len+3);
+        feedReplicationBacklog(aux,(size_t)len+3);  WIN_PORT_FIX /* cast (size_t) */
 
         for (j = 0; j < argc; j++) {
             PORT_LONG objlen = (PORT_LONG) stringObjectLen(argv[j]);            WIN_PORT_FIX /* cast (PORT_LONG) */
@@ -253,7 +253,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
             aux[len+2] = '\n';
-            feedReplicationBacklog(aux,len+3);
+            feedReplicationBacklog(aux,(size_t)len+3);  WIN_PORT_FIX /* cast (size_t) */
             feedReplicationBacklogWithObject(argv[j]);
             feedReplicationBacklog(aux+len+1,2);
         }
@@ -1219,7 +1219,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.repl_transfer_size == -1) {
-        if (syncReadLine(fd,buf,1024,server.repl_syncio_timeout*1000) == -1) {
+        if (syncReadLine(fd,buf,1024,(PORT_LONGLONG)server.repl_syncio_timeout*1000) == -1) {  WIN_PORT_FIX /* cast (PORT_LONGLONG) */
             serverLog(LL_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
                 IF_WIN32(wsa_strerror(errno),strerror(errno)));
@@ -1312,6 +1312,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             memmove(lastbytes,lastbytes+nread,rem);
             memcpy(lastbytes+rem,buf,nread);
         }
+#ifdef _WIN32
+        #pragma warning( suppress: 6385 ))
+#endif
         if (memcmp(lastbytes,eofmark,CONFIG_RUN_ID_SIZE) == 0) eof_reached = 1;
     }
 
@@ -1467,7 +1470,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         va_end(ap);
         
         /* Transfer command to the server. */
-        if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),server.repl_syncio_timeout*1000)      WIN_PORT_FIX /* cast (ssize_t) */
+        if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),(PORT_LONGLONG)server.repl_syncio_timeout*1000)      WIN_PORT_FIX /* cast (ssize_t), cast (PORT_LONGLONG) */
             == -1)
         {
             sdsfree(cmd);
@@ -1481,7 +1484,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
     if (flags & SYNC_CMD_READ) {
         char buf[256];
 
-        if (syncReadLine(fd,buf,sizeof(buf),server.repl_syncio_timeout*1000)
+        if (syncReadLine(fd,buf,sizeof(buf), (PORT_LONGLONG)server.repl_syncio_timeout*1000)  WIN_PORT_FIX /* cast (PORT_LONGLONG) */
             == -1)
         {
             return sdscatprintf(sdsempty(),"-Reading from master: %s",
@@ -1937,7 +1940,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
      * already populated. */
     if (psync_result == PSYNC_NOT_SUPPORTED) {
         serverLog(LL_NOTICE,"Retrying with SYNC...");
-        if (syncWrite(fd,"SYNC\r\n",6,server.repl_syncio_timeout*1000) == -1) {
+        if (syncWrite(fd,"SYNC\r\n",6,(PORT_LONGLONG)server.repl_syncio_timeout*1000) == -1) {  WIN_PORT_FIX /* cast (PORT_LONGLONG) */
             serverLog(LL_WARNING,"I/O error writing to MASTER: %s",
                 IF_WIN32(wsa_strerror(errno),strerror(errno)));
             goto error;

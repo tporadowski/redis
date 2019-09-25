@@ -1021,7 +1021,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
      * "LogLog-Beta and More: A New Algorithm for Cardinality Estimation
      * Based on LogLog Counting" Jason Qin, Denys Kim, Yumei Tung
      * arXiv:1612.02284 */
-    double zl = log(ez + 1);
+    double zl = log((double)ez + 1);  WIN_PORT_FIX /* cast (double) */
     double beta = -0.370393911*ez +
                    0.070471823*zl +
                    0.17393686*pow(zl,2) +

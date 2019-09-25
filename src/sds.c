@@ -332,26 +332,41 @@ void sdsIncrLen(sds s, ssize_t incr) {
             unsigned char *fp = ((unsigned char*)s)-1;
             unsigned char oldlen = SDS_TYPE_5_LEN(flags);
             assert((incr > 0 && oldlen+incr < 32) || (incr < 0 && oldlen >= (unsigned int)(-incr)));
-            *fp = SDS_TYPE_5 | ((oldlen+incr) << SDS_TYPE_BITS);
+            *fp = SDS_TYPE_5 | (unsigned char)((oldlen+incr) << SDS_TYPE_BITS);  WIN_PORT_FIX /* cast (unsigned char) */
             len = oldlen+incr;
             break;
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
             assert((incr >= 0 && sh->alloc-sh->len >= incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
+#ifdef _WIN32
+            sh->len += (uint8_t)incr;
+            len = sh->len;
+#else
             len = (sh->len += incr);
+#endif
             break;
         }
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
             assert((incr >= 0 && sh->alloc-sh->len >= incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
+#ifdef _WIN32
+            sh->len += (uint16_t)incr;
+            len = sh->len;
+#else
             len = (sh->len += incr);
+#endif
             break;
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
             assert((incr >= 0 && sh->alloc-sh->len >= (unsigned int)incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
+#ifdef _WIN32
+            sh->len += (uint32_t)incr;
+            len = sh->len;
+#else
             len = (sh->len += incr);
+#endif
             break;
         }
         case SDS_TYPE_64: {
@@ -822,7 +837,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
         *count = 0;
         return tokens;
     }
-    for (j = 0; j < (len-(seplen-1)); j++) {
+    for (j = 0; j < (len-((ssize_t)seplen-1)); j++) {  WIN_PORT_FIX /* cast (ssize_t) */
         /* make sure there is room for the next element and the final one */
         if (slots < elements+2) {
             sds *newtokens;
@@ -1037,7 +1052,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
-            vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
+            vector = s_realloc(vector,((size_t)(*argc)+1)*sizeof(char*));  WIN_PORT_FIX /* cast (size_t) */
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
