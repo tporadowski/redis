@@ -654,7 +654,13 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
             /* Nothing to do, Just to avoid the warning... */
         }
         server.stat_rejected_conn++;
+#ifdef _WIN32
+        //[tporadowski] freeClient was sometimes causing sent reply to be not delivered, so give it some
+        //  additional time via freeing asynchronously
+        freeClientAsync(c);
+#else
         freeClient(c);
+#endif
         return;
     }
 
@@ -1065,7 +1071,13 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+#ifdef _WIN32
+            //[tporadowski] freeClient was sometimes causing sent reply to be not delivered, so give it some
+            //  additional time via freeing asynchronously
+            freeClientAsync(c);
+#else
             freeClient(c);
+#endif
             return C_ERR;
         }
     }
