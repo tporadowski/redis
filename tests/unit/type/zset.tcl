@@ -388,7 +388,7 @@ start_server {tags {"zset"}} {
                               0 omega}
         }
 
-        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZCOUNT basics" {
+        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics" {
             create_default_lex_zset
 
             # inclusive range
@@ -415,6 +415,22 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrangebylex zset - \[aaaa]
             assert_equal {} [r zrevrangebylex zset \[elez \[elex]
             assert_equal {} [r zrevrangebylex zset (hill (omega]
+        }
+        
+        test "ZLEXCOUNT advanced" {
+            create_default_lex_zset
+    
+            assert_equal 9 [r zlexcount zset - +]
+            assert_equal 0 [r zlexcount zset + -]
+            assert_equal 0 [r zlexcount zset + \[c]
+            assert_equal 0 [r zlexcount zset \[c -]
+            assert_equal 8 [r zlexcount zset \[bar +]
+            assert_equal 5 [r zlexcount zset \[bar \[foo]
+            assert_equal 4 [r zlexcount zset \[bar (foo]
+            assert_equal 4 [r zlexcount zset (bar \[foo]
+            assert_equal 3 [r zlexcount zset (bar (foo]
+            assert_equal 5 [r zlexcount zset - (foo]
+            assert_equal 1 [r zlexcount zset (maxstring +]
         }
 
         test "ZRANGEBYSLEX with LIMIT" {
@@ -694,6 +710,10 @@ start_server {tags {"zset"}} {
             assert {$score >= $oldscore}
             set oldscore $score
         }
+    }
+
+    test "ZSET commands don't accept the empty strings as valid score" {
+        assert_error "*not*float*" {r zadd myzset "" abc}
     }
 
     proc stressers {encoding} {

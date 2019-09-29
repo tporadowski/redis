@@ -85,10 +85,9 @@ start_server {tags {"protocol"}} {
                     flush $s
                     incr payload_size [string length $payload]
                 }]} {
-                    #windows - don't read after reset
                     set retval [gets $s]
                     close $s
-                   break
+                    break
                 } else {
                     #windows - if data available, read line
                     if {[read $s 1] ne ""}  {
