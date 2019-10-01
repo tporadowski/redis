@@ -206,6 +206,10 @@ struct redisCommand redisCommandTable[] = {
     {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
+    {"zpopmin",zpopminCommand,-2,"wF",0,NULL,1,1,1,0,0},
+    {"zpopmax",zpopmaxCommand,-2,"wF",0,NULL,1,1,1,0,0},
+    {"bzpopmin",bzpopminCommand,-3,"wsF",0,NULL,1,-2,1,0,0},
+    {"bzpopmax",bzpopmaxCommand,-3,"wsF",0,NULL,1,-2,1,0,0},
     {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
@@ -218,7 +222,7 @@ struct redisCommand redisCommandTable[] = {
     {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"hgetall",hgetallCommand,2,"rR",0,NULL,1,1,1,0,0},
     {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
@@ -244,9 +248,9 @@ struct redisCommand redisCommandTable[] = {
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,-1,"a",0,NULL,0,0,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,"a",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"alt",0,NULL,0,0,0,0,0},
+    {"bgsave",bgsaveCommand,-1,"as",0,NULL,0,0,0,0,0},
+    {"bgrewriteaof",bgrewriteaofCommand,1,"as",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"aslt",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
@@ -258,16 +262,17 @@ struct redisCommand redisCommandTable[] = {
     {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
-    {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
+    {"info",infoCommand,-1,"ltR",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"ttl",ttlCommand,2,"rFR",0,NULL,1,1,1,0,0},
     {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0},
-    {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"pttl",pttlCommand,2,"rFR",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
+    {"slaveof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
+    {"replicaof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-1,"as",0,NULL,0,0,0,0,0},
-    {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
+    {"config",configCommand,-2,"last",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
@@ -279,24 +284,24 @@ struct redisCommand redisCommandTable[] = {
     {"cluster",clusterCommand,-2,"a",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"w",0,migrateGetKeys,0,0,0,0,0},
+    {"migrate",migrateCommand,-6,"wR",0,migrateGetKeys,0,0,0,0,0},
     {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
-    {"memory",memoryCommand,-2,"r",0,NULL,0,0,0,0,0},
+    {"dump",dumpCommand,2,"rR",0,NULL,1,1,1,0,0},
+    {"object",objectCommand,-2,"rR",0,NULL,2,2,1,0,0},
+    {"memory",memoryCommand,-2,"rR",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"a",0,NULL,0,0,0,0,0},
+    {"slowlog",slowlogCommand,-2,"aR",0,NULL,0,0,0,0,0},
     {"script",scriptCommand,-2,"s",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0},
-    {"command",commandCommand,0,"lt",0,NULL,0,0,0,0,0},
+    {"command",commandCommand,0,"ltR",0,NULL,0,0,0,0,0},
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
     {"georadius",georadiusCommand,-6,"w",0,georadiusGetKeys,1,1,1,0,0},
     {"georadius_ro",georadiusroCommand,-6,"r",0,georadiusGetKeys,1,1,1,0,0},
@@ -310,14 +315,34 @@ struct redisCommand redisCommandTable[] = {
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
+    {"xadd",xaddCommand,-5,"wmFR",0,NULL,1,1,1,0,0},
+    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"xread",xreadCommand,-4,"rs",0,xreadGetKeys,1,1,1,0,0},
+    {"xreadgroup",xreadCommand,-7,"ws",0,xreadGetKeys,1,1,1,0,0},
+    {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0},
+    {"xsetid",xsetidCommand,3,"wmF",0,NULL,1,1,1,0,0},
+    {"xack",xackCommand,-4,"wF",0,NULL,1,1,1,0,0},
+    {"xpending",xpendingCommand,-3,"rR",0,NULL,1,1,1,0,0},
+    {"xclaim",xclaimCommand,-6,"wRF",0,NULL,1,1,1,0,0},
+    {"xinfo",xinfoCommand,-2,"rR",0,NULL,2,2,1,0,0},
+    {"xdel",xdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    {"xtrim",xtrimCommand,-2,"wFR",0,NULL,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
+    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0},
+    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
 
+/* We use a private localtime implementation which is fork-safe. The logging
+ * function of Redis may be called from other threads. */
+void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
+
 #ifndef _WIN32 // serverLog code moved to Win32_Interop/Win32_RedisLog.c for sharing across binaries
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -343,7 +368,9 @@ void serverLogRaw(int level, const char *msg) {
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        struct tm tm;
+        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
@@ -559,6 +586,17 @@ dictType objectKeyPointerValueDictType = {
     dictEncObjKeyCompare,      /* key compare */
     dictObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
+};
+
+/* Like objectKeyPointerValueDictType(), but values can be destroyed, if
+ * not NULL, calling zfree(). */
+dictType objectKeyHeapPointerValueDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictObjectDestructor,      /* key destructor */
+    dictVanillaFree            /* val destructor */
 };
 
 /* Set dictionary type. Keys are SDS strings, values are ot used. */
@@ -827,28 +865,116 @@ int clientsCronResizeQueryBuffer(client *c) {
 
     /* There are two conditions to resize the query buffer:
      * 1) Query buffer is > BIG_ARG and too big for latest peak.
-     * 2) Client is inactive and the buffer is bigger than 1k. */
-    if (((querybuf_size > PROTO_MBULK_BIG_ARG) &&
-         (querybuf_size/(c->querybuf_peak+1)) > 2) ||
-         (querybuf_size > 1024 && idletime > 2))
+     * 2) Query buffer is > BIG_ARG and client is idle. */
+    if (querybuf_size > PROTO_MBULK_BIG_ARG &&
+         ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
+          idletime > 2))
     {
-        /* Only resize the query buffer if it is actually wasting space. */
-        if (sdsavail(c->querybuf) > 1024) {
+        /* Only resize the query buffer if it is actually wasting
+         * at least a few kbytes. */
+        if (sdsavail(c->querybuf) > 1024*4) {
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
         }
     }
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
     c->querybuf_peak = 0;
+
+    /* Clients representing masters also use a "pending query buffer" that
+     * is the yet not applied part of the stream we are reading. Such buffer
+     * also needs resizing from time to time, otherwise after a very large
+     * transfer (a huge value or a big MIGRATE operation) it will keep using
+     * a lot of memory. */
+    if (c->flags & CLIENT_MASTER) {
+        /* There are two conditions to resize the pending query buffer:
+         * 1) Pending Query buffer is > LIMIT_PENDING_QUERYBUF.
+         * 2) Used length is smaller than pending_querybuf_size/2 */
+        size_t pending_querybuf_size = sdsAllocSize(c->pending_querybuf);
+        if(pending_querybuf_size > LIMIT_PENDING_QUERYBUF &&
+           sdslen(c->pending_querybuf) < (pending_querybuf_size/2))
+        {
+            c->pending_querybuf = sdsRemoveFreeSpace(c->pending_querybuf);
+        }
+    }
     return 0;
 }
 
+/* This function is used in order to track clients using the biggest amount
+ * of memory in the latest few seconds. This way we can provide such information
+ * in the INFO output (clients section), without having to do an O(N) scan for
+ * all the clients.
+ *
+ * This is how it works. We have an array of CLIENTS_PEAK_MEM_USAGE_SLOTS slots
+ * where we track, for each, the biggest client output and input buffers we
+ * saw in that slot. Every slot correspond to one of the latest seconds, since
+ * the array is indexed by doing UNIXTIME % CLIENTS_PEAK_MEM_USAGE_SLOTS.
+ *
+ * When we want to know what was recently the peak memory usage, we just scan
+ * such few slots searching for the maximum value. */
+#define CLIENTS_PEAK_MEM_USAGE_SLOTS 8
+size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
+size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
+
+int clientsCronTrackExpansiveClients(client *c) {
+    size_t in_usage = sdsAllocSize(c->querybuf);
+    size_t out_usage = getClientOutputBufferMemoryUsage(c);
+    int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+
+    /* Always zero the next sample, so that when we switch to that second, we'll
+     * only register samples that are greater in that second without considering
+     * the history of such slot.
+     *
+     * Note: our index may jump to any random position if serverCron() is not
+     * called for some reason with the normal frequency, for instance because
+     * some slow command is called taking multiple seconds to execute. In that
+     * case our array may end containing data which is potentially older
+     * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
+     * since here we want just to track if "recently" there were very expansive
+     * clients from the POV of memory usage. */
+    ClientsPeakMemInput[zeroidx] = 0;
+    ClientsPeakMemOutput[zeroidx] = 0;
+
+    /* Track the biggest values observed so far in this slot. */
+    if (in_usage > ClientsPeakMemInput[i]) ClientsPeakMemInput[i] = in_usage;
+    if (out_usage > ClientsPeakMemOutput[i]) ClientsPeakMemOutput[i] = out_usage;
+
+    return 0; /* This function never terminates the client. */
+}
+
+/* Return the max samples in the memory usage of clients tracked by
+ * the function clientsCronTrackExpansiveClients(). */
+void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
+    size_t i = 0, o = 0;
+    for (int j = 0; j < CLIENTS_PEAK_MEM_USAGE_SLOTS; j++) {
+        if (ClientsPeakMemInput[j] > i) i = ClientsPeakMemInput[j];
+        if (ClientsPeakMemOutput[j] > o) o = ClientsPeakMemOutput[j];
+    }
+    *in_usage = i;
+    *out_usage = o;
+}
+
+/* This function is called by serverCron() and is used in order to perform
+ * operations on clients that are important to perform constantly. For instance
+ * we use this function in order to disconnect clients after a timeout, including
+ * clients blocked in some blocking command with a non-zero timeout.
+ *
+ * The function makes some effort to process all the clients every second, even
+ * if this cannot be strictly guaranteed, since serverCron() may be called with
+ * an actual frequency lower than server.hz in case of latency events like slow
+ * commands.
+ *
+ * It is very important for this function, and the functions it calls, to be
+ * very fast: sometimes Redis has tens of hundreds of connected clients, and the
+ * default server.hz value is 10, so sometimes here we need to process thousands
+ * of clients per second, turning this function into a source of latency.
+ */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
-    /* Make sure to process at least numclients/server.hz of clients
-     * per call. Since this function is called server.hz times per second
-     * we are sure that in the worst case we process all the clients in 1
-     * second. */
+    /* Try to process at least numclients/server.hz of clients
+     * per call. Since normally (if there are no big latency events) this
+     * function is called server.hz times per second, in the average case we
+     * process all the clients in 1 second. */
     int numclients = (int)listLength(server.clients);                           WIN_PORT_FIX /* cast (int) */
     int iterations = numclients/server.hz;
     mstime_t now = mstime();
@@ -875,6 +1001,7 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronTrackExpansiveClients(c)) continue;
     }
 }
 
@@ -884,10 +1011,12 @@ void clientsCron(void) {
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
-    if (server.active_expire_enabled && server.masterhost == NULL) {
+    if (server.active_expire_enabled) {
+        if (server.masterhost == NULL) {
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
-    } else if (server.masterhost != NULL) {
+        } else {
         expireSlaveKeys();
+    }
     }
 
     /* Defrag keys gradually. */
@@ -941,6 +1070,21 @@ void updateCachedTime(void) {
     time_t unixtime = time(NULL);
     atomicSet(server.unixtime,unixtime);
     server.mstime = mstime();
+
+    /* To get information about daylight saving time, we need to call localtime_r
+     * and cache the result. However calling localtime_r in this context is safe
+     * since we will never fork() while here, in the main thread. The logging
+     * function will call a thread safe version of localtime that has no locks. */
+#if _WIN32
+	server.daylight_active = 0; //TODO port call to windows
+#else
+	struct tm tm;
+	localtime_r(&server.unixtime, &tm);
+	server.daylight_active = tm.tm_isdst;
+#endif
+
+
+    
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -975,6 +1119,21 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     /* Update the time cache. */
     updateCachedTime();
 
+    server.hz = server.config_hz;
+    /* Adapt the server.hz value to the number of configured clients. If we have
+     * many clients, we want to call serverCron() with an higher frequency. */
+    if (server.dynamic_hz) {
+        while (listLength(server.clients) / server.hz >
+               MAX_CLIENTS_PER_CLOCK_TICK)
+        {
+            server.hz *= 2;
+            if (server.hz > CONFIG_MAX_HZ) {
+                server.hz = CONFIG_MAX_HZ;
+                break;
+            }
+        }
+    }
+
     run_with_period(100) {
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
@@ -1001,8 +1160,33 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
-    /* Sample the RSS here since this is a relatively slow call. */
-    server.resident_set_size = zmalloc_get_rss();
+    run_with_period(100) {
+        /* Sample the RSS and other metrics here since this is a relatively slow call.
+         * We must sample the zmalloc_used at the same time we take the rss, otherwise
+         * the frag ratio calculate may be off (ratio of two samples at different times) */
+        server.cron_malloc_stats.process_rss = zmalloc_get_rss();
+        server.cron_malloc_stats.zmalloc_used = zmalloc_used_memory();
+        /* Sampling the allcator info can be slow too.
+         * The fragmentation ratio it'll show is potentically more accurate
+         * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
+         * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
+        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+                                   &server.cron_malloc_stats.allocator_active,
+                                   &server.cron_malloc_stats.allocator_resident);
+        /* in case the allocator isn't providing these stats, fake them so that
+         * fragmention info still shows some (inaccurate metrics) */
+        if (!server.cron_malloc_stats.allocator_resident) {
+            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
+             * so we must desuct it in order to be able to calculate correct
+             * "allocator fragmentation" ratio */
+            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*(PORT_LONGLONG)1024;  
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
+        }
+        if (!server.cron_malloc_stats.allocator_active)
+            server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
+        if (!server.cron_malloc_stats.allocator_allocated)
+            server.cron_malloc_stats.allocator_allocated = server.cron_malloc_stats.zmalloc_used;
+    }
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -1031,7 +1215,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             serverLog(LL_VERBOSE,
-                "%Iu clients connected (%Iu slaves), %Iu bytes in use", WIN_PORT_FIX /* %zu -> %Iu, %lu -> %Iu */
+                "%Iu clients connected (%Iu replicas), %Iu bytes in use", WIN_PORT_FIX /* %zu -> %Iu, %lu -> %Iu */
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
                 zmalloc_used_memory());
@@ -1182,9 +1366,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
-    run_with_period(100) {
         if (server.sentinel_mode) sentinelTimer();
-    }
 
     /* Cleanup expired MIGRATE cached sockets. */
     run_with_period(1000) {
@@ -1319,11 +1501,11 @@ void createSharedObjects(void) {
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
-        "-MASTERDOWN Link with MASTER is down and slave-serve-stale-data is set to 'no'.\r\n"));
+        "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
         "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
     shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
-        "-READONLY You can't write against a read only slave.\r\n"));
+        "-READONLY You can't write against a read only replica.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
@@ -1331,7 +1513,7 @@ void createSharedObjects(void) {
     shared.execaborterr = createObject(OBJ_STRING,sdsnew(
         "-EXECABORT Transaction discarded because of previous errors.\r\n"));
     shared.noreplicaserr = createObject(OBJ_STRING,sdsnew(
-        "-NOREPLICAS Not enough good slaves to write.\r\n"));
+        "-NOREPLICAS Not enough good replicas to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
         "-BUSYKEY Target key name already exists.\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
@@ -1360,6 +1542,8 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
+    shared.zpopmin = createStringObject("ZPOPMIN",7);
+    shared.zpopmax = createStringObject("ZPOPMAX",7);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(PORT_LONG)j));
@@ -1395,13 +1579,16 @@ void initServerConfig(void) {
 #endif
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
+    updateCachedTime();
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.hz = CONFIG_DEFAULT_HZ;
+    server.hz = server.config_hz = CONFIG_DEFAULT_HZ;
+	server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(PORT_LONG) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
@@ -1423,6 +1610,7 @@ void initServerConfig(void) {
     server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
     server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
     server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
+    server.active_defrag_max_scan_fields = CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS;
     server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
@@ -1450,6 +1638,7 @@ void initServerConfig(void) {
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.aof_rewrite_incremental_fsync = CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
+    server.rdb_save_incremental_fsync = CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC;
     server.aof_load_truncated = CONFIG_DEFAULT_AOF_LOAD_TRUNCATED;
     server.aof_use_rdb_preamble = CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE;
     server.pidfile = NULL;
@@ -1463,7 +1652,9 @@ void initServerConfig(void) {
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
-    server.bpop_blocked_clients = 0;
+    server.blocked_clients = 0;
+    memset(server.blocked_clients_by_type,0,
+           sizeof(server.blocked_clients_by_type));
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
@@ -1477,6 +1668,8 @@ void initServerConfig(void) {
     server.zset_max_ziplist_entries = OBJ_ZSET_MAX_ZIPLIST_ENTRIES;
     server.zset_max_ziplist_value = OBJ_ZSET_MAX_ZIPLIST_VALUE;
     server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
+    server.stream_node_max_bytes = OBJ_STREAM_NODE_MAX_BYTES;
+    server.stream_node_max_entries = OBJ_STREAM_NODE_MAX_ENTRIES;
     server.shutdown_asap = 0;
     server.cluster_enabled = 0;
     server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT;
@@ -1488,6 +1681,7 @@ void initServerConfig(void) {
     server.cluster_announce_ip = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP;
     server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
     server.cluster_announce_bus_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT;
+    server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -1516,6 +1710,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = CONFIG_DEFAULT_SLAVE_READ_ONLY;
+    server.repl_slave_ignore_maxmemory = CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY;
     server.repl_slave_lazy_flush = CONFIG_DEFAULT_SLAVE_LAZY_FLUSH;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY;
@@ -1560,10 +1755,14 @@ void initServerConfig(void) {
     server.lpushCommand = lookupCommandByCString("lpush");
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
+    server.zpopminCommand = lookupCommandByCString("zpopmin");
+    server.zpopmaxCommand = lookupCommandByCString("zpopmax");
     server.sremCommand = lookupCommandByCString("srem");
     server.execCommand = lookupCommandByCString("exec");
     server.expireCommand = lookupCommandByCString("expire");
     server.pexpireCommand = lookupCommandByCString("pexpire");
+    server.xclaimCommand = lookupCommandByCString("xclaim");
+    server.xgroupCommand = lookupCommandByCString("xgroup");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
@@ -1578,6 +1777,12 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+
+    /* By default we want scripts to be always replicated by effects
+     * (single commands executed by the script), and not by sending the
+     * script to the slave / AOF. This is the new way starting from
+     * Redis 5. However it is possible to revert it via redis.conf. */
+    server.lua_always_replicate_commands = 1;
 }
 
 extern char **environ;
@@ -1814,7 +2019,7 @@ int listenToPort(int port, int *fds, int *count) {
         }
         if (fds[*count] == ANET_ERR) {
             serverLog(LL_WARNING,
-                "Creating Server TCP listening socket %s:%d: %s",
+                "Could not create server TCP listening socket %s:%d: %s",
                 server.bindaddr[j] ? server.bindaddr[j] : "*",
                 port, server.neterr);
                 if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
@@ -1847,6 +2052,7 @@ void resetServerStats(void) {
     server.stat_active_defrag_misses = 0;
     server.stat_active_defrag_key_hits = 0;
     server.stat_active_defrag_key_misses = 0;
+    server.stat_active_defrag_scanned = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_rejected_conn = 0;
@@ -1892,9 +2098,11 @@ void initServer(void) {
     }
 #endif
 
+    server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
+    server.clients_index = raxNew();
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -1950,6 +2158,7 @@ void initServer(void) {
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
+        server.db[j].defrag_later = listCreate();
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
@@ -1977,12 +2186,15 @@ void initServer(void) {
     server.stat_peak_memory = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
-    server.resident_set_size = 0;
+    server.cron_malloc_stats.zmalloc_used = 0;
+    server.cron_malloc_stats.process_rss = 0;
+    server.cron_malloc_stats.allocator_allocated = 0;
+    server.cron_malloc_stats.allocator_active = 0;
+    server.cron_malloc_stats.allocator_resident = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
-    updateCachedTime();
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -2283,6 +2495,7 @@ void preventCommandReplication(client *c) {
 void call(client *c, int flags) {
     PORT_LONGLONG dirty, start, duration;
     int client_old_flags = c->flags;
+    struct redisCommand *real_cmd = c->cmd;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
@@ -2331,8 +2544,11 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
-        c->lastcmd->microseconds += duration;
-        c->lastcmd->calls++;
+        /* use the real command that was executed (cmd and lastamc) may be
+         * different, in case of MULTI-EXEC or re-written commands such as
+         * EXPIRE, GEOADD, etc. */
+        real_cmd->microseconds += duration;
+        real_cmd->calls++;
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -2351,7 +2567,7 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementatino called preventCommandPropagation() or similar,
+         * implementations called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
@@ -2406,6 +2622,8 @@ void call(client *c, int flags) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    moduleCallCommandFilters(c);
+
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
@@ -2473,18 +2691,22 @@ int processCommand(client *c) {
 
     /* Handle the maxmemory directive.
      *
-     * First we try to free some memory if possible (if there are volatile
-     * keys in the dataset). If there are not the only thing we can do
-     * is returning an error. */
-    if (server.maxmemory) {
-        int retval = freeMemoryIfNeeded();
+     * Note that we do not want to reclaim memory if we are here re-entering
+     * the event loop since there is a busy Lua script running in timeout
+     * condition, to avoid mixing the propagation of scripts with the
+     * propagation of DELs due to eviction. */
+    if (server.maxmemory && !server.lua_timedout) {
+        int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
         /* It was impossible to free enough memory, and the command the client
-         * is trying to execute is denied during OOM conditions? Error. */
-        if ((c->cmd->flags & CMD_DENYOOM) && retval == C_ERR) {
+         * is trying to execute is denied during OOM conditions or the client
+         * is in MULTI/EXEC context? Error. */
+        if (out_of_memory &&
+            (c->cmd->flags & CMD_DENYOOM ||
+             (c->flags & CLIENT_MULTI && c->cmd->proc != execCommand))) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
             return C_OK;
@@ -2493,16 +2715,14 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
-    if (((server.stop_writes_on_bgsave_err &&
-          server.saveparamslen > 0 &&
-          server.lastbgsave_status == C_ERR) ||
-          server.aof_last_write_status == C_ERR) &&
+    int deny_write_type = writeCommandsDeniedByDiskError();
+    if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         server.masterhost == NULL &&
         (c->cmd->flags & CMD_WRITE ||
          c->cmd->proc == pingCommand))
     {
         flagTransaction(c);
-        if (server.aof_last_write_status == C_OK)
+        if (deny_write_type == DISK_ERROR_TYPE_RDB)
             addReply(c, shared.bgsaveerr);
         else
             addReplySds(c,
@@ -2546,8 +2766,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
-     * we are a slave with a broken link with master. */
+    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
+     * when slave-serve-stale-data is no and we are a slave with a broken
+     * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & CMD_STALE))
@@ -2591,7 +2812,7 @@ int processCommand(client *c) {
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
-            handleClientsBlockedOnLists();
+            handleClientsBlockedOnKeys();
     }
     return C_OK;
 }
@@ -2648,7 +2869,7 @@ int prepareForShutdown(int flags) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
-        aof_fsync(server.aof_fd);
+        redis_fsync(server.aof_fd);
     }
 
     /* Create a new RDB file before exiting. */
@@ -2686,6 +2907,32 @@ int prepareForShutdown(int flags) {
 }
 
 /*================================== Commands =============================== */
+
+/* Sometimes Redis cannot accept write commands because there is a perstence
+ * error with the RDB or AOF file, and Redis is configured in order to stop
+ * accepting writes in such situation. This function returns if such a
+ * condition is active, and the type of the condition.
+ *
+ * Function return values:
+ *
+ * DISK_ERROR_TYPE_NONE:    No problems, we can accept writes.
+ * DISK_ERROR_TYPE_AOF:     Don't accept writes: AOF errors.
+ * DISK_ERROR_TYPE_RDB:     Don't accept writes: RDB errors.
+ */
+int writeCommandsDeniedByDiskError(void) {
+    if (server.stop_writes_on_bgsave_err &&
+        server.saveparamslen > 0 &&
+        server.lastbgsave_status == C_ERR)
+    {
+        return DISK_ERROR_TYPE_RDB;
+    } else if (server.aof_state != AOF_OFF &&
+               server.aof_last_write_status == C_ERR)
+    {
+        return DISK_ERROR_TYPE_AOF;
+    } else {
+        return DISK_ERROR_TYPE_NONE;
+    }
+}
 
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
@@ -2834,7 +3081,16 @@ void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 1) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"(no subcommand) -- Return details about all Redis commands.",
+"COUNT -- Return the total number of commands in this Redis server.",
+"GETKEYS <full-command> -- Return the keys from a full Redis command.",
+"INFO [command-name ...] -- Return details about multiple Redis commands.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 1) {
         addReplyMultiBulkLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
@@ -2854,7 +3110,10 @@ void commandCommand(client *c) {
         int *keys, numkeys, j;
 
         if (!cmd) {
-            addReplyErrorFormat(c,"Invalid command specified");
+            addReplyError(c,"Invalid command specified");
+            return;
+        } else if (cmd->getkeys_proc == NULL && cmd->firstkey == 0) {
+            addReplyError(c,"The command has no key arguments");
             return;
         } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
                    ((c->argc-2) < -cmd->arity))
@@ -2864,12 +3123,15 @@ void commandCommand(client *c) {
         }
 
         keys = getKeysFromCommand(cmd,c->argv+2,c->argc-2,&numkeys);
+        if (!keys) {
+            addReplyError(c,"Invalid arguments specified for command");
+        } else {
         addReplyMultiBulkLen(c,numkeys);
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
+        }
     } else {
-        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
-        return;
+        addReplySubcommandSyntaxError(c);
     }
 }
 
@@ -2881,7 +3143,6 @@ void bytesToHuman(char *s, PORT_ULONGLONG n) {
     if (n < 1024) {
         /* Bytes */
         sprintf(s,"%lluB",n);
-        return;
     } else if (n < (1024*1024)) {
         d = (double)n/(1024);
         sprintf(s,"%.2fK",d);
@@ -2910,8 +3171,7 @@ sds genRedisInfoString(char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    struct rusage self_ru, c_ru;
-    PORT_ULONG lol, bib;
+    struct rusage self_ru, c_ru;    
     int allsections = 0, defsections = 0;
     int sections = 0;
 
@@ -2921,8 +3181,7 @@ sds genRedisInfoString(char *section) {
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
-    getClientsMaxBuffers(&lol,&bib);
-
+    
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
         POSIX_ONLY(static int call_uname = 1;)
@@ -2963,7 +3222,8 @@ sds genRedisInfoString(char *section) {
             "uptime_in_seconds:%lld\r\n"                                        WIN_PORT_FIX /* %jd -> %lld */
             "uptime_in_days:%lld\r\n"                                           WIN_PORT_FIX /* %jd -> %lld */
             "hz:%d\r\n"
-            "lru_clock:%Id\r\n"                                                 WIN_PORT_FIX /* %ld -> %Id */
+			"configured_hz:%d\r\n"            
+			"lru_clock:%Id\r\n"                                                 WIN_PORT_FIX /* %ld -> %Id */
             "executable:%s\r\n"
             "config_file:%s\r\n",
             REDIS_VERSION,
@@ -2992,6 +3252,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
+			server.config_hz,
             (PORT_ULONG) lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
@@ -2999,16 +3260,18 @@ sds genRedisInfoString(char *section) {
 
     /* Clients */
     if (allsections || defsections || !strcasecmp(section,"clients")) {
+        size_t maxin, maxout;
+        getExpansiveClientsInfo(&maxin,&maxout);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
-            "connected_clients:%Iu\r\n"                                         WIN_PORT_FIX /* %lu -> %Iu */
-            "client_longest_output_list:%Iu\r\n"                                WIN_PORT_FIX /* %lu -> %Iu */
-            "client_biggest_input_buf:%Iu\r\n"                                  WIN_PORT_FIX /* %lu -> %Iu */
+            "connected_clients:%Iu\r\n"                      WIN_PORT_FIX /* %lu -> %Iu */
+            "client_recent_max_input_buffer:%Iu\r\n"         WIN_PORT_FIX /* %lu -> %Iu */
+            "client_recent_max_output_buffer:%Iu\r\n"        WIN_PORT_FIX /* %lu -> %Iu */
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
-            lol, bib,
-            server.bpop_blocked_clients);
+            maxin, maxout,
+            server.blocked_clients);
     }
 
     /* Memory */
@@ -3017,6 +3280,7 @@ sds genRedisInfoString(char *section) {
         char peak_hmem[64];
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
+        char used_memory_scripts_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
@@ -3036,7 +3300,8 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
-        bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
+        bytesToHuman(used_memory_scripts_hmem,mh->lua_caches);
+        bytesToHuman(used_memory_rss_hmem,server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
@@ -3053,20 +3318,38 @@ sds genRedisInfoString(char *section) {
             "used_memory_startup:%Iu\r\n"                                       WIN_PORT_FIX /* %zu -> %Iu */
             "used_memory_dataset:%Iu\r\n"                                       WIN_PORT_FIX /* %zu -> %Iu */
             "used_memory_dataset_perc:%.2f%%\r\n"
-            "total_system_memory:%Iu\r\n"                                       WIN_PORT_FIX /* %lu -> %Iu */
+            "allocator_allocated:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
+            "allocator_active:%Iu\r\n"			WIN_PORT_FIX /* %zu -> %Iu */
+            "allocator_resident:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
+            "total_system_memory:%lu\r\n"		
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "used_memory_lua_human:%s\r\n"
+            "used_memory_scripts:%lld\r\n"
+            "used_memory_scripts_human:%s\r\n"
+            "number_of_cached_scripts:%lu\r\n"
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
+            "allocator_frag_ratio:%.2f\r\n"
+            "allocator_frag_bytes:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
+            "allocator_rss_ratio:%.2f\r\n"
+            "allocator_rss_bytes:%zd\r\n"
+            "rss_overhead_ratio:%.2f\r\n"
+            "rss_overhead_bytes:%zd\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
+            "mem_fragmentation_bytes:%zd\r\n"
+            "mem_not_counted_for_evict:%Iu\r\n" WIN_PORT_FIX /* %zu -> %Iu */
+            "mem_replication_backlog:%Iu\r\n"	WIN_PORT_FIX /* %zu -> %Iu */
+            "mem_clients_slaves:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
+            "mem_clients_normal:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
+            "mem_aof_buffer:%Iu\r\n"			WIN_PORT_FIX /* %zu -> %Iu */
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%Iu\r\n", WIN_PORT_FIX /* %zu -> %Iu */
             zmalloc_used,
             hmem,
-            server.resident_set_size,
+            server.cron_malloc_stats.process_rss,
             used_memory_rss_hmem,
             server.stat_peak_memory,
             peak_hmem,
@@ -3075,14 +3358,32 @@ sds genRedisInfoString(char *section) {
             mh->startup_allocated,
             mh->dataset,
             mh->dataset_perc,
+			server.cron_malloc_stats.allocator_allocated,
+            server.cron_malloc_stats.allocator_active,
+            server.cron_malloc_stats.allocator_resident,
             (PORT_ULONG)total_system_mem,
             total_system_hmem,
             memory_lua,
             used_memory_lua_hmem,
+            (PORT_LONGLONG) mh->lua_caches,
+            used_memory_scripts_hmem,
+            dictSize(server.lua_scripts),
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
-            mh->fragmentation,
+            mh->allocator_frag,
+            mh->allocator_frag_bytes,
+            mh->allocator_rss,
+            mh->allocator_rss_bytes,
+            mh->rss_extra,
+            mh->rss_extra_bytes,
+            mh->total_frag, /* this is the total RSS overhead, including fragmentation, */
+            mh->total_frag_bytes, /* named so for backwards compatibility */
+            freeMemoryGetNotCountedMemory(),
+            mh->repl_backlog,
+            mh->clients_slaves,
+            mh->clients_normal,
+            mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
@@ -3531,7 +3832,7 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
     fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
     fprintf(stderr,"       ./redis-server --port 7777\n");
-    fprintf(stderr,"       ./redis-server --port 7777 --slaveof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./redis-server --port 7777 --replicaof 127.0.0.1 8888\n");
     fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n\n");
     fprintf(stderr,"Sentinel mode:\n");
     fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n");
@@ -3597,6 +3898,7 @@ static void sigShutdownHandler(int sig) {
         rdbRemoveTempFile(getpid());
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
+        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
         exit(0);
     }
 
@@ -3653,7 +3955,7 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if (server.masterhost &&
+            if ((server.masterhost || (server.cluster_enabled && nodeIsSlave(server.cluster->myself)))&&
                 rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
@@ -3819,12 +4121,12 @@ int main(int argc, char **argv) {
             return sha1Test(argc, argv);
         } else if (!strcasecmp(argv[2], "util")) {
             return utilTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "sds")) {
-            return sdsTest(argc, argv);
         } else if (!strcasecmp(argv[2], "endianconv")) {
             return endianconvTest(argc, argv);
         } else if (!strcasecmp(argv[2], "crc64")) {
             return crc64Test(argc, argv);
+        } else if (!strcasecmp(argv[2], "zmalloc")) {
+            return zmalloc_test(argc, argv);
         }
 
         return -1; /* test not found */
@@ -3836,6 +4138,7 @@ int main(int argc, char **argv) {
     spt_init(argc, argv);
 #endif
     setlocale(LC_COLLATE,"");
+    tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
 
 #ifdef _WIN32
@@ -3849,7 +4152,7 @@ int main(int argc, char **argv) {
     pthread_mutex_init(&moduleGIL, NULL);
 #endif
 
-    srand((unsigned int)time(NULL)^getpid());                                   WIN_PORT_FIX /* cast (unsigned int) */
+	srand((unsigned int)time(NULL)^getpid());  WIN_PORT_FIX /* cast (unsigned int) */
     gettimeofday(&tv,NULL);
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
@@ -3913,7 +4216,7 @@ int main(int argc, char **argv) {
             configfile = argv[j];
             server.configfile = getAbsolutePath(configfile);
             /* Replace the config file in server.exec_argv with
-             * its absoulte path. */
+             * its absolute path. */
             zfree(server.exec_argv[j]);
             server.exec_argv[j] = zstrdup(server.configfile);
             j++;

@@ -91,6 +91,14 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_for_ofs_sync {r1 r2} {
+    wait_for_condition 50 100 {
+        [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
+    } else {
+        fail "replica didn't sync in time"
+    }
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
@@ -374,4 +382,20 @@ proc start_write_load {host port seconds} {
 # Stop a process generating write load executed with start_write_load.
 proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
+}
+
+proc K { x y } { set x } 
+
+# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
+# other versions. Code should be under public domain.
+proc lshuffle {list} {
+    set n [llength $list]
+    while {$n>0} {
+        set j [expr {int(rand()*$n)}]
+        lappend slist [lindex $list $j]
+        incr n -1
+        set temp [lindex $list $n]
+        set list [lreplace [K $list [set list {}]] $j $j $temp]
+    }
+    return $slist
 }

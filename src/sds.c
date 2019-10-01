@@ -44,6 +44,8 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+const char *SDS_NOINIT = "SDS_NOINIT";
+
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -70,13 +72,16 @@ static inline char sdsReqType(size_t string_size) {
 #if (PORT_LONG_MAX == LLONG_MAX)
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
-#endif
     return SDS_TYPE_64;
+#else
+    return SDS_TYPE_32;
+#endif
 }
 
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
+ * If SDS_NOINIT is used, the buffer is left uninitialized;
  *
  * The string is always null-termined (all the sds strings are, always) so
  * even if you create an sds string with:
@@ -97,14 +102,16 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
-    if (!init)
+    if (init==SDS_NOINIT)
+        init = NULL;
+    else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
     switch(type) {
         case SDS_TYPE_5: {
-            *fp = type | (unsigned char)(initlen << SDS_TYPE_BITS);             WIN_PORT_FIX /* cast (unsigned char) */
+            *fp = type | (initlen << SDS_TYPE_BITS);
             break;
         }
         case SDS_TYPE_8: {
@@ -255,7 +262,11 @@ sds sdsRemoveFreeSpace(sds s) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
+    size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
+
+    /* Return ASAP if there is no space left. */
+    if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
@@ -283,7 +294,7 @@ sds sdsRemoveFreeSpace(sds s) {
     return s;
 }
 
-/* Return the total size of the allocation of the specifed sds string,
+/* Return the total size of the allocation of the specified sds string,
  * including:
  * 1) The sds header before the pointer.
  * 2) The string.

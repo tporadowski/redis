@@ -29,8 +29,8 @@
 
 #include "server.h"
 
-/* This file implements keyspace events notification via Pub/Sub ad
- * described at http://redis.io/topics/keyspace-events. */
+/* This file implements keyspace events notification via Pub/Sub and
+ * described at https://redis.io/topics/notifications. */
 
 /* Turn a string representing notification classes into an integer
  * representing notification classes flags xored.
@@ -54,6 +54,7 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'e': flags |= NOTIFY_EVICTED; break;
         case 'K': flags |= NOTIFY_KEYSPACE; break;
         case 'E': flags |= NOTIFY_KEYEVENT; break;
+        case 't': flags |= NOTIFY_STREAM; break;
         default: return -1;
         }
     }
@@ -79,6 +80,7 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_ZSET) res = sdscatlen(res,"z",1);
         if (flags & NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
+        if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);

@@ -918,7 +918,7 @@ void bitfieldCommand(client *c) {
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    PORT_LONG higest_write_offset = 0;
+    size_t highest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -968,8 +968,8 @@ void bitfieldCommand(client *c) {
 
         if (opcode != BITFIELDOP_GET) {
             readonly = 0;
-            if (higest_write_offset < bitoffset + bits - 1)
-                higest_write_offset = bitoffset + bits - 1;
+            if (highest_write_offset < bitoffset + bits - 1)
+                highest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -994,12 +994,18 @@ void bitfieldCommand(client *c) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string. */
         o = lookupKeyRead(c->db,c->argv[1]);
-        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+        if (o != NULL && checkType(c,o,OBJ_STRING)) {
+            zfree(ops);
+            return;
+        }
     } else {
         /* Lookup by making room up to the farest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
-            higest_write_offset)) == NULL) return;
+            highest_write_offset)) == NULL) {
+            zfree(ops);
+            return;
+        }
     }
 
     addReplyMultiBulkLen(c,numops);

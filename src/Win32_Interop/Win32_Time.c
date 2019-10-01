@@ -30,11 +30,6 @@
 
 #define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
 
-struct timezone {
-    int  tz_minuteswest; /* minutes W of Greenwich */
-    int  tz_dsttime;     /* type of dst correction */
-};
-
 /* fnGetSystemTimePreciseAsFileTime is NULL if and only if it hasn't been initialized. */
 static VOID(WINAPI *fnGetSystemTimePreciseAsFileTime)(LPFILETIME) = NULL;
 

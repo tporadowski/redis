@@ -72,6 +72,8 @@ void           WSIOCP_Cleanup();
 iocpSockState* WSIOCP_GetExistingSocketState(int fd);
 iocpSockState* WSIOCP_GetSocketState(int fd);
 BOOL           WSIOCP_CloseSocketState(iocpSockState* pSocketState);
+BOOL           WSIOCP_CloseSocketStateRFD(int rfd);
+
 
 void* CallocMemoryNoCOW(size_t size);
 void  FreeMemoryNoCOW(void * ptr);

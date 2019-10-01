@@ -15,7 +15,7 @@ proc stop_bg_complex_data {handle} {
 # partial resyncs attempts, all this while flooding the master with
 # write queries.
 #
-# You can specifiy backlog size, ttl, delay before reconnection, test duration
+# You can specify backlog size, ttl, delay before reconnection, test duration
 # in seconds, and an additional condition to verify at the end.
 #
 # If reconnect is > 0, the test actually try to break the connection and
@@ -64,7 +64,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                 if ($reconnect) {
                     for {set j 0} {$j < $duration*10} {incr j} {
                         after 100
-                        # catch {puts "MASTER [$master dbsize] keys, SLAVE [$slave dbsize] keys"}
+                        # catch {puts "MASTER [$master dbsize] keys, REPLICA [$slave dbsize] keys"}
 
                         if {($j % 20) == 0} {
                             catch {
@@ -83,6 +83,32 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                 stop_bg_complex_data $load_handle0
                 stop_bg_complex_data $load_handle1
                 stop_bg_complex_data $load_handle2
+
+                # Wait for the slave to reach the "online"
+                # state from the POV of the master.
+                set retry 5000
+                while {$retry} {
+                    set info [$master info]
+                    if {[string match {*slave0:*state=online*} $info]} {
+                        break
+                    } else {
+                        incr retry -1
+                        after 100
+                    }
+                }
+                if {$retry == 0} {
+                    error "assertion:Slave not correctly synchronized"
+                }
+
+                # Wait that slave acknowledge it is online so
+                # we are sure that DBSIZE and DEBUG DIGEST will not
+                # fail because of timing issues. (-LOADING error)
+                wait_for_condition 5000 100 {
+                    [lindex [$slave role] 3] eq {connected}
+                } else {
+                    fail "Slave still not connected after some time"
+                }  
+
                 set retry 10
                 while {$retry && ([$master debug digest] ne [$slave debug digest])}\
                 {
@@ -110,7 +136,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                     }
                     puts -nonewline $fd $csv2
                     close $fd
-                    puts "Master - Slave inconsistency"
+                    puts "Master - Replica inconsistency"
                     if { $::tcl_platform(platform) == "windows" } {
                         puts "Run fc against repldump*.txt in $tmpdir for more info"
                     } else {

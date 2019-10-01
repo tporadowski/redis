@@ -162,7 +162,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
             update[i] = zsl->header;
-            update[i]->level[i].span = (unsigned int) zsl->length;              WIN_PORT_FIX /* cast (unsigned int) */
+            update[i]->level[i].span = zsl->length;   
         }
         zsl->level = level;
     }
@@ -246,6 +246,61 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
         return 1;
     }
     return 0; /* not found */
+}
+
+/* Update the score of an elmenent inside the sorted set skiplist.
+ * Note that the element must exist and must match 'score'.
+ * This function does not update the score in the hash table side, the
+ * caller should take care of it.
+ *
+ * Note that this function attempts to just update the node, in case after
+ * the score update, the node would be exactly at the same position.
+ * Otherwise the skiplist is modified by removing and re-adding a new
+ * element, which is more costly.
+ *
+ * The function returns the updated element skiplist node pointer. */
+zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    int i;
+
+    /* We need to seek to element to update to start: this is useful anyway,
+     * we'll have to update or remove it. */
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward &&
+                (x->level[i].forward->score < curscore ||
+                    (x->level[i].forward->score == curscore &&
+                     sdscmp(x->level[i].forward->ele,ele) < 0)))
+        {
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    /* Jump to our element: note that this function assumes that the
+     * element with the matching score exists. */
+    x = x->level[0].forward;
+    serverAssert(x && curscore == x->score && sdscmp(x->ele,ele) == 0);
+
+    /* If the node, after the score update, would be still exactly
+     * at the same position, we can just update the score without
+     * actually removing and re-inserting the element in the skiplist. */
+    if ((x->backward == NULL || x->backward->score < newscore) &&
+        (x->level[0].forward == NULL || x->level[0].forward->score > newscore))
+    {
+        x->score = newscore;
+        return x;
+    }
+
+    /* No way to reuse the old node: we need to remove and insert a new
+     * one at a different place. */
+    zslDeleteNode(zsl, x, update);
+    zskiplistNode *newnode = zslInsert(zsl,newscore,x->ele);
+    /* We reused the old node x->ele SDS string, free the node now
+     * since zslInsert created a new one. */
+    x->ele = NULL;
+    zslFreeNode(x);
+    return newnode;
 }
 
 int zslValueGteMin(double value, zrangespec *spec) {
@@ -511,7 +566,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
   * + means the max string possible
   *
   * If the string is valid the *dest pointer is set to the redis object
-  * that will be used for the comparision, and ex will be set to 0 or 1
+  * that will be used for the comparison, and ex will be set to 0 or 1
   * respectively if the item is exclusive or inclusive. C_OK will be
   * returned.
   *
@@ -732,41 +787,44 @@ unsigned int zzlLength(unsigned char *zl) {
 
 /* Move to next entry based on the values in eptr and sptr. Both are set to
  * NULL when there is no next entry. */
-void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *l_eptr, *l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
-    serverAssert(*eptr != NULL && *sptr != NULL);
+void zzlNext(unsigned char* zl, unsigned char** eptr, unsigned char** sptr) {
+	unsigned char* l_eptr, * l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
+		serverAssert(*eptr != NULL && *sptr != NULL);
 
-    l_eptr = ziplistNext(zl,*sptr);
-    if (l_eptr != NULL) {
-        l_sptr = ziplistNext(zl,l_eptr);
-        serverAssert(l_sptr != NULL);
-    } else {
-        /* No next entry. */
-        l_sptr = NULL;
-    }
+	l_eptr = ziplistNext(zl, *sptr);
+	if (l_eptr != NULL) {
+		l_sptr = ziplistNext(zl, l_eptr);
+		serverAssert(l_sptr != NULL);
+	}
+	else {
+		/* No next entry. */
+		l_sptr = NULL;
+	}
 
-    *eptr = l_eptr;
-    *sptr = l_sptr;
+	*eptr = l_eptr;
+	*sptr = l_sptr;
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
  * set to NULL when there is no next entry. */
-void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *l_eptr, *l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
-    serverAssert(*eptr != NULL && *sptr != NULL);
+void zzlPrev(unsigned char* zl, unsigned char** eptr, unsigned char** sptr) {
+	unsigned char* l_eptr, * l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
+		serverAssert(*eptr != NULL && *sptr != NULL);
 
-    l_sptr = ziplistPrev(zl,*eptr);
-    if (l_sptr != NULL) {
-        l_eptr = ziplistPrev(zl,l_sptr);
-        serverAssert(l_eptr != NULL);
-    } else {
-        /* No previous entry. */
-        l_eptr = NULL;
-    }
+	l_sptr = ziplistPrev(zl, *eptr);
+	if (l_sptr != NULL) {
+		l_eptr = ziplistPrev(zl, l_sptr);
+		serverAssert(l_eptr != NULL);
+	}
+	else {
+		/* No previous entry. */
+		l_eptr = NULL;
+	}
 
-    *eptr = l_eptr;
-    *sptr = l_sptr;
+	*eptr = l_eptr;
+	*sptr = l_sptr;
 }
+
 
 /* Returns if there is a part of the zset is in range. Should only be used
  * internally by zzlFirstInRange and zzlLastInRange. */
@@ -1102,12 +1160,12 @@ unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsig
  * Common sorted set API
  *----------------------------------------------------------------------------*/
 
-unsigned int zsetLength(const robj *zobj) {
-    int length = -1;
+PORT_ULONG zsetLength(const robj *zobj) {
+    PORT_ULONG length = 0;
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        length = (int) ((const zset*)zobj->ptr)->zsl->length;                         WIN_PORT_FIX /* cast (int) */
+        length = (PORT_ULONG) ((const zset*)zobj->ptr)->zsl->length;                         WIN_PORT_FIX /* cast (PORT_ULONG) */
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1306,9 +1364,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             /* Optimize: check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
             zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-            if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
-                zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-            if (sdslen(ele) > server.zset_max_ziplist_value)
+            if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries ||
+                sdslen(ele) > server.zset_max_ziplist_value)
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
             if (newscore) *newscore = score;
             *flags |= ZADD_ADDED;
@@ -1343,13 +1400,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
-                zskiplistNode *node;
-                serverAssert(zslDelete(zs->zsl,curscore,ele,&node));
-                znode = zslInsert(zs->zsl,score,node->ele);
-                /* We reused the node->ele SDS string, free the node now
-                 * since zslInsert created a new one. */
-                node->ele = NULL;
-                zslFreeNode(node);
+                znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
@@ -2087,7 +2138,11 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
 }
 
 int zuiCompareByCardinality(const void *s1, const void *s2) {
-    return zuiLength((zsetopsrc*)s1) - zuiLength((zsetopsrc*)s2);
+    PORT_ULONG first = zuiLength((zsetopsrc*)s1);
+    PORT_ULONG second = zuiLength((zsetopsrc*)s2);
+    if (first > second) return 1;
+    if (first < second) return -1;
+    return 0;
 }
 
 #define REDIS_AGGR_SUM 1
@@ -2365,8 +2420,8 @@ void zrangeGenericCommand(client *c, int reverse) {
     int withscores = 0;
     PORT_LONG start;
     PORT_LONG end;
-    int llen;
-    int rangelen;
+    PORT_LONG llen;
+    PORT_LONG rangelen;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -2673,7 +2728,7 @@ void zcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zrangespec range;
-    int count = 0;
+    PORT_ULONG count = 0;
 
     /* Parse the range arguments */
     if (zslParseRange(c->argv[2],c->argv[3],&range) != C_OK) {
@@ -2750,7 +2805,7 @@ void zlexcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zlexrangespec range;
-    int count = 0;
+    PORT_ULONG count = 0;
 
     /* Parse the range arguments */
     if (zslParseLexRange(c->argv[2],c->argv[3],&range) != C_OK) {
@@ -3072,4 +3127,187 @@ void zscanCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,OBJ_ZSET)) return;
     scanGenericCommand(c,o,cursor);
+}
+
+/* This command implements the generic zpop operation, used by:
+ * ZPOPMIN, ZPOPMAX, BZPOPMIN and BZPOPMAX. This function is also used
+ * inside blocked.c in the unblocking stage of BZPOPMIN and BZPOPMAX.
+ *
+ * If 'emitkey' is true also the key name is emitted, useful for the blocking
+ * behavior of BZPOP[MIN|MAX], since we can block into multiple keys.
+ *
+ * The synchronous version instead does not need to emit the key, but may
+ * use the 'count' argument to return multiple items if available. */
+void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg) {
+    int idx;
+    robj *key = NULL;
+    robj *zobj = NULL;
+    sds ele;
+    double score;
+    PORT_LONG count = 1;
+
+    /* If a count argument as passed, parse it or return an error. */
+    if (countarg) {
+        if (getLongFromObjectOrReply(c,countarg,&count,NULL) != C_OK)
+            return;
+        if (count <= 0) {
+            addReply(c,shared.emptymultibulk);
+            return;
+        }
+    }
+
+    /* Check type and break on the first error, otherwise identify candidate. */
+    idx = 0;
+    while (idx < keyc) {
+        key = keyv[idx++];
+        zobj = lookupKeyWrite(c->db,key);
+        if (!zobj) continue;
+        if (checkType(c,zobj,OBJ_ZSET)) return;
+        break;
+    }
+
+    /* No candidate for zpopping, return empty. */
+    if (!zobj) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+
+    void *arraylen_ptr = addDeferredMultiBulkLength(c);
+    PORT_LONG arraylen = 0;
+
+    /* We emit the key only for the blocking variant. */
+    if (emitkey) addReplyBulk(c,key);
+
+    /* Remove the element. */
+    do {
+        if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *zl = zobj->ptr;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            PORT_LONGLONG vlong;
+
+            /* Get the first or last element in the sorted set. */
+            eptr = ziplistIndex(zl,where == ZSET_MAX ? -2 : 0);
+            serverAssertWithInfo(c,zobj,eptr != NULL);
+            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            if (vstr == NULL)
+                ele = sdsfromlonglong(vlong);
+            else
+                ele = sdsnewlen(vstr,vlen);
+
+            /* Get the score. */
+            sptr = ziplistNext(zl,eptr);
+            serverAssertWithInfo(c,zobj,sptr != NULL);
+            score = zzlGetScore(sptr);
+        } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = zobj->ptr;
+            zskiplist *zsl = zs->zsl;
+            zskiplistNode *zln;
+
+            /* Get the first or last element in the sorted set. */
+            zln = (where == ZSET_MAX ? zsl->tail :
+                                       zsl->header->level[0].forward);
+
+            /* There must be an element in the sorted set. */
+            serverAssertWithInfo(c,zobj,zln != NULL);
+            ele = sdsdup(zln->ele);
+            score = zln->score;
+        } else {
+            serverPanic("Unknown sorted set encoding");
+        }
+
+        serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
+        server.dirty++;
+
+        if (arraylen == 0) { /* Do this only for the first iteration. */
+            char *events[2] = {"zpopmin","zpopmax"};
+            notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+            signalModifiedKey(c->db,key);
+        }
+
+        addReplyBulkCBuffer(c,ele,sdslen(ele));
+        addReplyDouble(c,score);
+        sdsfree(ele);
+        arraylen += 2;
+
+        /* Remove the key, if indeed needed. */
+        if (zsetLength(zobj) == 0) {
+            dbDelete(c->db,key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+            break;
+        }
+    } while(--count);
+
+    setDeferredMultiBulkLength(c,arraylen_ptr,arraylen + (emitkey != 0));
+}
+
+/* ZPOPMIN key [<count>] */
+void zpopminCommand(client *c) {
+    if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MIN,0,
+        c->argc == 3 ? c->argv[2] : NULL);
+}
+
+/* ZMAXPOP key [<count>] */
+void zpopmaxCommand(client *c) {
+    if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MAX,0,
+        c->argc == 3 ? c->argv[2] : NULL);
+}
+
+/* BZPOPMIN / BZPOPMAX actual implementation. */
+void blockingGenericZpopCommand(client *c, int where) {
+    robj *o;
+    mstime_t timeout;
+    int j;
+
+    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
+        != C_OK) return;
+
+    for (j = 1; j < c->argc-1; j++) {
+        o = lookupKeyWrite(c->db,c->argv[j]);
+        if (o != NULL) {
+            if (o->type != OBJ_ZSET) {
+                addReply(c,shared.wrongtypeerr);
+                return;
+            } else {
+                if (zsetLength(o) != 0) {
+                    /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
+                    genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
+                    /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
+                    rewriteClientCommandVector(c,2,
+                        where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
+                        c->argv[j]);
+                    return;
+                }
+            }
+        }
+    }
+
+    /* If we are inside a MULTI/EXEC and the zset is empty the only thing
+     * we can do is treating it as a timeout (even with timeout 0). */
+    if (c->flags & CLIENT_MULTI) {
+        addReply(c,shared.nullmultibulk);
+        return;
+    }
+
+    /* If the keys do not exist we must block */
+    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
+}
+
+// BZPOPMIN key [key ...] timeout
+void bzpopminCommand(client *c) {
+    blockingGenericZpopCommand(c,ZSET_MIN);
+}
+
+// BZPOPMAX key [key ...] timeout
+void bzpopmaxCommand(client *c) {
+    blockingGenericZpopCommand(c,ZSET_MAX);
 }

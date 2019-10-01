@@ -173,10 +173,13 @@
     <ClCompile Include="..\..\src\adlist.c" />
     <ClCompile Include="..\..\src\ae.c" />
     <ClCompile Include="..\..\src\anet.c" />
+    <ClCompile Include="..\..\src\crc16.c" />
     <ClCompile Include="..\..\src\crc64.c" />
+    <ClCompile Include="..\..\src\dict.c" />
     <ClCompile Include="..\..\src\redis-cli.c" />
     <ClCompile Include="..\..\src\release.c" />
     <ClCompile Include="..\..\src\sds.c" />
+    <ClCompile Include="..\..\src\siphash.c" />
     <ClCompile Include="..\..\src\zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
@@ -189,6 +192,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\deps\linenoise\linenoise.h" />
+    <ClInclude Include="..\..\src\dict.h" />
     <ClInclude Include="..\resource.h" />
   </ItemGroup>
   <ItemGroup>

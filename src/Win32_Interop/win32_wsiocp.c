@@ -331,7 +331,7 @@ int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
                            0,
                            &areq->ov,
                            NULL);
-
+	
     if (SUCCEEDED_WITH_IOCP(result == 0)) {
         errno = WSA_IO_PENDING;
         sockstate->wreqs++;

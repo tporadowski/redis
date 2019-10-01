@@ -34,6 +34,7 @@
 #define __SDS_H
 
 #define SDS_MAX_PREALLOC (1024*1024)
+const char *SDS_NOINIT;
 
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"

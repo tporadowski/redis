@@ -112,7 +112,7 @@ void activeExpireCycle(int type) {
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
-         * for time limt. Also don't repeat a fast cycle for the same period
+         * for time limit. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
@@ -143,8 +143,8 @@ void activeExpireCycle(int type) {
     /* Accumulate some global stats as we expire keys, to have some idea
      * about the number of keys that are already logically expired, but still
      * existing inside the database. */
-    long total_sampled = 0;
-    long total_expired = 0;
+    PORT_LONG total_sampled = 0;
+	PORT_LONG total_expired = 0;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         int expired;

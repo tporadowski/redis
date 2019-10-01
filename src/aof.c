@@ -217,6 +217,12 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * AOF file implementation
  * ------------------------------------------------------------------------- */
 
+/* Return true if an AOf fsync is currently already in progress in a
+ * BIO thread. */
+int aofFsyncInProgress(void) {
+    return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+}
+
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
@@ -254,7 +260,7 @@ static void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    aof_fsync(server.aof_fd);
+    redis_fsync(server.aof_fd);
     close(server.aof_fd);
 
     server.aof_fd = -1;
@@ -287,7 +293,7 @@ int startAppendOnly(void) {
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
-         * start a new one: the old one cannot be reused becuase it is not
+         * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
@@ -359,10 +365,24 @@ void flushAppendOnlyFile(int force) {
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) return;
+    if (sdslen(server.aof_buf) == 0) {
+        /* Check if we need to do fsync even the aof buffer is empty,
+         * because previously in AOF_FSYNC_EVERYSEC mode, fsync is
+         * called only when aof buffer is not empty, so if users
+         * stop write commands before fsync called in one second,
+         * the data in page cache cannot be flushed in time. */
+        if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+            server.aof_fsync_offset != server.aof_current_size &&
+            server.unixtime > server.aof_last_fsync &&
+            !(sync_in_progress = aofFsyncInProgress())) {
+            goto try_fsync;
+        } else {
+            return;
+        }
+    }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+        sync_in_progress = aofFsyncInProgress();
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
@@ -494,6 +514,7 @@ void flushAppendOnlyFile(int force) {
         server.aof_buf = sdsempty();
     }
 
+try_fsync:
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
     if (server.aof_no_fsync_on_rewrite &&
@@ -502,16 +523,20 @@ void flushAppendOnlyFile(int force) {
 
     /* Perform the fsync if needed. */
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
-        /* aof_fsync is defined as fdatasync() for Linux in order to avoid
+        /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         latencyStartMonitor(latency);
-        aof_fsync(server.aof_fd); /* Let's try to get this data on the disk */
+        redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
+        server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
-        if (!sync_in_progress) aof_background_fsync(server.aof_fd);
+        if (!sync_in_progress) {
+            aof_background_fsync(server.aof_fd);
+            server.aof_fsync_offset = server.aof_current_size;
+        }
         server.aof_last_fsync = server.unixtime;
     }
 }
@@ -672,7 +697,7 @@ struct client *createFakeClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
-    listSetFreeMethod(c->reply,decrRefCountVoid);
+    listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
     return c;
@@ -711,12 +736,13 @@ int loadAppendOnlyFile(char *filename) {
         exit(1);
     }
 
-    /* Handle a zero-length AOF file as a special case. An emtpy AOF file
+    /* Handle a zero-length AOF file as a special case. An empty AOF file
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
+        server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
         return C_ERR;
     }
@@ -787,7 +813,7 @@ int loadAppendOnlyFile(char *filename) {
             }
             if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
-            argsds = sdsnewlen(NULL,len);
+            argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
@@ -855,6 +881,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     stopLoading();
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
+    server.aof_fsync_offset = server.aof_current_size;
     return C_OK;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -909,7 +936,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
     if (obj->encoding == OBJ_ENCODING_INT) {
-        return (int)rioWriteBulkLongLong(r,(PORT_LONG)obj->ptr);               WIN_PORT_FIX /* cast (int) */
+        return (int)rioWriteBulkLongLong(r,(PORT_LONGLONG)((int)obj->ptr));               WIN_PORT_FIX /* cast (int) */
     } else if (sdsEncodedObject(obj)) {
         return (int)rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));           WIN_PORT_FIX /* cast (int) */
     } else {
@@ -1121,6 +1148,140 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Helper for rewriteStreamObject() that generates a bulk string into the
+ * AOF representing the ID 'id'. */
+int rioWriteBulkStreamID(rio *r,streamID *id) {
+    int retval;
+
+    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
+    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
+    sdsfree(replyid);
+    return retval;
+}
+
+/* Helper for rewriteStreamObject(): emit the XCLAIM needed in order to
+ * add the message described by 'nack' having the id 'rawid', into the pending
+ * list of the specified consumer. All this in the context of the specified
+ * key and group. */
+int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t groupname_len, streamConsumer *consumer, unsigned char *rawid, streamNACK *nack) {
+     /* XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
+               RETRYCOUNT <count> JUSTID FORCE. */
+    streamID id;
+    streamDecodeID(rawid,&id);
+    if (rioWriteBulkCount(r,'*',12) == 0) return 0;
+    if (rioWriteBulkString(r,"XCLAIM",6) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
+    if (rioWriteBulkString(r,consumer->name,sdslen(consumer->name)) == 0) return 0;
+    if (rioWriteBulkString(r,"0",1) == 0) return 0;
+    if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+    if (rioWriteBulkString(r,"TIME",4) == 0) return 0;
+    if (rioWriteBulkLongLong(r,nack->delivery_time) == 0) return 0;
+    if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
+    if (rioWriteBulkLongLong(r,nack->delivery_count) == 0) return 0;
+    if (rioWriteBulkString(r,"JUSTID",6) == 0) return 0;
+    if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
+    return 1;
+}
+
+/* Emit the commands needed to rebuild a stream object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteStreamObject(rio *r, robj *key, robj *o) {
+    stream *s = o->ptr;
+    streamIterator si;
+    streamIteratorStart(&si,s,NULL,NULL,0);
+    streamID id;
+    int64_t numfields;
+
+    if (s->length) {
+        /* Reconstruct the stream data using XADD commands. */
+        while(streamIteratorGetID(&si,&id,&numfields)) {
+            /* Emit a two elements array for each item. The first is
+             * the ID, the second is an array of field-value pairs. */
+
+            /* Emit the XADD <key> <id> ...fields... command. */
+            if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+            if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
+            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+            while(numfields--) {
+                unsigned char *field, *value;
+                int64_t field_len, value_len;
+                streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+                if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
+                if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+            }
+        }
+    } else {
+        /* Use the XADD MAXLEN 0 trick to generate an empty stream if
+         * the key we are serializing is an empty string, which is possible
+         * for the Stream type. */
+        if (rioWriteBulkCount(r,'*',7) == 0) return 0;
+        if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
+        if (rioWriteBulkObject(r,key) == 0) return 0;
+        if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
+        if (rioWriteBulkString(r,"0",1) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+        if (rioWriteBulkString(r,"x",1) == 0) return 0;
+        if (rioWriteBulkString(r,"y",1) == 0) return 0;
+    }
+
+    /* Append XSETID after XADD, make sure lastid is correct,
+     * in case of XDEL lastid. */
+    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
+    if (rioWriteBulkString(r,"XSETID",6) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+
+
+    /* Create all the stream consumer groups. */
+    if (s->cgroups) {
+        raxIterator ri;
+        raxStart(&ri,s->cgroups);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            streamCG *group = ri.data;
+            /* Emit the XGROUP CREATE in order to create the group. */
+            if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+            if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
+            if (rioWriteBulkString(r,"CREATE",6) == 0) return 0;
+            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (rioWriteBulkString(r,(char*)ri.key,ri.key_len) == 0) return 0;
+            if (rioWriteBulkStreamID(r,&group->last_id) == 0) return 0;
+
+            /* Generate XCLAIMs for each consumer that happens to
+             * have pending entries. Empty consumers have no semantical
+             * value so they are discarded. */
+            raxIterator ri_cons;
+            raxStart(&ri_cons,group->consumers);
+            raxSeek(&ri_cons,"^",NULL,0);
+            while(raxNext(&ri_cons)) {
+                streamConsumer *consumer = ri_cons.data;
+                /* For the current consumer, iterate all the PEL entries
+                 * to emit the XCLAIM protocol. */
+                raxIterator ri_pel;
+                raxStart(&ri_pel,consumer->pel);
+                raxSeek(&ri_pel,"^",NULL,0);
+                while(raxNext(&ri_pel)) {
+                    streamNACK *nack = ri_pel.data;
+                    if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
+                                                   ri.key_len,consumer,
+                                                   ri_pel.key,nack) == 0)
+                    {
+                        return 0;
+                    }
+                }
+                raxStop(&ri_pel);
+            }
+            raxStop(&ri_cons);
+        }
+        raxStop(&ri);
+    }
+
+    streamIteratorStop(&si);
+    return 1;
+}
+
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
@@ -1128,7 +1289,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r);
+    moduleInitIOContext(io,mt,r,key);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -1163,7 +1324,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
     size_t processed = 0;
-    PORT_LONGLONG now = mstime();
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -1189,9 +1349,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             expiretime = getExpire(db,&key);
 
-            /* If this key is already expired skip it */
-            if (expiretime != -1 && expiretime < now) continue;
-
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {
                 /* Emit a SET command */
@@ -1208,6 +1365,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_HASH) {
                 if (rewriteHashObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_STREAM) {
+                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_MODULE) {
                 if (rewriteModuleObject(aof,&key,o) == 0) goto werr;
             } else {
@@ -1262,7 +1421,7 @@ int rewriteAppendOnlyFile(char *filename) {
     rioInitWithFile(&aof,fp);
 
     if (server.aof_rewrite_incremental_fsync)
-        rioSetAutoSync(&aof,AOF_AUTOSYNC_BYTES);
+        rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
     if (server.aof_use_rdb_preamble) {
         int error;
@@ -1734,12 +1893,13 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
             if (server.aof_fsync == AOF_FSYNC_ALWAYS)
-                aof_fsync(newfd);
+                redis_fsync(newfd);
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
                 aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
+            server.aof_current_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
@@ -1755,13 +1915,13 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_state = AOF_ON;
 
         /* Asynchronously close the overwritten AOF. */
-        if (oldfd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(PORT_LONG)oldfd,NULL,NULL);
+        if (oldfd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)oldfd,NULL,NULL);
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
         serverLog(LL_WARNING,
