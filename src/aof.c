@@ -1627,7 +1627,8 @@ int rewriteAppendOnlyFileBackground(void) {
             tmpfile,
             &server,
             sizeof(server),
-            dictGetHashFunctionSeed());
+            dictGetHashFunctionSeed(),
+            modules);
 #else
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty(-1);

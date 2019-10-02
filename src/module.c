@@ -71,7 +71,9 @@ struct RedisModuleSharedAPI {
 };
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
+#ifndef _WIN32
 static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
+#endif
 
 /* Entries in the context->amqueue array, representing objects to free
  * when the callback returns. */

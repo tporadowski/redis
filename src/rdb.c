@@ -1365,7 +1365,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
     start = ustime();
 #ifdef _WIN32
-    childpid = BeginForkOperation_Rdb(filename, &server, sizeof(server), dictGetHashFunctionSeed());
+    childpid = BeginForkOperation_Rdb(filename, &server, sizeof(server), dictGetHashFunctionSeed(), modules);
 #else
     if ((childpid = fork()) == 0) {
         int retval;
@@ -2379,7 +2379,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     start = ustime();
 
 #ifdef _WIN32
-    childpid = BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), dictGetHashFunctionSeed());
+    childpid = BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), dictGetHashFunctionSeed(), modules);
 #else
     if ((childpid = fork()) == 0) {
         /* Child */

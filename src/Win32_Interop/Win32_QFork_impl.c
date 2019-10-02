@@ -23,11 +23,12 @@
 #include "..\server.h"
 #include "Win32_Portability.h"
 
-void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint8_t *dictHashSeed)
+void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint8_t *dictHashSeed, LPVOID redisModules)
 {
 #ifndef NO_QFORKIMPL
     memcpy(&server, redisData, redisDataSize);
     dictSetHashFunctionSeed(dictHashSeed);
+    modules = (dict*) redisModules;
 #endif
 }
 

@@ -1312,6 +1312,10 @@ struct redisServer {
     pthread_mutex_t unixtime_mutex;
 };
 
+#ifdef _WIN32
+dict* modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
+#endif
+
 typedef struct pubsubPattern {
     client *client;
     robj *pattern;

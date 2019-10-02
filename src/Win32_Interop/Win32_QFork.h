@@ -56,7 +56,8 @@ extern "C" {
         char* fileName,
         LPVOID redisData,
         int sizeOfRedisData,
-        uint8_t *dictHashSeed);
+        uint8_t *dictHashSeed,
+        LPVOID modules);
 
     pid_t BeginForkOperation_Aof(
         int aof_pipe_write_ack_to_parent,
@@ -65,7 +66,8 @@ extern "C" {
         char* fileName,
         LPVOID redisData,
         int sizeOfRedisData,
-        uint8_t *dictHashSeed);
+        uint8_t *dictHashSeed,
+        LPVOID modules);
 
     pid_t BeginForkOperation_Socket(
         int *fds,
@@ -74,7 +76,8 @@ extern "C" {
         int pipe_write_fd,
         LPVOID redisData,
         int sizeOfRedisData,
-        uint8_t *dictHashSeed);
+        uint8_t *dictHashSeed,
+        LPVOID modules);
 
     void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId);
 
