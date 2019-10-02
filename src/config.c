@@ -2048,7 +2048,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %Id", WIN_PORT_FIX /* %ld -> %Id */
                 option, typename, hard, soft,
-                (long) server.client_obuf_limits[j].soft_limit_seconds);
+                (PORT_LONG) server.client_obuf_limits[j].soft_limit_seconds);
         rewriteConfigRewriteLine(state,option,line,force);
     }
 }

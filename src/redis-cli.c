@@ -1127,7 +1127,7 @@ static int cliReadReply(int output_raw_strings) {
     return REDIS_OK;
 }
 
-static int cliSendCommand(int argc, char **argv, long repeat) {
+static int cliSendCommand(int argc, char **argv, PORT_LONG repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
@@ -2435,7 +2435,7 @@ static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err) {
         is_empty = 0;
         goto result;
     }
-    long known_nodes = getLongInfoField(info->str, "cluster_known_nodes");
+    PORT_LONG known_nodes = getLongInfoField(info->str, "cluster_known_nodes");
     is_empty = (known_nodes == 1);
 result:
     freeReplyObject(info);
@@ -2807,7 +2807,7 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
         if (argv_idx >= argc) break;
         if (node->slots[i]) {
-            argv[argv_idx] = sdsfromlonglong((long long) i);
+            argv[argv_idx] = sdsfromlonglong((PORT_LONGLONG) i);
             argvlen[argv_idx] = sdslen(argv[argv_idx]);
             argv_idx++;
         }
@@ -3745,7 +3745,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
         int covered = all_slots[i];
         if (!covered) {
-            sds key = sdsfromlonglong((long long) i);
+            sds key = sdsfromlonglong((PORT_LONGLONG) i);
             if (uncovered_count++ > 0) printf(",");
             printf("%s", (char *) key);
             list *slot_nodes = listCreate();
@@ -4725,11 +4725,11 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     interleaved += masters_count;
     interleaved_len -= masters_count;
     float slots_per_node = CLUSTER_MANAGER_SLOTS / (float) masters_count;
-    long first = 0;
+    PORT_LONG first = 0;
     float cursor = 0.0f;
     for (i = 0; i < masters_count; i++) {
         clusterManagerNode *master = masters[i];
-        long last = lround(cursor + slots_per_node - 1);
+        PORT_LONG last = lround(cursor + slots_per_node - 1);
         if (last > CLUSTER_MANAGER_SLOTS || i == (masters_count - 1))
             last = CLUSTER_MANAGER_SLOTS - 1;
         if (last < first) last = first;

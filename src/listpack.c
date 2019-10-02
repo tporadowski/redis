@@ -766,7 +766,7 @@ unsigned char *lpSeek(unsigned char *lp, PORT_LONG index) {
      * we always seek from left to right. */
     uint32_t numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN) {
-        if (index < 0) index = (long)numele+index;
+        if (index < 0) index = (PORT_LONG)numele+index;
         if (index < 0) return NULL; /* Index still < 0 means out of range. */
         if (index >= numele) return NULL; /* Out of range the other side. */
         /* We want to scan right-to-left if the element we are looking for

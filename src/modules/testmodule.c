@@ -33,6 +33,9 @@
 #define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <string.h>
+#ifdef _WIN32
+#include "../Win32_Interop/win32_types_hiredis.h"
+#endif
 
 /* --------------------------------- Helpers -------------------------------- */
 
@@ -57,9 +60,9 @@ int TestCall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModule_Call(ctx,"DEL","c","mylist");
     RedisModuleString *mystr = RedisModule_CreateString(ctx,"foo",3);
-    RedisModule_Call(ctx,"RPUSH","csl","mylist",mystr,(long long)1234);
+    RedisModule_Call(ctx,"RPUSH","csl","mylist",mystr,(PORT_LONGLONG)1234);
     reply = RedisModule_Call(ctx,"LRANGE","ccc","mylist","0","-1");
-    long long items = RedisModule_CallReplyLength(reply);
+    PORT_LONGLONG items = RedisModule_CallReplyLength(reply);
     if (items != 2) goto fail;
 
     RedisModuleCallReply *item0, *item1;
@@ -330,13 +333,13 @@ int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char
 
 /* Return 1 if the reply matches the specified integer, otherwise log errors
  * in the server log and return 0. */
-int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, long long expected) {
+int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, PORT_LONGLONG expected) {
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
         RedisModule_Log(ctx,"warning","Unexpected reply type %d",
             RedisModule_CallReplyType(reply));
         return 0;
     }
-    long long val = RedisModule_CallReplyInteger(reply);
+    PORT_LONGLONG val = RedisModule_CallReplyInteger(reply);
     if (val != expected) {
         RedisModule_Log(ctx,"warning",
             "Unexpected integer reply '%lld' (instead of '%lld')",

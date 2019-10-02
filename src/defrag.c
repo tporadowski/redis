@@ -440,7 +440,7 @@ void defragLater(redisDb *db, dictEntry *kde) {
     listAddNodeTail(db->defrag_later, key);
 }
 
-long scanLaterList(robj *ob) {
+PORT_LONG scanLaterList(robj *ob) {
     quicklist *ql = ob->ptr;
     if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
         return 0;
@@ -450,7 +450,7 @@ long scanLaterList(robj *ob) {
 
 typedef struct {
     zset *zs;
-    long defragged;
+    PORT_LONG defragged;
 } scanLaterZsetData;
 
 void scanLaterZsetCallback(void *privdata, const dictEntry *_de) {
@@ -460,7 +460,7 @@ void scanLaterZsetCallback(void *privdata, const dictEntry *_de) {
     server.stat_active_defrag_scanned++;
 }
 
-long scanLaterZset(robj *ob, unsigned long *cursor) {
+PORT_LONG scanLaterZset(robj *ob, PORT_ULONG *cursor) {
     if (ob->type != OBJ_ZSET || ob->encoding != OBJ_ENCODING_SKIPLIST)
         return 0;
     zset *zs = (zset*)ob->ptr;
@@ -472,15 +472,15 @@ long scanLaterZset(robj *ob, unsigned long *cursor) {
 
 void scanLaterSetCallback(void *privdata, const dictEntry *_de) {
     dictEntry *de = (dictEntry*)_de;
-    long *defragged = privdata;
+    PORT_LONG *defragged = privdata;
     sds sdsele = dictGetKey(de), newsds;
     if ((newsds = activeDefragSds(sdsele)))
         (*defragged)++, de->key = newsds;
     server.stat_active_defrag_scanned++;
 }
 
-long scanLaterSet(robj *ob, unsigned long *cursor) {
-    long defragged = 0;
+PORT_LONG scanLaterSet(robj *ob, PORT_ULONG *cursor) {
+    PORT_LONG defragged = 0;
     if (ob->type != OBJ_SET || ob->encoding != OBJ_ENCODING_HT)
         return 0;
     dict *d = ob->ptr;
@@ -490,7 +490,7 @@ long scanLaterSet(robj *ob, unsigned long *cursor) {
 
 void scanLaterHashCallback(void *privdata, const dictEntry *_de) {
     dictEntry *de = (dictEntry*)_de;
-    long *defragged = privdata;
+    PORT_LONG *defragged = privdata;
     sds sdsele = dictGetKey(de), newsds;
     if ((newsds = activeDefragSds(sdsele)))
         (*defragged)++, de->key = newsds;
@@ -500,8 +500,8 @@ void scanLaterHashCallback(void *privdata, const dictEntry *_de) {
     server.stat_active_defrag_scanned++;
 }
 
-long scanLaterHash(robj *ob, unsigned long *cursor) {
-    long defragged = 0;
+PORT_LONG scanLaterHash(robj *ob, PORT_ULONG *cursor) {
+    PORT_LONG defragged = 0;
     if (ob->type != OBJ_HASH || ob->encoding != OBJ_ENCODING_HT)
         return 0;
     dict *d = ob->ptr;
@@ -509,9 +509,9 @@ long scanLaterHash(robj *ob, unsigned long *cursor) {
     return defragged;
 }
 
-long defragQuicklist(redisDb *db, dictEntry *kde) {
+PORT_LONG defragQuicklist(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    long defragged = 0;
+    PORT_LONG defragged = 0;
     quicklist *ql = ob->ptr, *newql;
     serverAssert(ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST);
     if ((newql = activeDefragAlloc(ql)))
@@ -523,9 +523,9 @@ long defragQuicklist(redisDb *db, dictEntry *kde) {
     return defragged;
 }
 
-long defragZsetSkiplist(redisDb *db, dictEntry *kde) {
+PORT_LONG defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    long defragged = 0;
+    PORT_LONG defragged = 0;
     zset *zs = (zset*)ob->ptr;
     zset *newzs;
     zskiplist *newzsl;
@@ -556,8 +556,8 @@ long defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     return defragged;
 }
 
-long defragHash(redisDb *db, dictEntry *kde) {
-    long defragged = 0;
+PORT_LONG defragHash(redisDb *db, dictEntry *kde) {
+    PORT_LONG defragged = 0;
     robj *ob = dictGetVal(kde);
     dict *d, *newd;
     serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
@@ -574,8 +574,8 @@ long defragHash(redisDb *db, dictEntry *kde) {
     return defragged;
 }
 
-long defragSet(redisDb *db, dictEntry *kde) {
-    long defragged = 0;
+PORT_LONG defragSet(redisDb *db, dictEntry *kde) {
+    PORT_LONG defragged = 0;
     robj *ob = dictGetVal(kde);
     dict *d, *newd;
     serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
@@ -604,10 +604,10 @@ int defragRaxNode(raxNode **noderef) {
 }
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
-int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime, long long *defragged) {
+int scanLaterStraemListpacks(robj *ob, PORT_ULONG *cursor, PORT_LONGLONG endtime, PORT_LONGLONG *defragged) {
     static unsigned char last[sizeof(streamID)];
     raxIterator ri;
-    long iterations = 0;
+    PORT_LONG iterations = 0;
     if (ob->type != OBJ_STREAM || ob->encoding != OBJ_ENCODING_STREAM) {
         *cursor = 0;
         return 0;
@@ -654,15 +654,15 @@ int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime,
 }
 
 /* optional callback used defrag each rax element (not including the element pointer itself) */
-typedef void *(raxDefragFunction)(raxIterator *ri, void *privdata, long *defragged);
+typedef void *(raxDefragFunction)(raxIterator *ri, void *privdata, PORT_LONG *defragged);
 
 /* defrag radix tree including:
  * 1) rax struct
  * 2) rax nodes
  * 3) rax entry data (only if defrag_data is specified)
  * 4) call a callback per element, and allow the callback to return a new pointer for the element */
-long defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_cb, void *element_cb_data) {
-    long defragged = 0;
+PORT_LONG defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_cb, void *element_cb_data) {
+    PORT_LONG defragged = 0;
     raxIterator ri;
     rax* rax;
     if ((rax = activeDefragAlloc(*raxref)))
@@ -690,7 +690,7 @@ typedef struct {
     streamConsumer *c;
 } PendingEntryContext;
 
-void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata, long *defragged) {
+void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata, PORT_LONG *defragged) {
     UNUSED(defragged);
     PendingEntryContext *ctx = privdata;
     streamNACK *nack = ri->data, *newnack;
@@ -706,7 +706,7 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata, long *de
     return newnack;
 }
 
-void* defragStreamConsumer(raxIterator *ri, void *privdata, long *defragged) {
+void* defragStreamConsumer(raxIterator *ri, void *privdata, PORT_LONG *defragged) {
     streamConsumer *c = ri->data;
     streamCG *cg = privdata;
     void *newc = activeDefragAlloc(c);
@@ -724,7 +724,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata, long *defragged) {
     return newc; /* returns NULL if c was not defragged */
 }
 
-void* defragStreamConsumerGroup(raxIterator *ri, void *privdata, long *defragged) {
+void* defragStreamConsumerGroup(raxIterator *ri, void *privdata, PORT_LONG *defragged) {
     streamCG *cg = ri->data;
     UNUSED(privdata);
     if (cg->consumers)
@@ -734,8 +734,8 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata, long *defragged
     return NULL;
 }
 
-long defragStream(redisDb *db, dictEntry *kde) {
-    long defragged = 0;
+PORT_LONG defragStream(redisDb *db, dictEntry *kde) {
+    PORT_LONG defragged = 0;
     robj *ob = dictGetVal(kde);
     serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
     stream *s = ob->ptr, *news;

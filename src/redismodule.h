@@ -105,7 +105,7 @@
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
-#define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
+#define REDISMODULE_HASH_DELETE ((RedisModuleString*)(PORT_LONG)1)
 
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"

@@ -525,7 +525,7 @@ void *dictFetchValue(dict *d, const void *key) {
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
 PORT_LONGLONG dictFingerprint(dict *d) {
-    PORT_LONGLONG integers[6], hash = 0;
+    PORT_ULONG integers[6], hash = 0;
     int j;
 
     integers[0] = (PORT_LONG) d->ht[0].table;

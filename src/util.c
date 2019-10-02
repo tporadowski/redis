@@ -589,7 +589,7 @@ void getRandomBytes(unsigned char *p, size_t len) {
 	                struct timeval tv;
 	                gettimeofday(&tv,NULL);
 	                pid_t pid = getpid();
-	                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
+	                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (PORT_LONG)fp;
 	            }
 	        } else {
 	            seed_initialized = 1;

@@ -64,7 +64,7 @@ void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
 void *HelloBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
-    long long delay = (unsigned long)targ[1];
+    PORT_LONGLONG delay = (PORT_ULONG)targ[1];
     RedisModule_Free(targ);
 
     sleep(delay);
@@ -96,8 +96,8 @@ void HelloBlock_Disconnected(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) 
  * what happens when the delay is greater than the timeout. */
 int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) return RedisModule_WrongArity(ctx);
-    long long delay;
-    long long timeout;
+    PORT_LONGLONG delay;
+    PORT_LONGLONG timeout;
 
     if (RedisModule_StringToLongLong(argv[1],&delay) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
@@ -120,7 +120,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
      * the delay and a reference to the blocked client handle. */
     void **targ = RedisModule_Alloc(sizeof(void*)*2);
     targ[0] = bc;
-    targ[1] = (void*)(unsigned long) delay;
+    targ[1] = (void*)(PORT_ULONG) delay;
 
     if (pthread_create(&tid,NULL,HelloBlock_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
@@ -139,14 +139,14 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 void *HelloKeys_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = arg;
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-    long long cursor = 0;
+    PORT_LONGLONG cursor = 0;
     size_t replylen = 0;
 
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
     do {
         RedisModule_ThreadSafeContextLock(ctx);
         RedisModuleCallReply *reply = RedisModule_Call(ctx,
-            "SCAN","l",(long long)cursor);
+            "SCAN","l",(PORT_LONGLONG)cursor);
         RedisModule_ThreadSafeContextUnlock(ctx);
 
         RedisModuleCallReply *cr_cursor =

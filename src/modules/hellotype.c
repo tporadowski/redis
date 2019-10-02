@@ -41,6 +41,9 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include "../Win32_Interop/win32_types_hiredis.h"
+#endif
 
 static RedisModuleType *HelloType;
 
@@ -113,7 +116,7 @@ int HelloTypeInsert_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
     }
 
-    long long value;
+    PORT_LONGLONG value;
     if ((RedisModule_StringToLongLong(argv[2],&value) != REDISMODULE_OK)) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid value: must be a signed 64 bit integer");
     }
@@ -149,7 +152,7 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
     }
 
-    long long first, count;
+    PORT_LONGLONG first, count;
     if (RedisModule_StringToLongLong(argv[2],&first) != REDISMODULE_OK ||
         RedisModule_StringToLongLong(argv[3],&count) != REDISMODULE_OK ||
         first < 0 || count < 0)
@@ -161,7 +164,7 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     struct HelloTypeObject *hto = RedisModule_ModuleTypeGetValue(key);
     struct HelloTypeNode *node = hto ? hto->head : NULL;
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
-    long long arraylen = 0;
+    PORT_LONGLONG arraylen = 0;
     while(node && count--) {
         RedisModule_ReplyWithLongLong(ctx,node->value);
         arraylen++;

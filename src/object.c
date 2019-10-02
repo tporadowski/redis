@@ -777,7 +777,7 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
     size = rax->numele * sizeof(streamID);
     size += rax->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
-    size += rax->numnodes * sizeof(long)*30;
+    size += rax->numnodes * sizeof(PORT_LONG)*30;
     return size;
 }
 
