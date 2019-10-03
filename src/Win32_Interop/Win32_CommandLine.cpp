@@ -393,9 +393,15 @@ static RedisParamterMapper g_redisArgMap =
     { "dbfilename",                     &fp1 },    // dbfilename [filename]
     { cDir,                             &fp1 },    // dir [path]
     { "slaveof",                        &fp2 },    // slaveof [masterip] [master port]
+	{ "replicaof",                      &fp2 },    // replicaof [masterip] [master port]
     { "masterauth",                     &fp1 },    // masterauth [master-password]
     { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
-    { "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
+    { "replica-serve-stale-data",       &fp1 },    // replica-serve-stale-data [yes/no]
+	{ "replica-lazy-flush",				&fp1},
+	{ "lazyfree-lazy-server-del",		&fp1},
+	{ "lazyfree-lazy-expire",			&fp1},
+	{ "lazyfree-lazy-eviction",			&fp1},
+	{ "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
     { "repl-ping-slave-period",         &fp1 },    // repl-ping-slave-period [number]
     { "repl-timeout",                   &fp1 },    // repl-timeout [number]
     { "repl-disable-tcp-nodelay",       &fp1 },    // repl-disable-tcp-nodelay [yes/no]
@@ -412,10 +418,14 @@ static RedisParamterMapper g_redisArgMap =
     { "maxmemory",                      &fp1 },    // maxmemory [bytes]
     { "maxmemory-policy",               &fp1 },    // maxmemory-policy [policy]
     { "maxmemory-samples",              &fp1 },    // maxmemory-samples [number]
-    { "appendonly",                     &fp1 },    // appendonly [yes/no]
+	{ "rdb-save-incremental-fsync",		&fp1 },
+	{ "appendonly",                     &fp1 },    // appendonly [yes/no]
     { "appendfilename",                 &fp1 },    // appendfilename [filename]
     { "appendfsync",                    &fp1 },    // appendfsync [value]
-    { "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
+	{ "aof-load-truncated",				&fp1 },
+	{ "aof-use-rdb-preamble",			&fp1 },
+	{ "rdb-save-incremental-fsync",		&fp1 },
+	{ "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
     { "auto-aof-rewrite-percentage",    &fp1 },    // auto-aof-rewrite-percentage [number]
     { "auto-aof-rewrite-min-size",      &fp1 },    // auto-aof-rewrite-min-size [number]
     { "lua-time-limit",                 &fp1 },    // lua-time-limit [number]
@@ -442,6 +452,7 @@ static RedisParamterMapper g_redisArgMap =
     { "watchdog-period",                &fp1 },    // watchdog-period [number]
     { "supervised",                     &fp1},     // supervised [upstart|systemd|auto|no]
     { cInclude,                         &fp1 },    // include [path]
+	{"dynamic-hz",						&fp1},
 
     // sentinel commands
     { "sentinel",                       &sp },
@@ -453,6 +464,11 @@ static RedisParamterMapper g_redisArgMap =
     {"cluster-slave-validity-factor",   &fp1},     // [number]
     {"cluster-migration-barrier",       &fp1},     // [1/0]
     {"cluster-require-full-coverage",   &fp1},     // [yes/no]
+
+	//streams commands
+	{"stream-node-max-bytes",			&fp1},
+	{"stream-node-max-entries",			&fp1},
+	{"stream-node-max-entries",			&fp1},
 
     //modules
     {"loadmodule",                      &fp1}      // [filename]
