@@ -1021,11 +1021,11 @@ void configSetCommand(client *c) {
         if (getLongLongFromObject(o,&ll) == C_ERR || ll < 1) goto badfmt;
 
         /* Try to check if the OS is capable of supporting so many FDs. */
-        server.maxclients = (int)ll;                                            WIN_PORT_FIX /* cast (int) */
+        server.maxclients = (PORT_ULONGLONG)ll;                                            WIN_PORT_FIX /* cast (PORT_ULONGLONG) */
         if (ll > orig_value) {
             adjustOpenFilesLimit();
             if (server.maxclients != ll) {
-                addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
+                addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients, try with %lld", server.maxclients);
                 server.maxclients = orig_value;
                 return;
             }

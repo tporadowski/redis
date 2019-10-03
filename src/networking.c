@@ -1088,11 +1088,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
             /* If we fully sent the object on head go to the next one */
             if (c->sentlen == objlen) {
-#ifdef _WIN32
-				c->reply_bytes -= (PORT_ULONG)o->size;;
-#else
-				c->reply_bytes -= o->size;
-#endif
+				c->reply_bytes -= (PORT_ULONG)o->size;
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
 

@@ -1787,6 +1787,7 @@ void initServerConfig(void) {
 
 extern char **environ;
 
+
 /* Restart the server, executing the same executable that started this
  * instance, with the same arguments and configuration file.
  *
@@ -1824,7 +1825,7 @@ int restartServer(int flags, mstime_t delay) {
     }
 
     /* Perform a proper shutdown. */
-    if (flags & RESTART_SERVER_GRACEFULLY &&
+    if (flags & RESTART_SERVER_GRACEFULLY && 
         prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
     {
         serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
@@ -1833,18 +1834,19 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
+    for (j = 3; j < server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
 		if (fcntl(j, IF_WIN32(F_GETFL, 1), 0) != -1) close(j);
     }
 
+
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
     zfree(server.exec_argv[0]);
     server.exec_argv[0] = zstrdup(server.executable);
-    execve(server.executable,server.exec_argv,environ);
-
+	execve(server.executable, server.exec_argv, environ);
+	
     /* If an error occurred here, there is nothing we can do, but exit. */
     _exit(1);
 
