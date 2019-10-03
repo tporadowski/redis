@@ -1836,7 +1836,7 @@ int restartServer(int flags, mstime_t delay) {
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
-        if (fcntl(j, IF_WIN32(1, F_GETFD), 0) != -1) close(j);
+		if (fcntl(j, IF_WIN32(F_GETFL, 1), 0) != -1) close(j);
     }
 
     /* Execute the server with the original command line. */
