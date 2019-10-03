@@ -2828,10 +2828,13 @@ void closeListeningSockets(int unlink_unix_socket) {
     if (server.sofd != -1) close(server.sofd);
     if (server.cluster_enabled)
         for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
+
+#ifndef _WIN32
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */
     }
+#endif
 }
 
 int prepareForShutdown(int flags) {
@@ -4164,7 +4167,7 @@ int main(int argc, char **argv) {
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
-    server.exec_argv = zmalloc(sizeof(char*)*((PORT_ULONG)argc+1));  WIN_PORT_FIX /* cast (PORT_ULONG) */
+    server.exec_argv = zmalloc(sizeof(char*)*((size_t)argc+1)); 
     server.exec_argv[argc] = NULL;
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 
