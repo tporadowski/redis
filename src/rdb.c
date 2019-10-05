@@ -1009,7 +1009,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         if (retval == -1)
             io.error = 1;
         else
-        io.bytes += retval;
+            io.bytes += retval;
 
         if (io.ctx) {
             moduleFreeContext(io.ctx);
@@ -1226,7 +1226,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
             }
         }
         dictReleaseIterator(di);
-    di = NULL; /* So that we don't release it again on error. */
+        di = NULL; /* So that we don't release it again on error. */
     }
 
     /* If we are storing the replication information on disk, persist
@@ -2119,19 +2119,19 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             decrRefCount(key);
             decrRefCount(val);
         } else {
-        /* Add the new object in the hash table */
-        dbAdd(db,key,val);
+            /* Add the new object in the hash table */
+            dbAdd(db,key,val);
 
-        /* Set the expire time if needed */
-        if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-
+            /* Set the expire time if needed */
+            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+            
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
             /* Decrement the key refcount since dbAdd() will take its
              * own reference. */
-        decrRefCount(key);
-    }
+            decrRefCount(key);
+        }
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */

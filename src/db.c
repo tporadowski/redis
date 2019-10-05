@@ -182,7 +182,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
         val->type == OBJ_ZSET)
         signalKeyAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
- }
+}
 
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
@@ -194,7 +194,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
     dictEntry auxentry = *de;
-        robj *old = dictGetVal(de);
+    robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
@@ -343,7 +343,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 PORT_LONGLONG emptyDb(int dbnum, int flags, void(callback)(void*)) {
-    int j, async = (flags & EMPTYDB_ASYNC);
+    int async = (flags & EMPTYDB_ASYNC);
     PORT_LONGLONG removed = 0;
 
     if (dbnum < -1 || dbnum >= server.dbnum) {
@@ -1397,7 +1397,7 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     for (i = 5; i < argc; i++) {
         char *arg = argv[i]->ptr;
         /* For the case when user specifies both "store" and "storedist" options, the
-         * second key specified would override the first key. This behavior is kept 
+         * second key specified would override the first key. This behavior is kept
          * the same as in georadiusCommand method.
          */
         if ((!strcasecmp(arg, "store") || !strcasecmp(arg, "storedist")) && ((i+1) < argc)) {
@@ -1418,7 +1418,7 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     if(num > 1) {
          keys[1] = stored_key;
     }
-    *numkeys = num; 
+    *numkeys = num;
     return keys;
 }
 

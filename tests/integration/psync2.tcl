@@ -34,7 +34,7 @@ start_server {} {
     set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
         test "PSYNC2: --- CYCLE $cycle ---" {}
-            incr cycle
+        incr cycle
 
         # Create a random replication layout.
         # Start with switching master (this simulates a failover).

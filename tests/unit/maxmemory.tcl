@@ -186,7 +186,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             # put the slave to sleep
             set rd_slave [redis_deferring_client]
-			catch {exec taskkill.exe -F -T -PID $slave_pid}
+            exec kill -SIGSTOP $slave_pid
 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
@@ -226,7 +226,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
         }
         # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
-		catch {exec taskkill.exe -F -T -PID $slave_pid}
+        exec kill -SIGCONT $slave_pid
         }
     }
 }
@@ -235,9 +235,12 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 # we wanna use many small commands, and we don't wanna wait long
 # so we need to use a pipeline (redis_deferring_client)
 # that may cause query buffer to fill and induce eviction, so we disable it
-test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
+# Redis for Windows: disabled as it requires stopping the slave process (SIGSTOP) and then
+#                    letting it continue (SIGCONT)
+#test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 
 # test that slave buffer don't induce eviction
 # test again with fewer (and bigger) commands without pipeline, but with eviction
-test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
-
+# Redis for Windows: disabled as it requires stopping the slave process (SIGSTOP) and then
+#                    letting it continue (SIGCONT)
+#test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0

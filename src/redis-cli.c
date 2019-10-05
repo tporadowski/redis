@@ -811,11 +811,11 @@ static int cliConnect(int flags) {
 
         if (context->err) {
             if (!(flags & CC_QUIET)) {
-            fprintf(stderr,"Could not connect to Redis at ");
-            if (config.hostsocket == NULL)
+                fprintf(stderr,"Could not connect to Redis at ");
+                if (config.hostsocket == NULL)
                     fprintf(stderr,"%s:%d: %s\n",
                         config.hostip,config.hostport,context->errstr);
-            else
+                else
                     fprintf(stderr,"%s: %s\n",
                         config.hostsocket,context->errstr);
             }
@@ -6478,7 +6478,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
 
         /* Reallocate our type and size array if we need to */
         if(keys->elements > arrsize) {
-            types = zrealloc(types, sizeof(int)*keys->elements);
+            types = zrealloc(types, sizeof(typeinfo*)*keys->elements);
             sizes = zrealloc(sizes, sizeof(PORT_ULONGLONG)*keys->elements);
 
             if(!types || !sizes) {

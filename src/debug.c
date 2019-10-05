@@ -42,7 +42,11 @@
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
+#ifndef __OpenBSD__
 #include <ucontext.h>
+#else
+typedef ucontext_t sigcontext_t;
+#endif
 #include <fcntl.h>
 #include "bio.h"
 #include <unistd.h>
@@ -121,98 +125,98 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
  * present. */
 void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) {
     uint32_t aux = htonl(o->type);
-            mixDigest(digest,&aux,sizeof(aux));
-            PORT_LONGLONG expiretime = getExpire(db,keyobj);
-			char buf[128];
+    mixDigest(digest,&aux,sizeof(aux));
+    PORT_LONGLONG expiretime = getExpire(db,keyobj);
+    char buf[128];
 
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
+    /* Save the key and associated value */
+    if (o->type == OBJ_STRING) {
         mixStringObjectDigest(digest,o);
-            } else if (o->type == OBJ_LIST) {
-                listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
-                listTypeEntry entry;
-                while(listTypeNext(li,&entry)) {
-                    robj *eleobj = listTypeGet(&entry);
+    } else if (o->type == OBJ_LIST) {
+        listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+        listTypeEntry entry;
+        while(listTypeNext(li,&entry)) {
+            robj *eleobj = listTypeGet(&entry);
             mixStringObjectDigest(digest,eleobj);
-                    decrRefCount(eleobj);
-                }
-                listTypeReleaseIterator(li);
-            } else if (o->type == OBJ_SET) {
-                setTypeIterator *si = setTypeInitIterator(o);
-                sds sdsele;
-                while((sdsele = setTypeNextObject(si)) != NULL) {
-                    xorDigest(digest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                }
-                setTypeReleaseIterator(si);
-            } else if (o->type == OBJ_ZSET) {
-                unsigned char eledigest[20];
+            decrRefCount(eleobj);
+        }
+        listTypeReleaseIterator(li);
+    } else if (o->type == OBJ_SET) {
+        setTypeIterator *si = setTypeInitIterator(o);
+        sds sdsele;
+        while((sdsele = setTypeNextObject(si)) != NULL) {
+            xorDigest(digest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+        }
+        setTypeReleaseIterator(si);
+    } else if (o->type == OBJ_ZSET) {
+        unsigned char eledigest[20];
 
-                if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-                    unsigned char *zl = o->ptr;
-                    unsigned char *eptr, *sptr;
-                    unsigned char *vstr;
-                    unsigned int vlen;
-                    PORT_LONGLONG vll;
-                    double score;
+        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *zl = o->ptr;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            PORT_LONGLONG vll;
+            double score;
 
-                    eptr = ziplistIndex(zl,0);
-                    serverAssert(eptr != NULL);
-                    sptr = ziplistNext(zl,eptr);
-                    serverAssert(sptr != NULL);
+            eptr = ziplistIndex(zl,0);
+            serverAssert(eptr != NULL);
+            sptr = ziplistNext(zl,eptr);
+            serverAssert(sptr != NULL);
 
-                    while (eptr != NULL) {
-                        serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
-                        score = zzlGetScore(sptr);
+            while (eptr != NULL) {
+                serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                score = zzlGetScore(sptr);
 
-                        memset(eledigest,0,20);
-                        if (vstr != NULL) {
-                            mixDigest(eledigest,vstr,vlen);
-                        } else {
-                            ll2string(buf,sizeof(buf),vll);
-                            mixDigest(eledigest,buf,strlen(buf));
-                        }
-
-                        snprintf(buf,sizeof(buf),"%.17g",score);
-                        mixDigest(eledigest,buf,strlen(buf));
-                        xorDigest(digest,eledigest,20);
-                        zzlNext(zl,&eptr,&sptr);
-                    }
-                } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-                    zset *zs = o->ptr;
-                    dictIterator *di = dictGetIterator(zs->dict);
-                    dictEntry *de;
-
-                    while((de = dictNext(di)) != NULL) {
-                        sds sdsele = dictGetKey(de);
-                        double *score = dictGetVal(de);
-
-                        snprintf(buf,sizeof(buf),"%.17g",*score);
-                        memset(eledigest,0,20);
-                        mixDigest(eledigest,sdsele,sdslen(sdsele));
-                        mixDigest(eledigest,buf,strlen(buf));
-                        xorDigest(digest,eledigest,20);
-                    }
-                    dictReleaseIterator(di);
+                memset(eledigest,0,20);
+                if (vstr != NULL) {
+                    mixDigest(eledigest,vstr,vlen);
                 } else {
-                    serverPanic("Unknown sorted set encoding");
+                    ll2string(buf,sizeof(buf),vll);
+                    mixDigest(eledigest,buf,strlen(buf));
                 }
-            } else if (o->type == OBJ_HASH) {
-                hashTypeIterator *hi = hashTypeInitIterator(o);
-                while (hashTypeNext(hi) != C_ERR) {
-                    unsigned char eledigest[20];
-                    sds sdsele;
 
-                    memset(eledigest,0,20);
-                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-                    mixDigest(eledigest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
-                    mixDigest(eledigest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                    xorDigest(digest,eledigest,20);
-                }
-                hashTypeReleaseIterator(hi);
+                snprintf(buf,sizeof(buf),"%.17g",score);
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+                zzlNext(zl,&eptr,&sptr);
+            }
+        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = o->ptr;
+            dictIterator *di = dictGetIterator(zs->dict);
+            dictEntry *de;
+
+            while((de = dictNext(di)) != NULL) {
+                sds sdsele = dictGetKey(de);
+                double *score = dictGetVal(de);
+
+                snprintf(buf,sizeof(buf),"%.17g",*score);
+                memset(eledigest,0,20);
+                mixDigest(eledigest,sdsele,sdslen(sdsele));
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+            }
+            dictReleaseIterator(di);
+        } else {
+            serverPanic("Unknown sorted set encoding");
+        }
+    } else if (o->type == OBJ_HASH) {
+        hashTypeIterator *hi = hashTypeInitIterator(o);
+        while (hashTypeNext(hi) != C_ERR) {
+            unsigned char eledigest[20];
+            sds sdsele;
+
+            memset(eledigest,0,20);
+            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            mixDigest(eledigest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            mixDigest(eledigest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+            xorDigest(digest,eledigest,20);
+        }
+        hashTypeReleaseIterator(hi);
     } else if (o->type == OBJ_STREAM) {
         streamIterator si;
         streamIteratorStart(&si,o->ptr,NULL,NULL,0);
@@ -234,20 +238,20 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         }
         streamIteratorStop(&si);
-            } else if (o->type == OBJ_MODULE) {
-                RedisModuleDigest md;
-                moduleValue *mv = o->ptr;
-                moduleType *mt = mv->type;
-                moduleInitDigestContext(md);
-                if (mt->digest) {
-                    mt->digest(&md,mv->value);
-                    xorDigest(digest,md.x,sizeof(md.x));
-                }
-            } else {
-                serverPanic("Unknown object type");
-            }
-            /* If the key has an expire, add it to the mix */
-            if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
+    } else if (o->type == OBJ_MODULE) {
+        RedisModuleDigest md;
+        moduleValue *mv = o->ptr;
+        moduleType *mt = mv->type;
+        moduleInitDigestContext(md);
+        if (mt->digest) {
+            mt->digest(&md,mv->value);
+            xorDigest(digest,md.x,sizeof(md.x));
+        }
+    } else {
+        serverPanic("Unknown object type");
+    }
+    /* If the key has an expire, add it to the mix */
+    if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
 }
 
 /* Compute the dataset digest. Since keys, sets elements, hashes elements
@@ -527,8 +531,8 @@ NULL
 
             sds d = sdsempty();
             for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
-        addReplyStatus(c,d);
-        sdsfree(d);
+            addReplyStatus(c,d);
+            sdsfree(d);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);

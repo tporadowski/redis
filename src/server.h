@@ -93,7 +93,7 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 
 /* Static server configuration */
 #define CONFIG_DEFAULT_DYNAMIC_HZ 1             /* Adapt hz to # of clients.*/
-#define CONFIG_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
+#define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
@@ -666,7 +666,7 @@ typedef struct redisDb {
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     PORT_LONGLONG avg_ttl;          /* Average TTL, just for stats */
-	list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
+    list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
 /* Client MULTI/EXEC state */
@@ -1049,7 +1049,7 @@ struct redisServer {
     PORT_LONGLONG slowlog_entry_id;     /* SLOWLOG current entry ID */
     PORT_LONGLONG slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     PORT_ULONG slowlog_max_len;     /* SLOWLOG max number of items logged */
-    struct malloc_stats cron_malloc_stats;       /* sampled in serverCron(). */
+    struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     PORT_LONGLONG stat_net_input_bytes; /* Bytes read from network. */
     PORT_LONGLONG stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
@@ -1103,7 +1103,7 @@ struct redisServer {
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     PORT_ULONG aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
-	int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
+    int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
@@ -1212,7 +1212,7 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
-	PORT_ULONGLONG maxclients;            /* Max number of simultaneous clients */
+    unsigned int maxclients;            /* Max number of simultaneous clients */
     PORT_ULONGLONG maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */

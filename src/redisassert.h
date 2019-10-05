@@ -38,11 +38,11 @@
 #ifndef __REDIS_ASSERT_H__
 #define __REDIS_ASSERT_H__
 
+POSIX_ONLY(#include <unistd.h>) /* for _exit() */
+
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
 #endif
-
-POSIX_ONLY(#include <unistd.h>) /* for _exit() */
 
 #define assert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define panic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),_exit(1)

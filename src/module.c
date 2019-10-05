@@ -889,7 +889,6 @@ RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t 
     return o;
 }
 
-
 /* Create a new module string object from a printf format and arguments.
  * The returned string must be freed with RedisModule_FreeString(), unless
  * automatic memory is enabled.
@@ -1112,10 +1111,10 @@ int RM_WrongArity(RedisModuleCtx *ctx) {
  * initialized to run the timers callbacks. */
 client *moduleGetReplyClient(RedisModuleCtx *ctx) {
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
-    if (ctx->blocked_client)
-        return ctx->blocked_client->reply_client;
+        if (ctx->blocked_client)
+            return ctx->blocked_client->reply_client;
         else
-    return NULL;
+            return NULL;
     } else {
         /* If this is a non thread safe context, just return the client
          * that is running the command if any. This may be NULL as well
@@ -1428,33 +1427,33 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
 }
 
 
-/* Return the current context's flags. The flags provide information on the 
+/* Return the current context's flags. The flags provide information on the
  * current request context (whether the client is a Lua script or in a MULTI),
- * and about the Redis instance in general, i.e replication and persistence. 
- * 
+ * and about the Redis instance in general, i.e replication and persistence.
+ *
  * The available flags are:
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_LUA: The command is running in a Lua script
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_MULTI: The command is running inside a transaction
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_REPLICATED: The command was sent over the replication
  *    link by the MASTER
  *
  *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_READONLY: The Redis instance is read-only
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_CLUSTER: The Redis instance is in cluster mode
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_AOF: The Redis instance has AOF enabled
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_RDB: The instance has RDB enabled
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_MAXMEMORY:  The instance has Maxmemory set
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_EVICT:  Maxmemory is set and has an eviction
  *    policy that may delete keys
  *
@@ -1465,13 +1464,13 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *                                       reaching the maxmemory level.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
-    
+
     int flags = 0;
     /* Client specific flags */
     if (ctx->client) {
-        if (ctx->client->flags & CLIENT_LUA) 
+        if (ctx->client->flags & CLIENT_LUA)
          flags |= REDISMODULE_CTX_FLAGS_LUA;
-        if (ctx->client->flags & CLIENT_MULTI) 
+        if (ctx->client->flags & CLIENT_MULTI)
          flags |= REDISMODULE_CTX_FLAGS_MULTI;
         /* Module command recieved from MASTER, is replicated. */
         if (ctx->client->flags & CLIENT_MASTER)
@@ -1480,14 +1479,14 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
-    
+
     if (server.loading)
         flags |= REDISMODULE_CTX_FLAGS_LOADING;
 
     /* Maxmemory and eviction policy */
     if (server.maxmemory > 0) {
         flags |= REDISMODULE_CTX_FLAGS_MAXMEMORY;
-        
+
         if (server.maxmemory_policy != MAXMEMORY_NO_EVICTION)
             flags |= REDISMODULE_CTX_FLAGS_EVICT;
     }
@@ -1506,7 +1505,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         if (server.repl_slave_ro)
             flags |= REDISMODULE_CTX_FLAGS_READONLY;
     }
-    
+
     /* OOM flag. */
     float level;
     int retval = getMaxmemoryState(NULL,NULL,NULL,&level);
@@ -2726,7 +2725,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             size_t len = va_arg(ap,size_t);
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
-            PORT_LONG ll = va_arg(ap, PORT_LONGLONG);
+            PORT_LONG ll = va_arg(ap,PORT_LONGLONG);
             argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
         } else if (*p == 'v') {
              /* A vector of strings */
@@ -3382,7 +3381,6 @@ loaderr:
 /* Iterate over modules, and trigger rdb aux saving for the ones modules types
  * who asked for it. */
 ssize_t rdbSaveModulesAux(rio *rdb, int when) {
-		
     size_t total_written = 0;
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;

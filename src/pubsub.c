@@ -334,7 +334,7 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"channels") &&
-        (c->argc == 2 || c->argc ==3))
+        (c->argc == 2 || c->argc == 3))
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;

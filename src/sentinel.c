@@ -2198,7 +2198,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             retval = redisAsyncCommand(link->pc,
                 sentinelReceiveHelloMessages, ri, "%s %s",
                 sentinelInstanceMapCommand(ri,"SUBSCRIBE"),
-                    SENTINEL_HELLO_CHANNEL);
+                SENTINEL_HELLO_CHANNEL);
             if (retval != C_OK) {
                 /* If we can't subscribe, the Pub/Sub connection is useless
                  * and we can simply disconnect it and try again. */
@@ -2744,7 +2744,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     retval = redisAsyncCommand(ri->link->cc,
         sentinelPublishReplyCallback, ri, "%s %s %s",
         sentinelInstanceMapCommand(ri,"PUBLISH"),
-            SENTINEL_HELLO_CHANNEL,payload);
+        SENTINEL_HELLO_CHANNEL,payload);
     if (retval != C_OK) return C_ERR;
     ri->link->pending_commands++;
     return C_OK;
@@ -3195,7 +3195,7 @@ void sentinelCommand(client *c) {
                                                               != C_OK)
             return;
         ri = getSentinelRedisInstanceByAddrAndRunID(sentinel.masters,
-            c->argv[2]->ptr, (int) port, NULL);                                 WIN_PORT_FIX /* cast (int) */
+            c->argv[2]->ptr,(int)port,NULL);                                 WIN_PORT_FIX /* cast (int) */
 
         /* It exists? Is actually a master? Is subjectively down? It's down.
          * Note: if we are in tilt mode we always reply with "0". */
@@ -4000,7 +4000,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me. */  WIN_PORT_FIX /* cast (unsigned int) */
+    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me.*/  WIN_PORT_FIX /* cast (unsigned int) */
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);

@@ -250,7 +250,7 @@ PORT_LONGLONG timeInMilliseconds(void) {
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
-    return (((PORT_LONGLONG)tv.tv_sec)*1000)+(tv.tv_usec/1000);
+    return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 #endif
 }
 
@@ -723,9 +723,9 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
                 if (i >= d->ht[1].size)
-					 i = (PORT_ULONG) d->rehashidx;        WIN_PORT_FIX /* cast (unsigned long) */
-				else
-	                continue;
+                    i = (PORT_ULONG) d->rehashidx;        WIN_PORT_FIX /* cast (unsigned long) */
+                else
+                    continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];

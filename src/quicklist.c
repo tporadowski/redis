@@ -149,7 +149,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-PORT_ULONG quicklistCount(const quicklist *ql) { return (unsigned int)(ql->count); } WIN_PORT_FIX /* cast (unsigned int) */
+PORT_ULONG quicklistCount(const quicklist *ql) { return (PORT_ULONG)(ql->count); } WIN_PORT_FIX /* cast (unsigned int) */
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {

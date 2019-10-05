@@ -455,7 +455,7 @@ int string2l(const char *s, size_t slen, PORT_LONG *lval) {
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
 int string2ld(const char *s, size_t slen, PORT_LONGDOUBLE *dp) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     PORT_LONGDOUBLE value;
     char *eptr;
 
@@ -575,44 +575,43 @@ void getRandomBytes(unsigned char *p, size_t len) {
     static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
     static uint64_t counter = 0; /* The counter we hash with the seed. */
 
-
- if (!seed_initialized) {
-	        /* Initialize a seed and use SHA1 in counter mode, where we hash
-	         * the same seed with a progressive counter. For the goals of this
-	         * function we just need non-colliding strings, there are no
-	         * cryptographic security needs. */
-	        FILE *fp = fopen("/dev/urandom","r");
-	        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
-	            /* Revert to a weaker seed, and in this case reseed again
-	             * at every call.*/
-	            for (unsigned int j = 0; j < sizeof(seed); j++) {
-	                struct timeval tv;
-	                gettimeofday(&tv,NULL);
-	                pid_t pid = getpid();
-	                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (PORT_LONG)fp;
-	            }
-	        } else {
-	            seed_initialized = 1;
-			}
-	        if (fp) fclose(fp);
-	    }
-   
-        while(len) {
-            unsigned char digest[20];
-            SHA1_CTX ctx;
-            unsigned int copylen = len > 20 ? 20 : len;
-
-            SHA1Init(&ctx);
-            SHA1Update(&ctx, seed, sizeof(seed));
-            SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-            SHA1Final(digest, &ctx);
-            counter++;
-
-            memcpy(p,digest,copylen);
-            len -= copylen;
-            p += copylen;
+    if (!seed_initialized) {
+        /* Initialize a seed and use SHA1 in counter mode, where we hash
+         * the same seed with a progressive counter. For the goals of this
+         * function we just need non-colliding strings, there are no
+         * cryptographic security needs. */
+        FILE *fp = fopen("/dev/urandom","r");
+        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
+            /* Revert to a weaker seed, and in this case reseed again
+             * at every call.*/
+            for (unsigned int j = 0; j < sizeof(seed); j++) {
+                struct timeval tv;
+                gettimeofday(&tv,NULL);
+                pid_t pid = getpid();
+                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (PORT_LONG)fp;
+            }
+        } else {
+            seed_initialized = 1;
         }
+        if (fp) fclose(fp);
     }
+
+    while(len) {
+        unsigned char digest[20];
+        SHA1_CTX ctx;
+        unsigned int copylen = len > 20 ? 20 : len;
+
+        SHA1Init(&ctx);
+        SHA1Update(&ctx, seed, sizeof(seed));
+        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+        SHA1Final(digest, &ctx);
+        counter++;
+
+        memcpy(p,digest,copylen);
+        len -= copylen;
+        p += copylen;
+    }
+}
 
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
  * given execution of Redis, so that if you are talking with an instance

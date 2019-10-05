@@ -162,7 +162,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
             update[i] = zsl->header;
-            update[i]->level[i].span = zsl->length;   
+            update[i]->level[i].span = zsl->length;
         }
         zsl->level = level;
     }
@@ -787,44 +787,41 @@ unsigned int zzlLength(unsigned char *zl) {
 
 /* Move to next entry based on the values in eptr and sptr. Both are set to
  * NULL when there is no next entry. */
-void zzlNext(unsigned char* zl, unsigned char** eptr, unsigned char** sptr) {
-	unsigned char* l_eptr, * l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
-		serverAssert(*eptr != NULL && *sptr != NULL);
+void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
+    unsigned char *l_eptr, *l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
+    serverAssert(*eptr != NULL && *sptr != NULL);
 
-	l_eptr = ziplistNext(zl, *sptr);
-	if (l_eptr != NULL) {
-		l_sptr = ziplistNext(zl, l_eptr);
-		serverAssert(l_sptr != NULL);
-	}
-	else {
-		/* No next entry. */
-		l_sptr = NULL;
-	}
+    l_eptr = ziplistNext(zl, *sptr);
+    if (l_eptr != NULL) {
+        l_sptr = ziplistNext(zl, l_eptr);
+        serverAssert(l_sptr != NULL);
+    } else {
+        /* No next entry. */
+        l_sptr = NULL;
+    }
 
-	*eptr = l_eptr;
-	*sptr = l_sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
  * set to NULL when there is no next entry. */
-void zzlPrev(unsigned char* zl, unsigned char** eptr, unsigned char** sptr) {
-	unsigned char* l_eptr, * l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
-		serverAssert(*eptr != NULL && *sptr != NULL);
+void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
+    unsigned char *l_eptr, *l_sptr;                                             WIN_PORT_FIX /* compiler error: _sptr -> l_sptr */
+    serverAssert(*eptr != NULL && *sptr != NULL);
 
-	l_sptr = ziplistPrev(zl, *eptr);
-	if (l_sptr != NULL) {
-		l_eptr = ziplistPrev(zl, l_sptr);
-		serverAssert(l_eptr != NULL);
-	}
-	else {
-		/* No previous entry. */
-		l_eptr = NULL;
-	}
+    l_sptr = ziplistPrev(zl, *eptr);
+    if (l_sptr != NULL) {
+        l_eptr = ziplistPrev(zl, l_sptr);
+        serverAssert(l_eptr != NULL);
+    } else {
+        /* No previous entry. */
+        l_eptr = NULL;
+    }
 
-	*eptr = l_eptr;
-	*sptr = l_sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
-
 
 /* Returns if there is a part of the zset is in range. Should only be used
  * internally by zzlFirstInRange and zzlLastInRange. */
@@ -1931,7 +1928,7 @@ void zuiClearIterator(zsetopsrc *op) {
     }
 }
 
-int zuiLength(zsetopsrc *op) {
+PORT_ULONG zuiLength(zsetopsrc *op) {
     if (op->subject == NULL)
         return 0;
 
@@ -1940,7 +1937,7 @@ int zuiLength(zsetopsrc *op) {
             return intsetLen(op->subject->ptr);
         } else if (op->encoding == OBJ_ENCODING_HT) {
             dict *ht = op->subject->ptr;
-            return (int)dictSize(ht);                                           WIN_PORT_FIX /* cast (int) */
+            return dictSize(ht);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -1949,7 +1946,7 @@ int zuiLength(zsetopsrc *op) {
             return zzlLength(op->subject->ptr);
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = op->subject->ptr;
-            return (int)zs->zsl->length;                                        WIN_PORT_FIX /* cast (int) */
+            return zs->zsl->length;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2186,7 +2183,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     zsetopsrc *src;
     zsetopval zval;
     sds tmp;
-    unsigned int maxelelen = 0;
+    size_t maxelelen = 0;
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
@@ -2310,7 +2307,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     dictAdd(dstzset->dict,tmp,&znode->score);
-                    if (sdslen(tmp) > maxelelen) maxelelen = (unsigned int)sdslen(tmp);         WIN_PORT_FIX /* cast (unsigned int) */
+                    if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                 }
             }
             zuiClearIterator(&src[0]);
@@ -2346,7 +2343,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     /* Remember the longest single element encountered,
                      * to understand if it's possible to convert to ziplist
                      * at the end. */
-                     if (sdslen(tmp) > maxelelen) maxelelen = (unsigned int)sdslen(tmp);         WIN_PORT_FIX /* cast (unsigned int) */
+                     if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Update the element with its initial score. */
                     dictSetKey(accumulator, de, tmp);
                     dictSetDoubleVal(de,score);

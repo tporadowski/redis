@@ -485,8 +485,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     int l1,l2;
     DICT_NOTUSED(privdata);
 
-    l1 = (int) sdslen((sds)key1);                                                WIN_PORT_FIX /* cast (int) */
-    l2 = (int) sdslen((sds)key2);                                                WIN_PORT_FIX /* cast (int) */
+    l1 = (int)sdslen((sds)key1);                                                WIN_PORT_FIX /* cast (int) */
+    l2 = (int)sdslen((sds)key2);                                                WIN_PORT_FIX /* cast (int) */
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
@@ -584,7 +584,7 @@ dictType objectKeyPointerValueDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -796,7 +796,7 @@ void updateDictResizePolicy(void) {
 void trackInstantaneousMetric(int metric, PORT_LONGLONG current_reading) {
     PORT_LONGLONG t = mstime() - server.inst_metric[metric].last_sample_time;
     PORT_LONGLONG ops = current_reading -
-        server.inst_metric[metric].last_sample_count;
+                    server.inst_metric[metric].last_sample_count;
     PORT_LONGLONG ops_sec;
 
     ops_sec = t > 0 ? (ops*1000/t) : 0;
@@ -1013,10 +1013,10 @@ void databasesCron(void) {
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
         if (server.masterhost == NULL) {
-        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
-        expireSlaveKeys();
-    }
+            expireSlaveKeys();
+        }
     }
 
     /* Defrag keys gradually. */
@@ -1075,16 +1075,13 @@ void updateCachedTime(void) {
      * and cache the result. However calling localtime_r in this context is safe
      * since we will never fork() while here, in the main thread. The logging
      * function will call a thread safe version of localtime that has no locks. */
-#if _WIN32
-	server.daylight_active = 0; //TODO port call to windows
-#else
-	struct tm tm;
-	localtime_r(&server.unixtime, &tm);
-	server.daylight_active = tm.tm_isdst;
+    struct tm tm;
+#ifdef _WIN32
+    localtime_s(&tm,&server.unixtime);
+ #else
+    localtime_r(&server.unixtime,&tm);
 #endif
-
-
-    
+    server.daylight_active = tm.tm_isdst;
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -1297,7 +1294,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
-         for (j = 0; j < server.saveparamslen; j++) {
+        for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
             /* Save if we reached the given amount of changes,
@@ -1317,23 +1314,23 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
                 rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
-         }
+        }
 
-         /* Trigger an AOF rewrite if needed. */
-         if (server.aof_state == AOF_ON &&
-             server.rdb_child_pid == -1 &&
-             server.aof_child_pid == -1 &&
-             server.aof_rewrite_perc &&
-             server.aof_current_size > server.aof_rewrite_min_size)
-         {
+        /* Trigger an AOF rewrite if needed. */
+        if (server.aof_state == AOF_ON &&
+            server.rdb_child_pid == -1 &&
+            server.aof_child_pid == -1 &&
+            server.aof_rewrite_perc &&
+            server.aof_current_size > server.aof_rewrite_min_size)
+        {
             PORT_LONGLONG base = server.aof_rewrite_base_size ?
-                                server.aof_rewrite_base_size : 1;
+                server.aof_rewrite_base_size : 1;
             PORT_LONGLONG growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
-         }
+        }
     }
 
 
@@ -1366,7 +1363,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
-        if (server.sentinel_mode) sentinelTimer();
+    if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
     run_with_period(1000) {
@@ -1588,7 +1585,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.hz = server.config_hz = CONFIG_DEFAULT_HZ;
-	server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
+    server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(PORT_LONG) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
@@ -1787,7 +1784,6 @@ void initServerConfig(void) {
 
 extern char **environ;
 
-
 /* Restart the server, executing the same executable that started this
  * instance, with the same arguments and configuration file.
  *
@@ -1825,7 +1821,7 @@ int restartServer(int flags, mstime_t delay) {
     }
 
     /* Perform a proper shutdown. */
-    if (flags & RESTART_SERVER_GRACEFULLY && 
+    if (flags & RESTART_SERVER_GRACEFULLY &&
         prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
     {
         serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
@@ -1837,16 +1833,19 @@ int restartServer(int flags, mstime_t delay) {
     for (j = 3; j < server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
-		if (fcntl(j, IF_WIN32(F_GETFL, 1), 0) != -1) close(j);
+#if _WIN32
+        if (fcntl(j, F_GETFL, 0) != -1) close(j);
+#else
+        if (fcntl(j,F_GETFD) != -1) close(j);
+#endif
     }
-
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
     zfree(server.exec_argv[0]);
     server.exec_argv[0] = zstrdup(server.executable);
-	execve(server.executable, server.exec_argv, environ);
-	
+    execve(server.executable,server.exec_argv,environ);
+
     /* If an error occurred here, there is nothing we can do, but exit. */
     _exit(1);
 
@@ -3131,9 +3130,9 @@ NULL
         if (!keys) {
             addReplyError(c,"Invalid arguments specified for command");
         } else {
-        addReplyMultiBulkLen(c,numkeys);
-        for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
-        getKeysFreeResult(keys);
+            addReplyMultiBulkLen(c,numkeys);
+            for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
+            getKeysFreeResult(keys);
         }
     } else {
         addReplySubcommandSyntaxError(c);
@@ -3176,7 +3175,7 @@ sds genRedisInfoString(char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    struct rusage self_ru, c_ru;    
+    struct rusage self_ru, c_ru;
     int allsections = 0, defsections = 0;
     int sections = 0;
 
@@ -3186,7 +3185,7 @@ sds genRedisInfoString(char *section) {
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
-    
+
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
         POSIX_ONLY(static int call_uname = 1;)
@@ -3227,8 +3226,8 @@ sds genRedisInfoString(char *section) {
             "uptime_in_seconds:%lld\r\n"                                        WIN_PORT_FIX /* %jd -> %lld */
             "uptime_in_days:%lld\r\n"                                           WIN_PORT_FIX /* %jd -> %lld */
             "hz:%d\r\n"
-			"configured_hz:%d\r\n"            
-			"lru_clock:%Id\r\n"                                                 WIN_PORT_FIX /* %ld -> %Id */
+            "configured_hz:%d\r\n"
+            "lru_clock:%Id\r\n"                                                 WIN_PORT_FIX /* %ld -> %Id */
             "executable:%s\r\n"
             "config_file:%s\r\n",
             REDIS_VERSION,
@@ -3291,7 +3290,7 @@ sds genRedisInfoString(char *section) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        PORT_LONGLONG memory_lua = (PORT_LONGLONG) lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
+        PORT_LONGLONG memory_lua = (PORT_LONGLONG)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
@@ -3363,7 +3362,7 @@ sds genRedisInfoString(char *section) {
             mh->startup_allocated,
             mh->dataset,
             mh->dataset_perc,
-			server.cron_malloc_stats.allocator_allocated,
+            server.cron_malloc_stats.allocator_allocated,
             server.cron_malloc_stats.allocator_active,
             server.cron_malloc_stats.allocator_resident,
             (PORT_ULONG)total_system_mem,
@@ -3582,7 +3581,7 @@ sds genRedisInfoString(char *section) {
                     "master_sync_left_bytes:%lld\r\n"
                     "master_sync_last_io_seconds_ago:%d\r\n"
                     , (PORT_LONGLONG)
-                    (server.repl_transfer_size - server.repl_transfer_read),
+                        (server.repl_transfer_size - server.repl_transfer_read),
                     (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }
@@ -3678,14 +3677,14 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# CPU\r\n"
-        "used_cpu_sys:%.2f\r\n"
-        "used_cpu_user:%.2f\r\n"
-        "used_cpu_sys_children:%.2f\r\n"
-        "used_cpu_user_children:%.2f\r\n",
-        (IF_WIN32(double,float))self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,  WIN_PORT_FIX /* warning 26451 */
-        (IF_WIN32(double,float))self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,  WIN_PORT_FIX /* warning 26451 */
-        (IF_WIN32(double,float))c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,        WIN_PORT_FIX /* warning 26451 */
-        (IF_WIN32(double,float))c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);       WIN_PORT_FIX /* warning 26451 */
+        "used_cpu_sys:%ld.%06ld\r\n"
+        "used_cpu_user:%ld.%06ld\r\n"
+        "used_cpu_sys_children:%ld.%06ld\r\n"
+        "used_cpu_user_children:%ld.%06ld\r\n",
+        (PORT_LONG)self_ru.ru_stime.tv_sec, (PORT_LONG)self_ru.ru_stime.tv_usec,
+        (PORT_LONG)self_ru.ru_utime.tv_sec, (PORT_LONG)self_ru.ru_utime.tv_usec,
+        (PORT_LONG)c_ru.ru_stime.tv_sec, (PORT_LONG)c_ru.ru_stime.tv_usec,
+        (PORT_LONG)c_ru.ru_utime.tv_sec, (PORT_LONG)c_ru.ru_utime.tv_usec);
     }
 
     /* Command statistics */
@@ -4157,8 +4156,9 @@ int main(int argc, char **argv) {
     pthread_mutex_init(&moduleGIL, NULL);
 #endif
 
-	srand((unsigned int)time(NULL)^getpid());  WIN_PORT_FIX /* cast (unsigned int) */
+    srand((unsigned int)time(NULL)^getpid());  WIN_PORT_FIX /* cast (unsigned int) */
     gettimeofday(&tv,NULL);
+
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
@@ -4169,7 +4169,7 @@ int main(int argc, char **argv) {
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
-    server.exec_argv = zmalloc(sizeof(char*)*((size_t)argc+1)); 
+    server.exec_argv = zmalloc(sizeof(char*)*((size_t)argc+1));
     server.exec_argv[argc] = NULL;
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 

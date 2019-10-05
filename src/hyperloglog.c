@@ -404,11 +404,11 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
         uint64_t k;
 
 #if (BYTE_ORDER == LITTLE_ENDIAN)
-	#ifdef USE_ALIGNED_ACCESS
-	memcpy(&k,data,sizeof(uint64_t));
-	#else
+    #ifdef USE_ALIGNED_ACCESS
+        memcpy(&k,data,sizeof(uint64_t));
+    #else
         k = *((uint64_t*)data);
-	#endif
+    #endif
 #else
         k = (uint64_t) data[0];
         k |= (uint64_t) data[1] << 8;
@@ -565,7 +565,7 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
             r += 12;
         }
     } else {
-        for (j = 0; j < HLL_REGISTERS; j++) {
+        for(j = 0; j < HLL_REGISTERS; j++) {
             PORT_ULONG reg;
             HLL_DENSE_GET_REGISTER(reg,registers,j);
             reghisto[reg]++;

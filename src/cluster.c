@@ -2197,7 +2197,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         serverLog(LL_DEBUG,"I/O error writing to node link: %s",
-            strerror(errno));
+            (nwritten == -1) ? strerror(errno) : "short write");
         handleLinkIOError(link);
         return;
     }
@@ -3645,7 +3645,7 @@ void clusterCron(void) {
     if (nodeIsSlave(myself)) {
         clusterHandleManualFailover();
         if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
-        clusterHandleSlaveFailover();
+            clusterHandleSlaveFailover();
         /* If there are orphaned slaves, and we are a slave among the masters
          * with the max number of non-failing slaves, consider migrating to
          * the orphaned masters. Note that it does not make sense to try
@@ -4572,7 +4572,7 @@ NULL
 
         /* Produce the reply protocol. */
         addReplySds(c,sdscatprintf(sdsempty(),"$%Iu\r\n", WIN_PORT_FIX /* %lu -> %Iu */
-        (PORT_ULONG)sdslen(info)));
+            (PORT_ULONG)sdslen(info)));
         addReplySds(c,info);
         addReply(c,shared.crlf);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {

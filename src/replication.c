@@ -1355,8 +1355,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     server.repl_transfer_lastio = server.unixtime;
     if ((nwritten = write(server.repl_transfer_fd,buf,nread)) != nread) {
-		serverLog(LL_WARNING, "Write error or short write writing to the DB dump file needed for MASTER <-> REPLICA synchronization: %s",
-			(nwritten == -1) ? IF_WIN32(wsa_strerror(errno), strerror(errno)) : "short write");
+        serverLog(LL_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> REPLICA synchronization: %s",
+            (nwritten == -1) ? IF_WIN32(wsa_strerror(errno), strerror(errno)) : "short write");
         goto error;
     }
     server.repl_transfer_read += nread;
@@ -1399,7 +1399,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.repl_transfer_fd = -1;
 #endif
 
-		/* Ensure background save doesn't overwrite synced data */
+        /* Ensure background save doesn't overwrite synced data */
         if (server.rdb_child_pid != -1) {
             serverLog(LL_NOTICE,
                 "Replica is about to load the RDB file received from the "
@@ -1411,8 +1411,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid,SIGUSR1));
             rdbRemoveTempFile(server.rdb_child_pid);
         }
+
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
-            serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
+            serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> REPLICA synchronization: %s", IF_WIN32(wsa_strerror(errno),strerror(errno)));
             cancelReplicationHandshake();
             return;
         }
@@ -1507,7 +1508,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         }
 
         va_end(ap);
-        
+
         cmd = sdscatprintf(cmd,"*%Iu\r\n",argslen); WIN_PORT_FIX /* zu->Iu */
         cmd = sdscatsds(cmd,cmdargs);
         sdsfree(cmdargs);
@@ -1527,7 +1528,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
     if (flags & SYNC_CMD_READ) {
         char buf[256];
 
-        if (syncReadLine(fd,buf,sizeof(buf), (PORT_LONGLONG)server.repl_syncio_timeout*1000)  WIN_PORT_FIX /* cast (PORT_LONGLONG) */
+        if (syncReadLine(fd,buf,sizeof(buf),(PORT_LONGLONG)server.repl_syncio_timeout*1000)  WIN_PORT_FIX /* cast (PORT_LONGLONG) */
             == -1)
         {
             return sdscatprintf(sdsempty(),"-Reading from master: %s",
@@ -2763,11 +2764,11 @@ void replicationCron(void) {
             clientsArePaused();
 
         if (!manual_failover_in_progress) {
-        ping_argv[0] = createStringObject("PING",4);
-        replicationFeedSlaves(server.slaves, server.slaveseldb,
-            ping_argv, 1);
-        decrRefCount(ping_argv[0]);
-    }
+            ping_argv[0] = createStringObject("PING",4);
+            replicationFeedSlaves(server.slaves, server.slaveseldb,
+                ping_argv, 1);
+            decrRefCount(ping_argv[0]);
+        }
     }
 
     /* Second, send a newline to all the slaves in pre-synchronization

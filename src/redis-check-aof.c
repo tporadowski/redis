@@ -49,7 +49,7 @@
     snprintf(error, sizeof(error), "0x%16llx: %s", (PORT_LONGLONG)epos, __buf); \
 }
 
-static char error[1024];
+static char error[1044];
 static off_t epos;
 
 int consumeNewline(char *buf) {

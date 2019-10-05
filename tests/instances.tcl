@@ -334,7 +334,7 @@ proc end_tests {} {
         puts "GOOD! No errors."
         exit 0
     } else {
-        puts "WARNING $::failed tests faield."
+        puts "WARNING $::failed test(s) failed."
         exit 1
     }
 }

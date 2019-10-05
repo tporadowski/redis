@@ -838,7 +838,7 @@ PORT_LONG defragKey(redisDb *db, dictEntry *de) {
 
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
-    int defragged = defragKey((redisDb*)privdata, (dictEntry*)de);
+    PORT_LONG defragged = defragKey((redisDb*)privdata, (dictEntry*)de);
     server.stat_active_defrag_hits += defragged;
     if(defragged)
         server.stat_active_defrag_key_hits++;
@@ -876,7 +876,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     if(out_frag_bytes)
         *out_frag_bytes = frag_bytes;
     serverLog(LL_DEBUG,
-        "allocated=%zu, active=%zu, resident=%zu, frag=%.0f%% (%.0f%% rss), frag_bytes=%zu (%zu%% rss)",
+        "allocated=%zu, active=%zu, resident=%zu, frag=%.0f%% (%.0f%% rss), frag_bytes=%zu (%zu rss)",
         allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
     return frag_pct;
 }
@@ -995,34 +995,34 @@ int defragLaterStep(redisDb *db, PORT_LONGLONG endtime) {
 
 /* decide if defrag is needed, and at what CPU effort to invest in it */
 void computeDefragCycles() {
-        size_t frag_bytes;
-        float frag_pct = getAllocatorFragmentation(&frag_bytes);
-        /* If we're not already running, and below the threshold, exit. */
-        if (!server.active_defrag_running) {
-            if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
-                return;
-        }
-
-        /* Calculate the adaptive aggressiveness of the defrag */
-        int cpu_pct = INTERPOLATE(frag_pct,
-                server.active_defrag_threshold_lower,
-                server.active_defrag_threshold_upper,
-                server.active_defrag_cycle_min,
-                server.active_defrag_cycle_max);
-        cpu_pct = LIMIT(cpu_pct,
-                server.active_defrag_cycle_min,
-                server.active_defrag_cycle_max);
-         /* We allow increasing the aggressiveness during a scan, but don't
-          * reduce it. */
-        if (!server.active_defrag_running ||
-            cpu_pct > server.active_defrag_running)
-        {
-            server.active_defrag_running = cpu_pct;
-            serverLog(LL_VERBOSE,
-                "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
-                frag_pct, frag_bytes, cpu_pct);
-        }
+    size_t frag_bytes;
+    float frag_pct = getAllocatorFragmentation(&frag_bytes);
+    /* If we're not already running, and below the threshold, exit. */
+    if (!server.active_defrag_running) {
+        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
+            return;
     }
+
+    /* Calculate the adaptive aggressiveness of the defrag */
+    int cpu_pct = INTERPOLATE(frag_pct,
+            server.active_defrag_threshold_lower,
+            server.active_defrag_threshold_upper,
+            server.active_defrag_cycle_min,
+            server.active_defrag_cycle_max);
+    cpu_pct = LIMIT(cpu_pct,
+            server.active_defrag_cycle_min,
+            server.active_defrag_cycle_max);
+     /* We allow increasing the aggressiveness during a scan, but don't
+      * reduce it. */
+    if (!server.active_defrag_running ||
+        cpu_pct > server.active_defrag_running)
+    {
+        server.active_defrag_running = cpu_pct;
+        serverLog(LL_VERBOSE,
+            "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
+            frag_pct, frag_bytes, cpu_pct);
+    }
+}
 
 /* Perform incremental defragmentation work from the serverCron.
  * This works in a similar way to activeExpireCycle, in the sense that
@@ -1058,6 +1058,7 @@ void activeDefragCycle(void) {
     latencyStartMonitor(latency);
 
     do {
+        /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor) {
             /* finish any leftovers from previous db before moving to the next one */
             if (db && defragLaterStep(db, endtime)) {

@@ -112,10 +112,10 @@ PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
      * blocks of 1 or 0 bits compared to the vanilla bit per bit processing.
      *
      * Note that if we start from an address that is not aligned
-     * to sizeof(PORT_ULONG) we consume it byte by byte until it is
+     * to sizeof(unsigned long) we consume it byte by byte until it is
      * aligned. */
 
-    /* Skip initial bits not aligned to sizeof(PORT_ULONG) byte by byte. */
+    /* Skip initial bits not aligned to sizeof(unsigned long) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
     found = 0;

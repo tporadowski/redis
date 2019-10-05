@@ -124,10 +124,10 @@ static PORT_LONGLONG ustime(void) {
     return GetHighResRelativeTime(1000000);
 #else
     struct timeval tv;
-    PORT_LONGLONG ust;
+    long long ust;
 
     gettimeofday(&tv, NULL);
-    ust = ((PORT_LONG)tv.tv_sec)*1000000;
+    ust = ((long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
 #endif
@@ -138,10 +138,10 @@ static PORT_LONGLONG mstime(void) {
     return GetHighResRelativeTime(1000);
 #else
     struct timeval tv;
-    PORT_LONGLONG mst;
+    long long mst;
 
     gettimeofday(&tv, NULL);
-    mst = ((PORT_LONGLONG)tv.tv_sec)*1000;
+    mst = ((long long)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
 #endif

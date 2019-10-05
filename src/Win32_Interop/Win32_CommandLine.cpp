@@ -76,7 +76,7 @@ public:
     virtual vector<string> Extract(vector<string> tokens, int StartIndex = 0) = 0;
 } ParamExtractor;
 
-typedef map<string, ParamExtractor*> RedisParamterMapper;
+typedef map<string, ParamExtractor*> RedisParameterMapper;
 
 typedef class FixedParam : public ParamExtractor {
 private:
@@ -282,11 +282,11 @@ static BindParams bp = BindParams();
 
 typedef class SentinelParams : public  ParamExtractor {
 private:
-    RedisParamterMapper subCommands;
+    RedisParameterMapper subCommands;
 
 public:
     SentinelParams() {
-        subCommands = RedisParamterMapper
+        subCommands = RedisParameterMapper
         {
             { "monitor",                    &fp4 },    // sentinel monitor [master name] [ip] [port] [quorum]
             { "auth-pass",                  &fp2 },    // sentinel auth-pass [master name] [password]
@@ -357,7 +357,7 @@ public:
 static SentinelParams sp = SentinelParams();
 
 // Map of argument name to argument processing engine.
-static RedisParamterMapper g_redisArgMap =
+static RedisParameterMapper g_redisArgMap =
 {
     // QFork flags
     { cQFork,                           &fp2 },    // qfork [QForkControlMemoryMap handle] [parent process id]
@@ -371,69 +371,85 @@ static RedisParamterMapper g_redisArgMap =
     { cServiceStart,                    &fp0 },    // service-start
     { cServiceStop,                     &fp0 },    // service-stop
 
-    // redis commands
-    { "daemonize",                      &fp1 },    // daemonize [yes/no]
-    { "pidfile",                        &fp1 },    // pidfile [file]
+    // redis commands (ordered as they appear in config.c/loadServerConfigFromString())
+    { "timeout",                        &fp1 },    // timeout [value]
+    { "tcp-keepalive",                  &fp1 },    // tcp-keepalive [value]
+    { "protected-mode",                 &fp1 },    // protected-mode [yes/no]
     { "port",                           &fp1 },    // port [port number]
     { "tcp-backlog",                    &fp1 },    // tcp-backlog [number]
     { "bind",                           &bp },     // bind [address] [address] ...
     { "unixsocket",                     &fp1 },    // unixsocket [path]
-    { "timeout",                        &fp1 },    // timeout [value]
-    { "tcp-keepalive",                  &fp1 },    // tcp-keepalive [value]
+    { "unixsocketperm",                 &fp1 },    // unixsocketperm [perm]
+    { "save",                           &savep },  // save [seconds] [changes] or save ""
+    { cDir,                             &fp1 },    // dir [path]
     { "loglevel",                       &fp1 },    // lovlevel [value]
     { "logfile",                        &fp1 },    // logfile [file]
+    { "always-show-logo",               &fp1 },    // always-show-logo [yes/no]
     { "syslog-enabled",                 &fp1 },    // syslog-enabled [yes/no]
     { "syslog-ident",                   &fp1 },    // syslog-ident [string]
     { "syslog-facility",                &fp1 },    // syslog-facility [string]
     { "databases",                      &fp1 },    // databases [number]
-    { "save",                           &savep },  // save [seconds] [changes] or save ""
-    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no]
-    { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
-    { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
-    { "dbfilename",                     &fp1 },    // dbfilename [filename]
-    { cDir,                             &fp1 },    // dir [path]
+    //"include" is handled in ParseConfFile()
+    { "maxclients",                     &fp1 },    // maxclients [number]
+    { "maxmemory",                      &fp1 },    // maxmemory [bytes]
+    { "maxmemory-policy",               &fp1 },    // maxmemory-policy [policy]
+    { "maxmemory-samples",              &fp1 },    // maxmemory-samples [number]
+    { "proto-max-bulk-len",             &fp1 },    // proto-max-bulk-len [number]
+    { "client-query-buffer-limit",      &fp1 },    // client-query-buffer-limit [number]
+    { "lfu-log-factor",                 &fp1 },    // lfu-log-factor [number]
+    { "lfu-decay-time",                 &fp1 },    // lfu-decay-time [number]
     { "slaveof",                        &fp2 },    // slaveof [masterip] [master port]
-	{ "replicaof",                      &fp2 },    // replicaof [masterip] [master port]
-    { "masterauth",                     &fp1 },    // masterauth [master-password]
-    { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
-    { "replica-serve-stale-data",       &fp1 },    // replica-serve-stale-data [yes/no]
-	{ "replica-lazy-flush",				&fp1},
-	{ "lazyfree-lazy-server-del",		&fp1},
-	{ "lazyfree-lazy-expire",			&fp1},
-	{ "lazyfree-lazy-eviction",			&fp1},
-	{ "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
+    { "replicaof",                      &fp2 },    // replicaof [masterip] [master port]
     { "repl-ping-slave-period",         &fp1 },    // repl-ping-slave-period [number]
+    { "repl-ping-replica-period",       &fp1 },    // repl-ping-replica-period [number]
     { "repl-timeout",                   &fp1 },    // repl-timeout [number]
     { "repl-disable-tcp-nodelay",       &fp1 },    // repl-disable-tcp-nodelay [yes/no]
     { "repl-diskless-sync",             &fp1 },    // repl-diskless-sync [yes/no]
     { "repl-diskless-sync-delay",       &fp1 },    // repl-diskless-sync-delay [number]
     { "repl-backlog-size",              &fp1 },    // repl-backlog-size [number]
     { "repl-backlog-ttl",               &fp1 },    // repl-backlog-ttl [number]
-    { "slave-priority",                 &fp1 },    // slave-priority [number]
-    { "min-slaves-to-write",            &fp1 },    // min-slaves-to-write [number]
-    { "min-slaves-max-lag",             &fp1 },    // min-slaves-max-lag [number]
-    { "requirepass",                    &fp1 },    // requirepass [string]
-    { "rename-command",                 &fp2 },    // rename-command [command] [string]
-    { "maxclients",                     &fp1 },    // maxclients [number]
-    { "maxmemory",                      &fp1 },    // maxmemory [bytes]
-    { "maxmemory-policy",               &fp1 },    // maxmemory-policy [policy]
-    { "maxmemory-samples",              &fp1 },    // maxmemory-samples [number]
-	{ "rdb-save-incremental-fsync",		&fp1 },
-	{ "appendonly",                     &fp1 },    // appendonly [yes/no]
+    { "masterauth",                     &fp1 },    // masterauth [master-password]
+    { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
+    { "replica-serve-stale-data",       &fp1 },    // replica-serve-stale-data [yes/no]
+    { "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
+    { "replica-read-only",              &fp1 },    // replica-read-only [yes/no]
+    { "slave-ignore-maxmemory",         &fp1 },    // slave-ignore-maxmemory [yes/no]
+    { "replica-ignore-maxmemory",       &fp1 },    // replica-ignore-maxmemory [yes/no]
+    { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
+    { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
+    { "activerehashing",                &fp1 },    // activerehashing [yes/no]
+    { "lazyfree-lazy-eviction",         &fp1 },    // lazyfree-lazy-eviction [yes/no]
+    { "lazyfree-lazy-expire",           &fp1 },    // lazyfree-lazy-expire [yes/no]
+    { "lazyfree-lazy-server-del",       &fp1 },    // lazyfree-lazy-server-del [yes/no]
+    { "slave-lazy-flush",               &fp1 },    // slave-lazy-flush [yes/no]
+    { "replica-lazy-flush",             &fp1 },    // replica-lazy-flush [yes/no]
+    { "activedefrag",                   &fp1 },    // activedefrag [yes/no]
+    { "daemonize",                      &fp1 },    // daemonize [yes/no]
+    { "dynamic-hz",                     &fp1 },    // dynamic-hz [yes/no]
+    { "hz",                             &fp1 },    // hz [number]
+    { "appendonly",                     &fp1 },    // appendonly [yes/no]
     { "appendfilename",                 &fp1 },    // appendfilename [filename]
+    { "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
     { "appendfsync",                    &fp1 },    // appendfsync [value]
-	{ "aof-load-truncated",				&fp1 },
-	{ "aof-use-rdb-preamble",			&fp1 },
-	{ "rdb-save-incremental-fsync",		&fp1 },
-	{ "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
     { "auto-aof-rewrite-percentage",    &fp1 },    // auto-aof-rewrite-percentage [number]
     { "auto-aof-rewrite-min-size",      &fp1 },    // auto-aof-rewrite-min-size [number]
-    { "lua-time-limit",                 &fp1 },    // lua-time-limit [number]
-    { "slowlog-log-slower-than",        &fp1 },    // slowlog-log-slower-than [number]
-    { "slowlog-max-len",                &fp1 },    // slowlog-max-len [number]
-    { "notify-keyspace-events",         &fp1 },    // notify-keyspace-events [string]
+    { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
+    { "rdb-save-incremental-fsync",     &fp1 },    // rdb-save-incremental-fsync [yes/no]
+    { "aof-load-truncated",             &fp1 },    // aof-load-truncated [yes/no]
+    { "aof-use-rdb-preamble",           &fp1 },    // aof-use-rdb-preamble [yes/no]
+    { "requirepass",                    &fp1 },    // requirepass [string]
+    { "pidfile",                        &fp1 },    // pidfile [file]
+    { "dbfilename",                     &fp1 },    // dbfilename [filename]
+    { "active-defrag-threshold-lower",  &fp1 },    // active-defrag-threshold-lower [number]
+    { "active-defrag-threshold-upper",  &fp1 },    // active-defrag-threshold-upper [number]
+    { "active-defrag-ignore-bytes",     &fp1 },    // active-defrag-ignore-bytes [number]
+    { "active-defrag-cycle-min",        &fp1 },    // active-defrag-cycle-min [number]
+    { "active-defrag-cycle-max",        &fp1 },    // active-defrag-cycle-max [number]
+    { "active-defrag-max-scan-fields",  &fp1 },    // active-defrag-max-scan-fields [number]
     { "hash-max-ziplist-entries",       &fp1 },    // hash-max-ziplist-entries [number]
     { "hash-max-ziplist-value",         &fp1 },    // hash-max-ziplist-value [number]
+    { "stream-node-max-bytes",          &fp1 },    // stream-node-max-bytes [number]
+    { "stream-node-max-entries",        &fp1 },    // stream-node-max-entries [number]
     { "list-max-ziplist-entries",       &fp1 },    // list-max-ziplist-entries [number]     DEAD OPTION
     { "list-max-ziplist-value",         &fp1 },    // list-max-ziplist-value [number]       DEAD OPTION
     { "list-max-ziplist-size",          &fp1 },    // list-max-ziplist-size [number]
@@ -442,36 +458,42 @@ static RedisParamterMapper g_redisArgMap =
     { "zset-max-ziplist-entries",       &fp1 },    // zset-max-ziplist-entries [number]
     { "zset-max-ziplist-value",         &fp1 },    // zset-max-ziplist-value [number]
     { "hll-sparse-max-bytes",           &fp1 },    // hll-sparse-max-bytes [number]
-    { "activerehashing",                &fp1 },    // activerehashing [yes/no]
-    { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
-    { "hz",                             &fp1 },    // hz [number]
-    { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
-    { "aof-load-truncated",             &fp1 },    // aof-load-truncated [yes/no]
+    { "rename-command",                 &fp2 },    // rename-command [command] [string]
+    { "cluster-enabled",                &fp1 },    // cluster-enabled [yes/no]
+    { "cluster-config-file",            &fp1 },    // cluster-config-file [filename]
+    { "cluster-announce-ip",            &fp1 },    // cluster-announce-ip [string]
+    { "cluster-announce-port",          &fp1 },    // cluster-announce-port [number]
+    { "cluster-announce-bus-port",      &fp1 },    // cluster-announce-bus-port [number]
+    { "cluster-require-full-coverage",  &fp1 },    // cluster-require-full-coverage [yes/no]
+    { "cluster-node-timeout",           &fp1 },    // cluster-node-timeout [number]
+    { "cluster-migration-barrier",      &fp1 },    // cluster-migration-barrier [number]
+    { "cluster-slave-validity-factor",  &fp1 },    // cluster-slave-validity-factor [number]
+    { "cluster-replica-validity-factor",&fp1 },    // cluster-replica-validity-factor [number]
+    { "cluster-slave-no-failover",      &fp1 },    // cluster-slave-no-failover [yes/no]
+    { "cluster-replica-no-failover",    &fp1 },    // cluster-replica-no-failover [yes/no]
+    { "lua-time-limit",                 &fp1 },    // lua-time-limit [number]
+    { "lua-replicate-commands",         &fp1 },    // lua-replicate-commands [yes/no]
+    { "slowlog-log-slower-than",        &fp1 },    // slowlog-log-slower-than [number]
     { "latency-monitor-threshold",      &fp1 },    // latency-monitor-threshold [number]
-    { "protected-mode",                 &fp1 },    // protected-mode [yes/no]
+    { "slowlog-max-len",                &fp1 },    // slowlog-max-len [number]
+    { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
+    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no]
+    { "slave-priority",                 &fp1 },    // slave-priority [number]
+    { "replica-priority",               &fp1 },    // replica-priority [number]
+    { "slave-announce-ip",              &fp1 },    // slave-announce-ip [string]
+    { "replica-announce-ip",            &fp1 },    // replica-announce-ip [string]
+    { "slave-announce-port",            &fp1 },    // slave-announce-port [number]
+    { "replica-announce-port",          &fp1 },    // replica-announce-port [number]
+    { "min-slaves-to-write",            &fp1 },    // min-slaves-to-write [number]
+    { "min-replicas-to-write",          &fp1 },    // min-replicas-to-write [number]
+    { "min-slaves-max-lag",             &fp1 },    // min-slaves-max-lag [number]
+    { "min-replicas-max-lag",           &fp1 },    // min-replicas-max-lag [number]
+    { "notify-keyspace-events",         &fp1 },    // notify-keyspace-events [string]
+    { "supervised",                     &fp1 },    // supervised [upstart|systemd|auto|no]
+    { "loadmodule",                     &fp1 },    // loadmodule [filename]
+    { "sentinel",                       &sp  },    // sentinel commands
     { "watchdog-period",                &fp1 },    // watchdog-period [number]
-    { "supervised",                     &fp1},     // supervised [upstart|systemd|auto|no]
-    { cInclude,                         &fp1 },    // include [path]
-	{"dynamic-hz",						&fp1},
-
-    // sentinel commands
-    { "sentinel",                       &sp },
-
-    // cluster commands
-    {"cluster-enabled",                 &fp1},     // [yes/no]
-    {"cluster-config-file",             &fp1},     // [filename]
-    {"cluster-node-timeout",            &fp1},     // [number]
-    {"cluster-slave-validity-factor",   &fp1},     // [number]
-    {"cluster-migration-barrier",       &fp1},     // [1/0]
-    {"cluster-require-full-coverage",   &fp1},     // [yes/no]
-
-	//streams commands
-	{"stream-node-max-bytes",			&fp1},
-	{"stream-node-max-entries",			&fp1},
-	{"stream-node-max-entries",			&fp1},
-
-    //modules
-    {"loadmodule",                      &fp1}      // [filename]
+    { cInclude,                         &fp1 }     // include [path]
 };
 
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {

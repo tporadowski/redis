@@ -36,18 +36,18 @@ start_server {tags {"memefficiency"}} {
     }
 }
 
-    start_server {tags {"defrag"}} {
-        if {[string match {*jemalloc*} [s mem_allocator]]} {
-            test "Active defrag" {
-                r config set activedefrag no
-                r config set active-defrag-threshold-lower 5
+start_server {tags {"defrag"}} {
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        test "Active defrag" {
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-                r config set active-defrag-ignore-bytes 2mb
-                r config set maxmemory 100mb
-                r config set maxmemory-policy allkeys-lru
-                r debug populate 700000 asdf 150
-                r debug populate 170000 asdf 300
+            r config set active-defrag-ignore-bytes 2mb
+            r config set maxmemory 100mb
+            r config set maxmemory-policy allkeys-lru
+            r debug populate 700000 asdf 150
+            r debug populate 170000 asdf 300
             r ping ;# trigger eviction following the previous population
             after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
@@ -191,8 +191,8 @@ start_server {tags {"memefficiency"}} {
                     lassign $event eventname time latency max
                     if {$eventname == "active-defrag-cycle"} {
                         set max_latency $max
-            }
-        }
+                    }
+                }
                 if {$::verbose} {
                     puts "frag $frag"
                     puts "max latency $max_latency"

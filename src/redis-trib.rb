@@ -16,7 +16,7 @@ def colorized(str, color)
     }[color]
     return str if !color_code
     "\033[#{color_code}m#{str}\033[0m"
-    end
+end
 
 class String
 
@@ -24,10 +24,10 @@ class String
         color = :"#{color}"
         define_method(color){
             colorized(self, color)
-            }
         }
+    }
 
-    end
+end
 
 COMMANDS = %w(create check info fix reshard rebalance add-node 
               del-node set-timeout call import help)
@@ -39,49 +39,49 @@ ALLOWED_OPTIONS={
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
     "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
     "fix" => {"timeout" => 0},
-            }
+}
 
-    def parse_options(cmd)
+def parse_options(cmd)
     cmd = cmd.downcase
     idx = 0
-        options={}
+    options = {}
     args = []
     while (arg = ARGV.shift)
         if arg[0..1] == "--"
             option = arg[2..-1]
 
-                # --verbose is a global option
+            # --verbose is a global option
             if option == "--verbose"
                 options['verbose'] = true
-                    next
-                end
+                next
+            end
             if ALLOWED_OPTIONS[cmd] == nil || 
                ALLOWED_OPTIONS[cmd][option] == nil
                 next
-                end
-                if ALLOWED_OPTIONS[cmd][option] != false
+            end
+            if ALLOWED_OPTIONS[cmd][option] != false
                 value = ARGV.shift
                 next if !value
-                else
-                    value = true
-                end
-
-                # If the option is set to [], it's a multiple arguments
-                # option. We just queue every new value into an array.
-                if ALLOWED_OPTIONS[cmd][option] == []
-                    options[option] = [] if !options[option]
-                    options[option] << value
-                else
-                    options[option] = value
-                end
             else
+                value = true
+            end
+
+            # If the option is set to [], it's a multiple arguments
+            # option. We just queue every new value into an array.
+            if ALLOWED_OPTIONS[cmd][option] == []
+                options[option] = [] if !options[option]
+                options[option] << value
+            else
+                options[option] = value
+            end
+        else
             next if arg[0,1] == '-'
             args << arg
-            end
         end
+    end
 
     return options,args
-    end
+end
 
 def command_example(cmd, args, opts)
     cmd = "redis-cli --cluster #{cmd}"
@@ -126,4 +126,4 @@ puts ''
 puts "To get help about all subcommands, type:"
 puts "redis-cli --cluster help".bold
 puts ''
-    exit 1
+exit 1

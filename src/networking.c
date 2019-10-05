@@ -261,14 +261,14 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     if (len > available) return C_ERR;
 
     memcpy(c->buf+c->bufpos,s,len);
-    c->bufpos+= (int)len;                                                        WIN_PORT_FIX /* cast (int) */
+    c->bufpos+=(int)len;                                                        WIN_PORT_FIX /* cast (int) */
     return C_OK;
 }
 
 void _addReplyStringToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-        listNode *ln = listLast(c->reply);
+    listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, becuase when
@@ -317,7 +317,7 @@ void addReply(client *c, robj *obj) {
         /* For integer encoded strings we just convert it into a string
          * using our optimized function, and attach the resulting string
          * to the output buffer. */
-            char buf[32];
+        char buf[32];
         size_t len = ll2string(buf,sizeof(buf),(PORT_LONG)obj->ptr);
         if (_addReplyToBuffer(c,buf,len) != C_OK)
             _addReplyStringToList(c,buf,len);
@@ -336,7 +336,7 @@ void addReplySds(client *c, sds s) {
     }
     if (_addReplyToBuffer(c,s,sdslen(s)) != C_OK)
         _addReplyStringToList(c,s,sdslen(s));
-        sdsfree(s);
+    sdsfree(s);
 }
 
 /* This low level function just adds whatever protocol you send it to the
@@ -902,7 +902,7 @@ void freeClient(client *c) {
 
     /* Log link disconnection with slave */
     if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
-        serverLog(LL_WARNING,"Connection with slave %s lost.",
+        serverLog(LL_WARNING,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
 
@@ -1088,10 +1088,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
             /* If we fully sent the object on head go to the next one */
             if (c->sentlen == objlen) {
-				c->reply_bytes -= (PORT_ULONG)o->size;
+                c->reply_bytes -= (PORT_ULONG)o->size;
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
-
                 /* If there are no longer objects in the list, we expect
                  * the count of reply bytes to be exactly zero. */
                 if (listLength(c->reply) == 0)
@@ -1120,13 +1119,8 @@ int writeToClient(int fd, client *c, int handler_installed) {
         if (errno == EAGAIN) {
             nwritten = 0;
         } else {
-#ifdef _WIN32
             serverLog(LL_VERBOSE,
-                "Error writing to client: %s", wsa_strerror(errno));
-#else
-            serverLog(LL_VERBOSE,
-                "Error writing to client: %s", strerror(errno));
-#endif
+                "Error writing to client: %s", IF_WIN32(wsa_strerror,strerror)(errno));
             freeClient(c);
             return C_ERR;
         }
@@ -1392,7 +1386,7 @@ static void setProtocolError(const char *errstr, client *c) {
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
-	int ok;
+    int ok;
     PORT_LONGLONG ll;
 
     if (c->multibulklen == 0) {
@@ -1482,11 +1476,11 @@ int processMultibulkBuffer(client *c) {
                 if (sdslen(c->querybuf)-c->qb_pos <= (size_t)ll+2) {
                     sdsrange(c->querybuf,c->qb_pos,-1);
                     c->qb_pos = 0;
-                /* Hint the sds library about the amount of bytes this string is
-                 * going to contain. */
+                    /* Hint the sds library about the amount of bytes this string is
+                     * going to contain. */
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
-           		}
-			}
+                }
+            }
             c->bulklen = (PORT_LONG)ll;                                        WIN_PORT_FIX /* cast (PORT_LONG) */
         }
 
@@ -1531,6 +1525,7 @@ int processMultibulkBuffer(client *c) {
  * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     server.current_client = c;
+
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
@@ -1992,7 +1987,7 @@ NULL
         } else {
             addReply(c,shared.czero);
         }
-    }else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = (int)sdslen(c->argv[2]->ptr);                              WIN_PORT_FIX /* cast (int) */
         char *p = c->argv[2]->ptr;
 

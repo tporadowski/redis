@@ -473,9 +473,9 @@ robj *tryObjectEncoding(robj *o) {
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) {
                 sdsfree(o->ptr);
-            o->encoding = OBJ_ENCODING_INT;
-            o->ptr = (void*) value;
-            return o;
+                o->encoding = OBJ_ENCODING_INT;
+                o->ptr = (void*) value;
+                return o;
             } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
                 decrRefCount(o);
                 return createStringObjectFromLongLongForValue(value);

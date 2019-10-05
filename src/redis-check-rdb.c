@@ -46,7 +46,6 @@
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
-PORT_LONGLONG rdbLoadMillisecondTime(rio *rdb);
 int rdbCheckMode = 0;
 
 struct {

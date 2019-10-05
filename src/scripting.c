@@ -504,7 +504,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             goto cleanup;
         } else if (deny_write_type != DISK_ERROR_TYPE_NONE) {
             if (deny_write_type == DISK_ERROR_TYPE_RDB) {
-            luaPushError(lua, shared.bgsaveerr->ptr);
+                luaPushError(lua, shared.bgsaveerr->ptr);
             } else {
                 sds aof_write_err = sdscatfmt(sdsempty(),
                     "-MISCONF Errors writing to the AOF file: %s\r\n",
@@ -1457,9 +1457,9 @@ void evalGenericCommand(client *c, int evalsha) {
                     resetRefCount(createStringObject("LOAD",4)),
                     script);
             } else {
-            rewriteClientCommandArgument(c,0,
-                resetRefCount(createStringObject("EVAL",4)));
-            rewriteClientCommandArgument(c,1,script);
+                rewriteClientCommandArgument(c,0,
+                    resetRefCount(createStringObject("EVAL",4)));
+                rewriteClientCommandArgument(c,1,script);
             }
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }

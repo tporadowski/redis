@@ -1123,7 +1123,7 @@ int streamGenericParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missi
     /* Parse <ms>-<seq> form. */
     char *dot = strchr(buf,'-');
     if (dot) *dot = '\0';
-    PORT_LONGLONG ms, seq;
+    PORT_ULONGLONG ms, seq;
     if (string2ull(buf,&ms) == 0) goto invalid;
     if (dot && string2ull(dot+1,&seq) == 0) goto invalid;
     if (!dot) seq = missing_seq;

@@ -1674,8 +1674,8 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  *
                  * So in that case, we don't seek backward. */
             } else {
-            if (gt && !raxIteratorNextStep(it,0)) return 0;
-            if (lt && !raxIteratorPrevStep(it,0)) return 0;
+                if (gt && !raxIteratorNextStep(it,0)) return 0;
+                if (lt && !raxIteratorPrevStep(it,0)) return 0;
             }
             it->flags |= RAX_ITER_JUST_SEEKED; /* Ignore next call. */
         }

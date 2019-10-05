@@ -72,14 +72,13 @@ test "Cluster consistency during live resharding" {
             puts -nonewline "...Starting resharding..."
             flush stdout
             set target [dict get [get_myself [randomInt 5]] id]
-            # WIN_PORT_FIX: 'exec' -> 'exec ruby'
-            set tribpid [lindex [exec ruby \
-                ../../../src/redis-trib.rb reshard \
-                --from all \
-                --to $target \
-                --slots 100 \
-                --yes \
+            set tribpid [lindex [exec \
+                ../../../src/redis-cli --cluster reshard \
                 127.0.0.1:[get_instance_attrib redis 0 port] \
+                --cluster-from all \
+                --cluster-to $target \
+                --cluster-slots 100 \
+                --cluster-yes \
                 | [info nameofexecutable] \
                 ../tests/helpers/onlydots.tcl \
                 &] 0]

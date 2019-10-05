@@ -222,7 +222,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
         zfree(job);
 
-       /* Lock again before reiterating the loop, if there are no longer
+        /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);

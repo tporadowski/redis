@@ -525,12 +525,12 @@ start_server {tags {"hash"}} {
     # 1.23 cannot be represented correctly with 64 bit doubles, so we skip
     # the test, since we are only testing pretty printing here and is not
     # a bug if the program outputs things like 1.299999...
-    if {!$::valgrind && [string match *x86_64* [exec uname -a]]} {
-        test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
-            r del myhash
-            assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
-            assert {[r hincrbyfloat myhash float 0.77] eq {2}}
-            assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
-        }
-    }
+#    if {!$::valgrind && [string match *x86_64* [exec uname -a]]} {
+#        test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
+#            r del myhash
+#            assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
+#            assert {[r hincrbyfloat myhash float 0.77] eq {2}}
+#            assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
+#        }
+#    }
 }

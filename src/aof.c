@@ -900,7 +900,7 @@ uxeof: /* Unexpected AOF end of file. */
             if (valid_up_to == -1) {
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
-                serverLog(LL_WARNING, "Error truncating the AOF file: %s",
+                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
                     IF_WIN32(wsa_strerror(errno), strerror(errno)));
             }
         } else {
@@ -936,7 +936,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
     if (obj->encoding == OBJ_ENCODING_INT) {
-        return (int)rioWriteBulkLongLong(r,(PORT_LONGLONG)((int)obj->ptr));               WIN_PORT_FIX /* cast (int) */
+        return (int)rioWriteBulkLongLong(r,(PORT_LONG)obj->ptr);               WIN_PORT_FIX /* cast (int) */
     } else if (sdsEncodedObject(obj)) {
         return (int)rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));           WIN_PORT_FIX /* cast (int) */
     } else {
