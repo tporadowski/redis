@@ -1281,7 +1281,7 @@ extern "C"
                 g_msize = _msize;
             }
 #elif USE_JEMALLOC
-            je_init();
+            //je_init();
 #endif
             if (g_PersistenceDisabled || g_SentinelMode) {
                 return redis_main(argc, argv);
