@@ -621,7 +621,8 @@ void ParseCommandLineArguments(int argc, char** argv) {
     string confFilePath;
     for (int n = (confFile ? 2 : 1); n < argc; n++) {
         if (string(argv[n]).substr(0, 2) == "--") {
-            string argument = string(argv[n]).substr(2, argument.length() - 2);
+            string argumentString = string(argv[n]);
+            string argument = argumentString.substr(2, argumentString.length() - 2);
             transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
 
             // Some -- arguments are passed directly to redis.c::main()
