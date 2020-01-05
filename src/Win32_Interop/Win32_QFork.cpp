@@ -25,12 +25,7 @@
  without halting the main redis process, or crashing due to code that was never designed to be thread safe. Essentially we need to
  replicate the COW behavior of fork() on Windows, but we don't actually need a complete fork() implementation. A complete fork()
  implementation would require subsystem level support to make happen. The following is required to make this quasi-fork scheme work:
-
- DLMalloc (http://g.oswego.edu/dl/html/malloc.html):
- - replaces malloc/realloc/free, either by manual patching of the zmalloc code in Redis or by patching the CRT routines at link time
- - partitions space into segments that it allocates from (currently configured as 64MB chunks)
- - we map/unmap these chunks as requested into a memory map (unmapping allows the system to decide how to reduce the physical memory
- pressure on system)
+ (references to DLMalloc* are obsolete as only "jemalloc" from http://jemalloc.net/ is used)
 
  DLMallocMemoryMap:
  - An uncomitted memory map whose size is the total physical memory on the system less some memory for the rest of the system so that
@@ -106,11 +101,7 @@
 #include "Win32_ThreadControl.h"
 #include "Win32_EventLog.h"
 
-#ifdef USE_DLMALLOC
-#include "Win32_dlmalloc.h"
-#elif USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
-#endif
 
 #include <algorithm>
 #include <string>
@@ -171,30 +162,13 @@ extern "C"
     int checkForSentinelMode(int argc, char **argv);
     void InitTimeFunctions();
     PORT_LONGLONG memtoll(const char *p, int *err);     // Forward def from util.h
-
-#ifdef USE_DLMALLOC
-    void*(*g_malloc)(size_t) = nullptr;
-    void*(*g_calloc)(size_t, size_t) = nullptr;
-    void*(*g_realloc)(void*, size_t) = nullptr;
-    void(*g_free)(void*) = nullptr;
-    size_t(*g_msize)(void*) = nullptr;
-#endif
 }
 
-#ifdef USE_DLMALLOC
-const size_t cAllocationGranularity = 1 << 18;    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
-#ifdef _WIN64
-const int  cMaxBlocks = 1 << 22;                // 256KB * 4M heap blocks = 1TB
-#else
-const int  cMaxBlocks = 1 << 12;                // 256KB * 4K heap blocks = 1GB
-#endif
-#elif USE_JEMALLOC
 const size_t cAllocationGranularity = 1 << 22;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
 #ifdef _WIN64
 const int  cMaxBlocks = 1 << 18;                // 4MB * 256K heap blocks = 1TB
 #else
 const int  cMaxBlocks = 1 << 8;                 // 4MB * 256 heap blocks = 1GB
-#endif
 #endif
 
 const int cDeadForkWait = 30000;
@@ -220,10 +194,6 @@ struct QForkControl {
 
     // Global data pointers to be passed to the forked process
     QForkInfo globalData;
-#ifdef USE_DLMALLOC
-    BYTE DLMallocGlobalState[1000];
-    size_t DLMallocGlobalStateSize;
-#endif
 };
 
 QForkControl* g_pQForkControl;
@@ -268,17 +238,6 @@ bool ReportSpecialSystemErrors(int error) {
         return false;
     }
 }
-
-#ifdef USE_DLMALLOC
-BOOL DLMallocInizialized = false;
-void DLMallocInit() {
-    // This must be called only once per process
-    if (DLMallocInizialized == FALSE) {
-        IFFAILTHROW(dlmallopt(M_GRANULARITY, cAllocationGranularity), "DLMalloc failed initializing allocation granularity.");
-        DLMallocInizialized = TRUE;
-    }
-}
-#endif
 
 BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     SmartHandle shParent;
@@ -327,13 +286,6 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
                 g_pQForkControl->heapBlockList[i].state = BlockState::bsINVALID;
             }
         }
-
-#ifdef USE_DLMALLOC
-        // Setup DLMalloc global data
-        if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-            throw runtime_error("DLMalloc global state copy failed.");
-        }
-#endif
 
         // Copy redis globals into fork process
         SetupRedisGlobals(g_pQForkControl->globalData.redisData,
@@ -583,16 +535,6 @@ void CopyForkOperationData(OperationType type, LPVOID redisData, int redisDataSi
     g_pQForkControl->globalData.modules = modules;
     memcpy(&(g_pQForkControl->globalData.dictHashSeed), dictHashSeed, sizeof(g_pQForkControl->globalData.dictHashSeed));
 
-#ifdef USE_DLMALLOC
-    GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
-    if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {
-        throw runtime_error("DLMalloc global state too large.");
-    }
-    if (GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-        throw runtime_error("DLMalloc global state copy failed.");
-    }
-#endif
-
     // Protect the qfork control map from propagating local changes
     DWORD oldProtect = 0;
     IFFAILTHROW(VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect),
@@ -719,11 +661,7 @@ pid_t BeginForkOperation_Aof(int aof_pipe_write_ack_to_parent,
 }
 
 void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId) {
-#ifdef USE_DLMALLOC
-    WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*) dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
-#elif USE_JEMALLOC
     WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*) je_malloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
-#endif
     g_pQForkControl->globalData.protocolInfo = protocolInfo;
     for (int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
         FDAPI_WSADuplicateSocket(g_pQForkControl->globalData.fds[i],
@@ -942,76 +880,6 @@ HANDLE CreateBlockMap(int blockIndex) {
     return NULL;
 }
 
-#ifdef USE_DLMALLOC
-/* NOTE: The allocateHigh parameter is ignored in this implementation */
-LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    if (g_BypassMemoryMapOnAlloc) {
-        return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    }
-
-    if (size % cAllocationGranularity != 0) {
-        errno = EINVAL;
-        return NULL;
-    }
-
-    int contiguousBlocksToAllocate = (int) (size / cAllocationGranularity);
-
-    int startSearch = g_pQForkControl->blockSearchStart;
-    int endSearch = g_pQForkControl->maxAvailableBlocks - contiguousBlocksToAllocate;
-    int contiguousBlocksFound = 0;
-    int allocationStartIndex = 0;
-
-    for (int startIdx = startSearch; startIdx < endSearch; startIdx++) {
-        for (int i = 0; i < contiguousBlocksToAllocate; i++) {
-            if (g_pQForkControl->heapBlockList[startIdx + i].state == BlockState::bsUNMAPPED ||
-                g_pQForkControl->heapBlockList[startIdx + i].state == BlockState::bsMAPPED_FREE) {
-                contiguousBlocksFound++;
-            }
-            else {
-                contiguousBlocksFound = 0;
-                startIdx += i; // restart searching from there
-                break;
-            }
-        }
-        if (contiguousBlocksFound == contiguousBlocksToAllocate) {
-            allocationStartIndex = startIdx;
-            break;
-        }
-    }
-
-    if (contiguousBlocksFound != contiguousBlocksToAllocate) {
-        errno = ENOMEM;
-        return NULL;
-    }
-
-    ASSERT(allocationStartIndex + contiguousBlocksToAllocate < g_pQForkControl->maxAvailableBlocks);
-
-    for (int i = 0; i < contiguousBlocksToAllocate; i++) {
-        int index = allocationStartIndex + i;
-        if (g_pQForkControl->heapBlockList[index].state == BlockState::bsUNMAPPED) {
-            g_pQForkControl->heapBlockList[index].heapMap = CreateBlockMap(index);
-            g_pQForkControl->numMappedBlocks += 1;
-        }
-        else {
-            // The current block state is bsMAPPED_FREE, therefore it needs to be
-            // zeroed (bsUNMAPPED blocks don't need to be zeroed since newly mapped
-            // blocked have zeroed memory by default)
-            LPVOID ptr = reinterpret_cast<byte*>(g_pQForkControl->heapStart) + (cAllocationGranularity * index);
-            ZeroMemory(ptr, cAllocationGranularity);
-        }
-        g_pQForkControl->heapBlockList[index].state = BlockState::bsMAPPED_IN_USE;
-    }
-
-    LPVOID retPtr = reinterpret_cast<byte*>(g_pQForkControl->heapStart) + (cAllocationGranularity * allocationStartIndex);
-    if (allocationStartIndex == g_pQForkControl->blockSearchStart) {
-        g_pQForkControl->blockSearchStart = allocationStartIndex + contiguousBlocksToAllocate;
-    }
-
-    return retPtr;
-}
-
-#elif USE_JEMALLOC
-
 LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero) {
     if (g_BypassMemoryMapOnAlloc) {
         return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -1079,7 +947,6 @@ LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero) {
 
     return retPtr;
 }
-#endif
 
 BOOL FreeHeapBlock(LPVOID addr, size_t size) {
     if (size == 0) {
@@ -1263,26 +1130,6 @@ extern "C"
                 return 0;
             }
 
-#ifdef USE_DLMALLOC
-            DLMallocInit();
-            // Setup memory allocation scheme
-            if (g_UseSystemHeap == FALSE) {
-                g_malloc = dlmalloc;
-                g_calloc = dlcalloc;
-                g_realloc = dlrealloc;
-                g_free = dlfree;
-                g_msize = reinterpret_cast<size_t(*)(void*)>(dlmalloc_usable_size);
-            }
-            else {
-                g_malloc = malloc;
-                g_calloc = calloc;
-                g_realloc = realloc;
-                g_free = free;
-                g_msize = _msize;
-            }
-#elif USE_JEMALLOC
-            //je_init();
-#endif
             if (g_PersistenceDisabled || g_SentinelMode) {
                 return redis_main(argc, argv);
             }

@@ -24,7 +24,6 @@
     <ClCompile Include="Win32_APIs.c" />
     <ClCompile Include="Win32_CommandLine.cpp" />
     <ClCompile Include="Win32_Common.cpp" />
-    <ClCompile Include="Win32_dlmalloc.c" />
     <ClCompile Include="Win32_Error.c" />
     <ClCompile Include="Win32_EventLog.cpp" />
     <ClCompile Include="Win32_FDAPI.cpp" />
@@ -48,7 +47,6 @@
     <ClInclude Include="Win32_APIs.h" />
     <ClInclude Include="Win32_Assert.h" />
     <ClInclude Include="Win32_CommandLine.h" />
-    <ClInclude Include="Win32_dlmalloc.h" />
     <ClInclude Include="Win32_Error.h" />
     <ClInclude Include="Win32_EventLog.h" />
     <ClInclude Include="Win32_FDAPI.h" />
@@ -170,7 +168,6 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <PreprocessorDefinitions>USE_STATIC;USE_JEMALLOC;_OFF_T_DEFINED;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);LACKS_STDLIB_H;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src;$(ProjectDir)..\..\deps\jemalloc-5.2.1\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
