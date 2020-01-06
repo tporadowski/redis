@@ -85,4 +85,16 @@ bool pages_dodump(void *addr, size_t size);
 bool pages_boot(void);
 void pages_set_thp_state (void *ptr, size_t size);
 
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+/*
+ * Instead of using VirtualAlloc and VirtualFree we will call external
+ * AllocHeapBlock, FreeHeapBlock and PurgePages that may have additional
+ * logic related to memory allocations.
+ * This is an extension used by Redis for Windows (https://github.com/tporadowski/redis).
+ */
+extern LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero);
+extern BOOL FreeHeapBlock(LPVOID addr, size_t size);
+extern BOOL PurgePages(LPVOID addr, size_t length);
+#endif
+
 #endif /* JEMALLOC_INTERNAL_PAGES_EXTERNS_H */

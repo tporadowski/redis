@@ -16,7 +16,7 @@ BEGIN {
         je_malloc_stats_print \
         je_malloc_usable_size \
         je_mallocx \
-        je_smallocx_0000000000000000000000000000000000000000 \
+        je_smallocx_ea6b3e973b477b8061e0076bb257dbd7f3faa756 \
         je_nallocx \
         je_posix_memalign \
         je_rallocx \

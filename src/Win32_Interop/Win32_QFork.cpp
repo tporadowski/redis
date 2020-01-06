@@ -25,7 +25,6 @@
  without halting the main redis process, or crashing due to code that was never designed to be thread safe. Essentially we need to
  replicate the COW behavior of fork() on Windows, but we don't actually need a complete fork() implementation. A complete fork()
  implementation would require subsystem level support to make happen. The following is required to make this quasi-fork scheme work:
- (references to DLMalloc* are obsolete as only "jemalloc" from http://jemalloc.net/ is used)
 
  DLMallocMemoryMap:
  - An uncomitted memory map whose size is the total physical memory on the system less some memory for the rest of the system so that

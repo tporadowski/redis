@@ -176,14 +176,14 @@
 /* #undef LG_QUANTUM */
 
 /* One page is 2^LG_PAGE bytes. */
-#define LG_PAGE 12
+#define LG_PAGE 22
 
 /*
  * One huge page is 2^LG_HUGEPAGE bytes.  Note that this is defined even if the
  * system does not explicitly support huge pages; system calls that require
  * explicit huge page support are separately configured.
  */
-#define LG_HUGEPAGE 21
+#define LG_HUGEPAGE 22
 
 /*
  * If defined, adjacent virtual memory mappings with identical attributes
@@ -351,7 +351,7 @@
 /* #undef JEMALLOC_EXPORT */
 
 /* config.malloc_conf options string. */
-#define JEMALLOC_CONFIG_MALLOC_CONF "background_thread:false"
+#define JEMALLOC_CONFIG_MALLOC_CONF ""
 
 /* If defined, jemalloc takes the malloc/free/etc. symbol names. */
 /* #undef JEMALLOC_IS_MALLOC */

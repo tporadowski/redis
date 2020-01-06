@@ -66,8 +66,12 @@ os_pages_map(void *addr, size_t size, size_t alignment, bool *commit) {
 	 * If VirtualAlloc can't allocate at the given address when one is
 	 * given, it fails and returns NULL.
 	 */
-	ret = VirtualAlloc(addr, size, MEM_RESERVE | (*commit ? MEM_COMMIT : 0),
-	    PAGE_READWRITE);
+	#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		ret = AllocHeapBlock(addr, size, TRUE);
+	#else
+		ret = VirtualAlloc(addr, size, MEM_RESERVE | (*commit ? MEM_COMMIT : 0),
+			PAGE_READWRITE);
+	#endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 	/*
 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
@@ -130,7 +134,11 @@ os_pages_unmap(void *addr, size_t size) {
 	assert(ALIGNMENT_CEILING(size, os_page) == size);
 
 #ifdef _WIN32
-	if (VirtualFree(addr, 0, MEM_RELEASE) == 0)
+	#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		if (FreeHeapBlock(addr, size) == 0)
+	#else
+		if (VirtualFree(addr, 0, MEM_RELEASE) == 0)
+	#endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 	if (munmap(addr, size) == -1)
 #endif
@@ -140,7 +148,11 @@ os_pages_unmap(void *addr, size_t size) {
 		buferror(get_errno(), buf, sizeof(buf));
 		malloc_printf("<jemalloc>: Error in "
 #ifdef _WIN32
-		    "VirtualFree"
+		#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+			"FreeHeapBlock"
+		#else
+			"VirtualFree"
+		#endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 		    "munmap"
 #endif
@@ -255,8 +267,13 @@ pages_commit_impl(void *addr, size_t size, bool commit) {
 	}
 
 #ifdef _WIN32
-	return (commit ? (addr != VirtualAlloc(addr, size, MEM_COMMIT,
-	    PAGE_READWRITE)) : (!VirtualFree(addr, size, MEM_DECOMMIT)));
+	#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		return (commit ? (addr != AllocHeapBlock(addr, size, TRUE))
+			: (!FreeHeapBlock(addr, size)));
+	#else
+		return (commit ? (addr != VirtualAlloc(addr, size, MEM_COMMIT,
+			PAGE_READWRITE)) : (!VirtualFree(addr, size, MEM_DECOMMIT)));
+	#endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 #else
 	{
 		int prot = commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
@@ -305,7 +322,11 @@ pages_purge_lazy(void *addr, size_t size) {
 	}
 
 #ifdef _WIN32
-	VirtualAlloc(addr, size, MEM_RESET, PAGE_READWRITE);
+	#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		PurgePages(addr, size);
+	#else
+		VirtualAlloc(addr, size, MEM_RESET, PAGE_READWRITE);
+	#endif //USE_WIN32_EXTERNAL_HEAP_ALLOC
 	return false;
 #elif defined(JEMALLOC_PURGE_MADVISE_FREE)
 	return (madvise(addr, size,
