@@ -10,19 +10,7 @@
       <Component Id="cmp_Redis_Windows_Conf" Guid="*">
         <File Name="redis.windows.conf" />
       </Component>
-
-      <Component Id="cmp_Redis_on_Windows_Release_NotesDOCX" Guid="*">
-        <File Name="Redis on Windows Release Notes.docx" />
-      </Component>
-
-      <Component Id="cmp_Redis_on_WindowsDOCX" Guid="*">
-        <File Name="Redis on Windows.docx" />
-      </Component>
-
-      <Component Id="cmp_Windows_Service_DocumentationDOCX" Guid="*">
-        <File Name="Windows Service Documentation.docx" />
-      </Component>
-      
+     
     </ComponentGroup>
 	</Fragment>
 </Wix>
