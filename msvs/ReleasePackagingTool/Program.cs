@@ -74,11 +74,8 @@ namespace ReleasePackagingTool
 				"EventLog.dll"
 			};
 			string documentsRoot = Path.Combine(rootPath, @"msvs\setups\documentation");
-			List<string> docuementNames = new List<string>()
+			List<string> documentNames = new List<string>()
 			{
-				"Redis on Windows.docx",
-				"Redis on Windows Release Notes.docx",
-				"Windows Service Documentation.docx",
 				"redis.windows.conf",
 				"redis.windows-service.conf"
 			};
@@ -97,7 +94,7 @@ namespace ReleasePackagingTool
 				{
 					archive.CreateEntryFromFile(Path.Combine(executablesRoot, dependencyName), dependencyName);
 				}
-				foreach (string documentName in docuementNames)
+				foreach (string documentName in documentNames)
 				{
 					archive.CreateEntryFromFile(Path.Combine(documentsRoot, documentName), documentName);
 				}
