@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"
      xmlns:fw="http://schemas.microsoft.com/wix/FirewallExtension">
@@ -55,8 +55,9 @@
         <WixVariable Id="WixUIDialogBmp" Value="Images/redis_background.jpg"/>
         <WixVariable Id="WixUIBannerBmp" Value="Images/top_banner.jpg"/>
         <WixVariable Id="DocumentationFolder" Value="..\..\setups\documentation"/>
+        <WixVariable Id="RootFolder" Value="..\..\.."/>
 
-        <!--Link in custom actions, referencing one will pull in all-->
+      <!--Link in custom actions, referencing one will pull in all-->
         <CustomActionRef Id="ca_UpdateRedisConfig"/>
 
         <!--Features-->
@@ -65,6 +66,7 @@
             <ComponentGroupRef Id="SymbolsComponents" />
             <ComponentGroupRef Id="WindowsServiceComponents" />
             <ComponentGroupRef Id="DocumentationComponents" />
+            <ComponentGroupRef Id="ReleaseNotesComponents"/>
             <ComponentGroupRef Id="SetPathComponents" />
         </Feature>
     </Product>

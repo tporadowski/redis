@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ReleasePackagingTool
@@ -98,8 +99,14 @@ namespace ReleasePackagingTool
 			string documentsRoot = GetTargetPath(@"msvs\setups\documentation");
 			List<string> documentNames = new List<string>()
 			{
+				"README.txt",
 				"redis.windows.conf",
 				"redis.windows-service.conf"
+			};
+			List<string> releaseNotes = new List<string>()
+			{
+				"RELEASENOTES.txt",
+				"00-RELEASENOTES"
 			};
 
 			using (ZipArchive archive = ZipFile.Open(releasePackagePath, ZipArchiveMode.Create))
@@ -119,6 +126,10 @@ namespace ReleasePackagingTool
 				foreach (string documentName in documentNames)
 				{
 					archive.CreateEntryFromFile(Path.Combine(documentsRoot, documentName), documentName);
+				}
+				foreach (string notes in releaseNotes)
+				{
+					archive.CreateEntryFromFile(Path.Combine(rootPath, notes), notes);
 				}
 			}
 		}
@@ -207,7 +218,24 @@ namespace ReleasePackagingTool
 				}
 			}
 
-			File.WriteAllLines(rcFilePath, rcLines, System.Text.Encoding.ASCII);
+			File.WriteAllLines(rcFilePath, rcLines, Encoding.ASCII);
+
+			//update Product.wxs
+			var wxsPath = GetTargetPath(@"msvs\msi\RedisMsi\Product.wxs");
+			var wxsLines = File.ReadAllLines(wxsPath, Encoding.UTF8);
+
+			for (int i = 0, j = wxsLines.Length; i < j; i++)
+			{
+				var line = wxsLines[i];
+
+				if (line.Contains("Version=\""))
+				{
+					wxsLines[i] = Regex.Replace(line, "\"[1-9][0-9.]+\"", $"\"{prepareNewVersion}\"");
+					break;
+				}
+			}
+
+			File.WriteAllLines(wxsPath, wxsLines, Encoding.UTF8);
 		}
 
 		#endregion Private Methods

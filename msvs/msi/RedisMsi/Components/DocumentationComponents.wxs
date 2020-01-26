@@ -12,5 +12,16 @@
       </Component>
      
     </ComponentGroup>
-	</Fragment>
+
+    <ComponentGroup Id="ReleaseNotesComponents" Directory="INSTALLFOLDER" Source="!(wix.RootFolder)">
+
+      <Component Id="cmp_RELEASENOTES_txt" Guid="*">
+        <File Name="RELEASENOTES.txt" />
+      </Component>
+      <Component Id="cmp_00_RELEASENOTES" Guid="*">
+        <File Name="00-RELEASENOTES" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
 </Wix>

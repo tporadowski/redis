@@ -1,0 +1,73 @@
+Redis for Windows - https://github.com/tporadowski/redis
+========================================================
+
+This file provides information about Windows-specific changes to Redis.
+For release notes related to original Redis project - please see 00-RELEASENOTES.
+
+--------------------------------------------------------
+
+2020-01-26: Redis 4.0.14.2 for Windows
+https://github.com/tporadowski/redis/releases/tag/v4.0.14.2
+
+This is a hotfix release of 4.0.14 branch that fixes #50 related to running in
+Sentinel mode.
+
+--------------------------------------------------------
+
+2020-01-15: Redis 4.0.14.1 for Windows
+https://github.com/tporadowski/redis/releases/tag/v4.0.14.1
+
+This is a hotfix release of 4.0.14 branch that fixes 2 Windows-specific issues:
+
+  * #46 - added support for older Windows versions (prior Windows 8 and Windows Server 2012)
+  * #47 - fixed problem with parsing command-line arguments.
+
+--------------------------------------------------------
+
+2019-08-29: Redis 4.0.14 for Windows
+https://github.com/tporadowski/redis/releases/tag/v4.0.14
+
+Redis 4.0.14 for Windows is a merge of Windows-specific changes from latest (unsupported) 3.2.100 release from MSOpenTech and original Redis 4.0.14.
+
+--------------------------------------------------------
+
+2018-10-01: Redis for Windows 4.0.2.3 (alpha)
+
+This 4.0.2.3 release is still an alpha version, but contains enhancements and fixes for:
+
+  * #14: decrease logging verbosity of some cluster-related messages
+  * #23: ZRANK/ZREVRANK bugfix (win-port only)
+  * failed unit tests (bdcf80e).
+
+--------------------------------------------------------
+
+2018-03-26: Redis for Windows 4.0.2.2 (alpha)
+https://github.com/tporadowski/redis/releases/tag/v4.0.2.2-alpha
+
+This 4.0.2.2 release is still an alpha version, but contains a fix to issue #12
+(crash when rewriting AOF file - this issue was specific to Windows port only).
+
+--------------------------------------------------------
+
+2018-03-17: Redis for Windows 4.0.2.1 (alpha)
+https://github.com/tporadowski/redis/releases/tag/v4.0.2.1-alpha
+
+This 4.0.2.1 release is still an alpha version, but contains a fix to issue #11,
+which was related to sending back larger amounts of data to Redis clients
+(this issue was specific to Windows port only).
+
+--------------------------------------------------------
+
+2017-11-22: Redis 4.0.2 for Windows (alpha)
+https://github.com/tporadowski/redis/releases/tag/v4.0.2-alpha
+
+Alpha version of Redis 4.0.2 for Windows.
+
+Redis 4.0.2 for Windows is a merge of Windows-specific changes from latest (unsupported) 3.2.100 release
+from MSOpenTech and Redis 4.0.2 and this alpha release consists of:
+
+  * all Redis 4.0.2 features except modules,
+  * all executables of Redis (redis-server, redis-cli, redis-benchmark, redis-check-aof, redis-check-rdb).
+
+Main difference to official Redis 4.0.2 (except no support for modules at the moment) is old version
+of jemalloc-win dependency, which is planned to be updated to the same version in beta release.
