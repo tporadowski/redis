@@ -1,8 +1,10 @@
-﻿using System;
+﻿using CommandLine;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace ReleasePackagingTool
 {
@@ -10,8 +12,13 @@ namespace ReleasePackagingTool
 	{
 		#region Private Fields
 
-		private static string rootPath;
-		private static string versionReplacementText = "CurrentRedisVersion";
+		private readonly string rootPath;
+		private const string versionReplacementText = "CurrentRedisVersion";
+
+		public Program(string rootPath)
+		{
+			this.rootPath = rootPath;
+		}
 
 		#endregion Private Fields
 
@@ -21,18 +28,33 @@ namespace ReleasePackagingTool
 		{
 			try
 			{
-				Program p = new Program();
+				Parser.Default.ParseArguments<CmdLineOptions>(args).WithParsed(cmdLineOptions =>
+				{
+					string assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+					var rootPath = cmdLineOptions.RootPath ?? Path.GetFullPath(Path.Combine(assemblyDirectory, @"..\..\..\..\..\"));
 
-				string assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-				rootPath = Path.GetFullPath(Path.Combine(assemblyDirectory, @"..\..\..\..\..\"));
+					Program p = new Program(rootPath);
 
-				string version;
-				version = p.GetRedisVersion();
-				p.UpdateNuSpecFiles(version);
-				p.BuildReleasePackage(version, "x64");
+					if (!string.IsNullOrWhiteSpace(cmdLineOptions.PrepareNewVersion))
+					{
+						p.PrepareNewVersion(cmdLineOptions.PrepareNewVersion);
+					}
 
-				Console.Write("Release packaging complete.");
-				Environment.ExitCode = 0;
+					if (!cmdLineOptions.SkipPackage)
+					{
+						var version = p.GetRedisVersion();
+						p.UpdateNuSpecFiles(version);
+						p.BuildReleasePackage(version, "x64");
+
+						Console.Write("Release packaging complete.");
+					}
+					else
+					{
+						Console.WriteLine("Creation of release package skipped.");
+					}
+
+					Environment.ExitCode = 0;
+				});
 			}
 			catch (Exception ex)
 			{
@@ -43,16 +65,16 @@ namespace ReleasePackagingTool
 
 		private void BuildReleasePackage(string version, string platform)
 		{
-			string releasePackageDir = Path.Combine(rootPath, @"msvs\BuildRelease\Redis-" + version + @"\");
+			string releasePackageDir = GetTargetPath(@"msvs\BuildRelease\Redis-" + version + @"\");
 			if (Directory.Exists(releasePackageDir) == false)
 			{
 				Directory.CreateDirectory(releasePackageDir);
 			}
 
-			string releasePackagePath = Path.Combine(rootPath, releasePackageDir + "Redis-" + platform + "-" + version + ".zip");
+			string releasePackagePath = GetTargetPath(releasePackageDir + "Redis-" + platform + "-" + version + ".zip");
 			ForceFileErase(releasePackagePath);
 
-			string executablesRoot = Path.Combine(rootPath, @"msvs\" + platform + @"\Release");
+			string executablesRoot = GetTargetPath(@"msvs\" + platform + @"\Release");
 			List<Tuple<string /*source*/, string /*target name*/>> executableNames = new List<Tuple<string, string>>()
 			{
 				Tuple.Create("redis-benchmark.exe", "redis-benchmark.exe"),
@@ -73,7 +95,7 @@ namespace ReleasePackagingTool
 			{
 				"EventLog.dll"
 			};
-			string documentsRoot = Path.Combine(rootPath, @"msvs\setups\documentation");
+			string documentsRoot = GetTargetPath(@"msvs\setups\documentation");
 			List<string> documentNames = new List<string>()
 			{
 				"redis.windows.conf",
@@ -127,9 +149,19 @@ namespace ReleasePackagingTool
 			}
 		}
 
+		private string GetTargetPath(string filePath)
+		{
+			if (Path.IsPathRooted(filePath))
+			{
+				return filePath;
+			}
+
+			return Path.Combine(rootPath, filePath);
+		}
+
 		private string GetRedisVersion()
 		{
-			TextReader tr = File.OpenText(Path.Combine(rootPath, @"src\version.h"));
+			TextReader tr = File.OpenText(GetTargetPath(@"src\version.h"));
 			string line = tr.ReadLine();
 			int start = line.IndexOf('\"');
 			int last = line.LastIndexOf('\"');
@@ -138,13 +170,44 @@ namespace ReleasePackagingTool
 
 		private void UpdateNuSpecFiles(string version)
 		{
-			string chocTemplate = Path.Combine(rootPath, @"msvs\setups\chocolatey\template\redis.nuspec.template");
-			string chocDocument = Path.Combine(rootPath, @"msvs\setups\chocolatey\redis.nuspec");
+			string chocTemplate = GetTargetPath(@"msvs\setups\chocolatey\template\redis.nuspec.template");
+			string chocDocument = GetTargetPath(@"msvs\setups\chocolatey\redis.nuspec");
 			CreateTextFileFromTemplate(chocTemplate, chocDocument, versionReplacementText, version);
 
-			string nugetTemplate = Path.Combine(rootPath, @"msvs\setups\nuget\template\redis.nuspec.template");
-			string nugetDocument = Path.Combine(rootPath, @"msvs\setups\nuget\redis.nuspec");
+			string nugetTemplate = GetTargetPath(@"msvs\setups\nuget\template\redis.nuspec.template");
+			string nugetDocument = GetTargetPath(@"msvs\setups\nuget\redis.nuspec");
 			CreateTextFileFromTemplate(nugetTemplate, nugetDocument, versionReplacementText, version);
+		}
+
+		/// <summary>
+		/// Updates some source files that keep track of current Redis for Windows version
+		/// with newly provided <paramref name="prepareNewVersion"/>.
+		/// </summary>
+		/// <param name="prepareNewVersion">New version</param>
+		private void PrepareNewVersion(string prepareNewVersion)
+		{
+			Console.WriteLine("Preparing new version: " + prepareNewVersion);
+
+			//update src/version.h
+			File.WriteAllText(GetTargetPath(@"src\version.h"), $"#define REDIS_VERSION \"{prepareNewVersion}\"\r\n", System.Text.Encoding.ASCII);
+
+			//update msvs/RedisForWindows.rc
+			var rcFilePath = GetTargetPath(@"msvs\RedisForWindows.rc");
+			var rcLines = File.ReadAllLines(rcFilePath);
+			var versionWithCommas = prepareNewVersion.Replace('.', ',');
+
+			for (int i = 0, j = rcLines.Length; i < j; i++)
+			{
+				var line = rcLines[i];
+
+				if (line.IndexOf("FILEVERSION", StringComparison.InvariantCultureIgnoreCase) > -1
+					|| line.IndexOf("PRODUCTVERSION", StringComparison.InvariantCultureIgnoreCase) > -1) {
+					rcLines[i] = Regex.Replace(line, @"(?<optname>FILEVERSION|PRODUCTVERSION)\s+[1-9][0-9,]+", "${optname} " + versionWithCommas);
+					rcLines[i] = Regex.Replace(rcLines[i], @"VALUE ""(?<optname>FileVersion|ProductVersion)"", ""[1-9]+[0-9.]+""", "VALUE \"${optname}\", \"" + prepareNewVersion + "\"");
+				}
+			}
+
+			File.WriteAllLines(rcFilePath, rcLines, System.Text.Encoding.ASCII);
 		}
 
 		#endregion Private Methods

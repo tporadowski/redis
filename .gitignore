@@ -36,7 +36,9 @@ deps/lua/src/liblua.a
 *.exe
 *.sdf
 *.suo
-msvs/ReleasePackagingTool
+msvs/ReleasePackagingTool/bin/
+msvs/ReleasePackagingTool/obj/
+msvs/ReleasePackagingTool/packages/
 msvs/ipch
 msvs/RedisServer.opensdf
 !msvs/RedisWaInst/bin/*
