@@ -65,11 +65,6 @@
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_size(p)
 
-#elif defined(USE_DLMALLOC)
-#include "Win32_Interop/win32_dlmalloc.h"
-#define ZMALLOC_LIB ("dlmalloc-" __xstr(2) "." __xstr(8) )
-#define HAVE_MALLOC_SIZE 1
-#define zmalloc_size(p)  g_msize(p)
 #endif
 
 #ifndef ZMALLOC_LIB
