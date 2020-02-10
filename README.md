@@ -1,6 +1,6 @@
 # Redis 5.0.x for Windows
 
-Branch **develop** is still under development and at the moment provides an unstable version of Redis 5.0.6. See below for information on latest release from 4.0.x branch.
+Branch **develop** is still under development and at the moment provides an unstable version of Redis 5.0.7. See below for information on latest release from 4.0.x branch.
 
 ## Redis 4.0.14 for Windows
 
