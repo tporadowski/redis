@@ -48,6 +48,7 @@ POSIX_ONLY(#include <sys/time.h>)
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
+#include <time.h>
 
 #include "util.h"
 #include "sha1.h"

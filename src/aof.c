@@ -1619,7 +1619,7 @@ int rewriteAppendOnlyFileBackground(void) {
         closeListeningSockets(0);
         redisSetProcTitle("redis-aof-rewrite");
 #endif
-        snprintf(tmpfile, 256, "temp-rewriteaof-bg-%d.aof", (int) getpid());
+        snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
 #ifdef _WIN32
         childpid = BeginForkOperation_Aof(server.aof_pipe_write_ack_to_parent,
             server.aof_pipe_read_ack_from_parent,
@@ -1907,7 +1907,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
-            server.aof_current_size = server.aof_current_size;
+            server.aof_fsync_offset = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */

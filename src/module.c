@@ -141,10 +141,14 @@ struct RedisModuleCtx {
     int keys_count;
 
     struct RedisModulePoolAllocBlock *pa_head;
+    redisOpArray saved_oparray;    /* When propagating commands in a callback
+                                      we reallocate the "also propagate" op
+                                      array. Here we save the old one to
+                                      restore it later. */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(PORT_ULONG)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, 0, NULL}
+#define REDISMODULE_CTX_INIT {(void*)(PORT_ULONG)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, 0, NULL, {0}}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -152,6 +156,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<4)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<5)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<6)
+#define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<7)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -305,6 +310,11 @@ typedef struct RedisModuleCommandFilter {
 
 /* Registered filters */
 static list *moduleCommandFilters;
+
+/* Flags for moduleCreateArgvFromUserFormat(). */
+#define REDISMODULE_ARGV_REPLICATE (1<<0)
+#define REDISMODULE_ARGV_NO_AOF (1<<1)
+#define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -511,8 +521,47 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for when a command callback is called, in order to handle
+ * details needed to correctly replicate commands. */
+void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
+    client *c = ctx->client;
+
+    /* We don't need to do anything here if the context was never used
+     * in order to propagate commands. */
+    if (!(ctx->flags & REDISMODULE_CTX_MULTI_EMITTED)) return;
+
+    if (c->flags & CLIENT_LUA) return;
+
+    /* Handle the replication of the final EXEC, since whatever a command
+     * emits is always wrapped around MULTI/EXEC. */
+    robj *propargv[1];
+    propargv[0] = createStringObject("EXEC",4);
+    alsoPropagate(server.execCommand,c->db->id,propargv,1,
+        PROPAGATE_AOF|PROPAGATE_REPL);
+    decrRefCount(propargv[0]);
+
+    /* If this is not a module command context (but is instead a simple
+     * callback context), we have to handle directly the "also propagate"
+     * array and emit it. In a module command call this will be handled
+     * directly by call(). */
+    if (!(ctx->flags & REDISMODULE_CTX_MODULE_COMMAND_CALL) &&
+        server.also_propagate.numops)
+    {
+        for (int j = 0; j < server.also_propagate.numops; j++) {
+            redisOp *rop = &server.also_propagate.ops[j];
+            int target = rop->target;
+            if (target)
+                propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
+        }
+        redisOpArrayFree(&server.also_propagate);
+        /* Restore the previous oparray in case of nexted use of the API. */
+        server.also_propagate = ctx->saved_oparray;
+    }
+}
+
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
+    moduleHandlePropagationAfterCommandCallback(ctx);
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -528,34 +577,16 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
 }
 
-/* Helper function for when a command callback is called, in order to handle
- * details needed to correctly replicate commands. */
-void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
-    client *c = ctx->client;
-
-    if (c->flags & CLIENT_LUA) return;
-
-    /* Handle the replication of the final EXEC, since whatever a command
-     * emits is always wrapped around MULTI/EXEC. */
-    if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
-        robj *propargv[1];
-        propargv[0] = createStringObject("EXEC",4);
-        alsoPropagate(server.execCommand,c->db->id,propargv,1,
-            PROPAGATE_AOF|PROPAGATE_REPL);
-        decrRefCount(propargv[0]);
-    }
-}
-
 /* This Redis command binds the normal Redis command invocation with commands
  * exported by modules. */
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommandProxy *cp = (void*) (PORT_ULONG)c->cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
+    ctx.flags |= REDISMODULE_CTX_MODULE_COMMAND_CALL;
     ctx.module = cp->module;
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
-    moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
 
     /* In some cases processMultibulkBuffer uses sdsMakeRoomFor to
@@ -1329,9 +1360,16 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* If we already emitted MULTI return ASAP. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
     /* If this is a thread safe context, we do not want to wrap commands
-     * executed into MUTLI/EXEC, they are executed as single commands
+     * executed into MULTI/EXEC, they are executed as single commands
      * from an external client in essence. */
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) return;
+    /* If this is a callback context, and not a module command execution
+     * context, we have to setup the op array for the "also propagate" API
+     * so that RM_Replicate() will work. */
+    if (!(ctx->flags & REDISMODULE_CTX_MODULE_COMMAND_CALL)) {
+        ctx->saved_oparray = server.also_propagate;
+        redisOpArrayInit(&server.also_propagate);
+    }
     execCommandPropagateMulti(ctx->client);
     ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
@@ -1353,6 +1391,24 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
  *
  * Please refer to RedisModule_Call() for more information.
  *
+ * Using the special "A" and "R" modifiers, the caller can exclude either
+ * the AOF or the replicas from the propagation of the specified command.
+ * Otherwise, by default, the command will be propagated in both channels.
+ *
+ * ## Note about calling this function from a thread safe context:
+ *
+ * Normally when you call this function from the callback implementing a
+ * module command, or any other callback provided by the Redis Module API,
+ * Redis will accumulate all the calls to this function in the context of
+ * the callback, and will propagate all the commands wrapped in a MULTI/EXEC
+ * transaction. However when calling this function from a threaded safe context
+ * that can live an undefined amount of time, and can be locked/unlocked in
+ * at will, the behavior is different: MULTI/EXEC wrapper is not emitted
+ * and the command specified is inserted in the AOF and replication stream
+ * immediately.
+ *
+ * ## Return value
+ *
  * The command returns REDISMODULE_ERR if the format specifiers are invalid
  * or the command name does not belong to a known command. */
 int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
@@ -1370,10 +1426,23 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
-    /* Replicate! */
-    moduleReplicateMultiIfNeeded(ctx);
-    alsoPropagate(cmd,ctx->client->db->id,argv,argc,
-        PROPAGATE_AOF|PROPAGATE_REPL);
+    /* Select the propagation target. Usually is AOF + replicas, however
+     * the caller can exclude one or the other using the "A" or "R"
+     * modifiers. */
+    int target = 0;
+    if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
+    if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
+
+    /* Replicate! When we are in a threaded context, we want to just insert
+     * the replicated command ASAP, since it is not clear when the context
+     * will stop being used, so accumulating stuff does not make much sense,
+     * nor we could easily use the alsoPropagate() API from threads. */
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
+        propagate(cmd,ctx->client->db->id,argv,argc,target);
+    } else {
+        moduleReplicateMultiIfNeeded(ctx);
+        alsoPropagate(cmd,ctx->client->db->id,argv,argc,target);
+    }
 
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
@@ -1462,6 +1531,23 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_OOM_WARNING: Less than 25% of memory remains before
  *                                       reaching the maxmemory level.
+ *
+ *  * REDISMODULE_CTX_FLAGS_LOADING: Server is loading RDB/AOF
+ *
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE: No active link with the master.
+ *
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING: The replica is trying to
+ *                                                 connect with the master.
+ *
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_TRANSFERRING: Master -> Replica RDB
+ *                                                   transfer is in progress.
+ *
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE: The replica has an active link
+ *                                             with its master. This is the
+ *                                             contrary of STALE state.
+ *
+ *  * REDISMODULE_CTX_FLAGS_ACTIVE_CHILD: There is currently some background
+ *                                        process active (RDB, AUX or module).
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
@@ -1504,6 +1590,20 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_SLAVE;
         if (server.repl_slave_ro)
             flags |= REDISMODULE_CTX_FLAGS_READONLY;
+
+        /* Replica state flags. */
+        if (server.repl_state == REPL_STATE_CONNECT ||
+            server.repl_state == REPL_STATE_CONNECTING)
+        {
+            flags |= REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING;
+        } else if (server.repl_state == REPL_STATE_TRANSFER) {
+            flags |= REDISMODULE_CTX_FLAGS_REPLICA_IS_TRANSFERRING;
+        } else if (server.repl_state == REPL_STATE_CONNECTED) {
+            flags |= REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE;
+        }
+
+        if (server.repl_state != REPL_STATE_CONNECTED)
+            flags |= REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE;
     }
 
     /* OOM flag. */
@@ -1511,6 +1611,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int retval = getMaxmemoryState(NULL,NULL,NULL,&level);
     if (retval == C_ERR) flags |= REDISMODULE_CTX_FLAGS_OOM;
     if (level > 0.75) flags |= REDISMODULE_CTX_FLAGS_OOM_WARNING;
+
+    /* Presence of children processes. */
+    if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
 
     return flags;
 }
@@ -2691,12 +2794,11 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  * to special modifiers in "fmt". For now only one exists:
  *
  *     "!" -> REDISMODULE_ARGV_REPLICATE
+ *     "A" -> REDISMODULE_ARGV_NO_AOF
+ *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-
-#define REDISMODULE_ARGV_REPLICATE (1<<0)
-
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
@@ -2745,6 +2847,10 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
              }
         } else if (*p == '!') {
             if (flags) (*flags) |= REDISMODULE_ARGV_REPLICATE;
+        } else if (*p == 'A') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_AOF;
+        } else if (*p == 'R') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
         } else {
             goto fmterr;
         }
@@ -2765,7 +2871,10 @@ fmterr:
  * NULL is returned and errno is set to the following values:
  *
  * EINVAL: command non existing, wrong arity, wrong format specifier.
- * EPERM:  operation in Cluster instance with key in non local slot. */
+ * EPERM:  operation in Cluster instance with key in non local slot.
+ *
+ * This API is documented here: https://redis.io/topics/modules-intro
+ */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     struct redisCommand *cmd;
     client *c = NULL;
@@ -2835,8 +2944,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
     if (replicate) {
-        call_flags |= CMD_CALL_PROPAGATE_AOF;
-        call_flags |= CMD_CALL_PROPAGATE_REPL;
+        if (!(flags & REDISMODULE_ARGV_NO_AOF))
+            call_flags |= CMD_CALL_PROPAGATE_AOF;
+        if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
+            call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
 
@@ -3937,7 +4048,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     ctx->client = createClient(-1);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
-        ctx->client->id = bc->client->id;
+        if (bc->client) ctx->client->id = bc->client->id;
     }
     return ctx;
 }

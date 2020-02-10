@@ -86,7 +86,7 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
-    return (int)len;
+    return (int)len;                  WIN_PORT_FIX /* cast (int) */
 }
 
 /* This is just a wrapper for the low level function rioRead() that will
@@ -1925,7 +1925,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         /* The DB can take some non trivial amount of time to load. Update
          * our cached time since it is used to create and update the last
          * interaction time with clients and for other important things. */
-        updateCachedTime();
+        updateCachedTime(0);
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress((off_t)r->processed_bytes);                             WIN_PORT_FIX /* cast (off_t) */

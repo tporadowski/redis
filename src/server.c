@@ -790,6 +790,11 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
+int hasActiveChildProcess() {
+    return server.rdb_child_pid != -1 ||
+           server.aof_child_pid != -1;
+}
+
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
@@ -1065,23 +1070,34 @@ void databasesCron(void) {
 /* We take a cached value of the unix time in the global state because with
  * virtual memory and aging there is to store the current time in objects at
  * every object access, and accuracy is not needed. To access a global var is
- * a lot faster than calling time(NULL) */
-void updateCachedTime(void) {
-    time_t unixtime = time(NULL);
+ * a lot faster than calling time(NULL).
+ *
+ * This function should be fast because it is called at every command execution
+ * in call(), so it is possible to decide if to update the daylight saving
+ * info or not using the 'update_daylight_info' argument. Normally we update
+ * such info only when calling this function from serverCron() but not when
+ * calling it from call(). */
+void updateCachedTime(int update_daylight_info) {
+    server.ustime = ustime();
+    server.mstime = server.ustime / 1000;
+    time_t unixtime = server.mstime / 1000;
     atomicSet(server.unixtime,unixtime);
-    server.mstime = mstime();
 
-    /* To get information about daylight saving time, we need to call localtime_r
-     * and cache the result. However calling localtime_r in this context is safe
-     * since we will never fork() while here, in the main thread. The logging
-     * function will call a thread safe version of localtime that has no locks. */
-    struct tm tm;
+    /* To get information about daylight saving time, we need to call
+     * localtime_r and cache the result. However calling localtime_r in this
+     * context is safe since we will never fork() while here, in the main
+     * thread. The logging function will call a thread safe version of
+     * localtime that has no locks. */
+    if (update_daylight_info) {
+        struct tm tm;
+        time_t ut = server.unixtime;
 #ifdef _WIN32
-    localtime_s(&tm,&server.unixtime);
- #else
-    localtime_r(&server.unixtime,&tm);
+        localtime_s(&tm,&ut);
+#else
+        localtime_r(&ut,&tm);
 #endif
-    server.daylight_active = tm.tm_isdst;
+        server.daylight_active = tm.tm_isdst;
+    }
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -1114,7 +1130,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
-    updateCachedTime();
+    updateCachedTime(1);
 
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
@@ -1150,7 +1166,7 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    unsigned int lruclock = getLRUClock();  WIN_PORT_FIX /* unsigned int */
+    unsigned long lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
 
     /* Record the max memory used since the server was started. */
@@ -1576,7 +1592,7 @@ void initServerConfig(void) {
 #endif
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
-    updateCachedTime();
+    updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -1830,7 +1846,7 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < server.maxclients + 1024; j++) {
+    for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
 #if _WIN32
@@ -2102,6 +2118,7 @@ void initServer(void) {
     server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
+    server.fixed_time_expire = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2259,6 +2276,14 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+}
+
+/* Some steps in server initialization need to be done last (after modules
+ * are loaded).
+ * Specifically, creation of threads due to a race bug in ld.so, in which
+ * Thread Local Storage initialization collides with dlopen call.
+ * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
+void InitServerLast() {
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
 }
@@ -2494,9 +2519,12 @@ void preventCommandReplication(client *c) {
  *
  */
 void call(client *c, int flags) {
-    PORT_LONGLONG dirty, start, duration;
+    PORT_LONGLONG dirty;
+    ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+
+    server.fixed_time_expire++;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
@@ -2515,7 +2543,8 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    start = ustime();
+    updateCachedTime(0);
+    start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
@@ -2611,6 +2640,7 @@ void call(client *c, int flags) {
         redisOpArrayFree(&server.also_propagate);
     }
     server.also_propagate = prev_also_propagate;
+    server.fixed_time_expire--;
     server.stat_numcommands++;
 }
 
@@ -3256,7 +3286,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
-			server.config_hz,
+            server.config_hz,
             (PORT_ULONG) lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
@@ -3270,8 +3300,8 @@ sds genRedisInfoString(char *section) {
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%Iu\r\n"                      WIN_PORT_FIX /* %lu -> %Iu */
-            "client_recent_max_input_buffer:%Iu\r\n"         WIN_PORT_FIX /* %lu -> %Iu */
-            "client_recent_max_output_buffer:%Iu\r\n"        WIN_PORT_FIX /* %lu -> %Iu */
+            "client_recent_max_input_buffer:%Iu\r\n"         WIN_PORT_FIX /* %zu -> %Iu */
+            "client_recent_max_output_buffer:%Iu\r\n"        WIN_PORT_FIX /* %zu -> %Iu */
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
             maxin, maxout,
@@ -3325,7 +3355,7 @@ sds genRedisInfoString(char *section) {
             "allocator_allocated:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
             "allocator_active:%Iu\r\n"			WIN_PORT_FIX /* %zu -> %Iu */
             "allocator_resident:%Iu\r\n"		WIN_PORT_FIX /* %zu -> %Iu */
-            "total_system_memory:%lu\r\n"		
+            "total_system_memory:%Iu\r\n"		WIN_PORT_FIX /* %lu -> %Iu */
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "used_memory_lua_human:%s\r\n"
@@ -3959,12 +3989,14 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if ((server.masterhost || (server.cluster_enabled && nodeIsSlave(server.cluster->myself)))&&
+            if ((server.masterhost ||
+                (server.cluster_enabled &&
+                nodeIsSlave(server.cluster->myself))) &&
                 rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
-                 * of -1 inside the RDB file in a wrong way, see more information
-                 * in function rdbPopulateSaveInfo. */
+                 * of -1 inside the RDB file in a wrong way, see more
+                 * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
@@ -3984,7 +4016,7 @@ void loadDataFromDisk(void) {
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
     WIN32_ONLY(bugReportStart();)
-    serverLog(LL_WARNING,"Out Of Memory allocating %Iu bytes.", WIN_PORT_FIX /* %zu -> %Iu */
+    serverLog(LL_WARNING,"Out Of Memory allocating %Iu bytes!", WIN_PORT_FIX /* %zu -> %Iu */
         allocation_size);
     IF_WIN32(abort(), serverPanic("Redis aborting for OUT OF MEMORY"));
 }
@@ -4293,6 +4325,7 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         moduleLoadFromQueue();
+        InitServerLast();
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
@@ -4307,6 +4340,7 @@ int main(int argc, char **argv) {
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     } else {
+        InitServerLast();
         sentinelIsRunning();
     }
 
