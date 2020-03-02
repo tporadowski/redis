@@ -8,7 +8,7 @@ proc start_bg_block_op {host port db ops} {
 }
 
 proc stop_bg_block_op {handle} {
-    catch {exec /bin/kill -9 $handle}
+    catch {kill_proc2 $handle}
 }
 
 start_server {tags {"repl"}} {

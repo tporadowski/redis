@@ -69,8 +69,13 @@ proc start_server_and_kill_it {overrides code} {
     kill_server $srv
 }
 
-# Make the RDB file unreadable
-file attributes [file join $server_path dump.rdb] -permissions 0222
+# Make the RDB file unreadable; skip next test if this fails (ActiveTcl under Windows
+#  does not seem to support "-permissions")
+set permissions_changed 0
+catch {
+	file attributes [file join $server_path dump.rdb] -permissions 0222
+	set permissions_changed 1
+}
 
 # Detect root account (it is able to read the file even with 002 perm)
 set isroot 0
@@ -80,7 +85,7 @@ catch {
 }
 
 # Now make sure the server aborted with an error
-if {!$isroot} {
+if {!$isroot && $permissions_changed} {
     start_server_and_kill_it [list "dir" $server_path] {
         test {Server should not start if RDB file can't be open} {
             wait_for_condition 50 100 {
@@ -94,7 +99,9 @@ if {!$isroot} {
 }
 
 # Fix permissions of the RDB file.
-file attributes [file join $server_path dump.rdb] -permissions 0666
+if {$permissions_changed} {
+	file attributes [file join $server_path dump.rdb] -permissions 0666
+}
 
 # Corrupt its CRC64 checksum.
 set filesize [file size [file join $server_path dump.rdb]]

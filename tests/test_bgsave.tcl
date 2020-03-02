@@ -227,7 +227,7 @@ proc read_from_test_client fd {
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
         foreach p $::clients_pids {
-            catch {exec kill -9 $p}
+            catch {kill_proc2 $p}
         }
         exit 1
     } elseif {$status eq {testing}} {

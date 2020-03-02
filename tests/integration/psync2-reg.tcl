@@ -52,7 +52,7 @@ start_server {} {
         }
         after 100
     }
-    exec kill -9 $bench_pid
+    kill_proc2 $bench_pid
 
     if {$debug_msg} {
         for {set j 0} {$j < 100} {incr j} {
