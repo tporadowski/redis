@@ -661,9 +661,9 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
  * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int commandFlagsFromString(char *s) {
+int64_t commandFlagsFromString(char *s) {
     int count, j;
-    int flags = 0;
+    int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
@@ -741,7 +741,7 @@ int commandFlagsFromString(char *s) {
  *                     other reason.
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -4022,9 +4022,9 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  *
  * To call non-reply APIs, the thread safe context must be prepared with:
  *
- *     RedisModule_ThreadSafeCallStart(ctx);
+ *     RedisModule_ThreadSafeContextLock(ctx);
  *     ... make your call here ...
- *     RedisModule_ThreadSafeCallStop(ctx);
+ *     RedisModule_ThreadSafeContextUnlock(ctx);
  *
  * This is not needed when using `RedisModule_Reply*` functions, assuming
  * that a blocked client was used when the context was created, otherwise
@@ -4392,10 +4392,13 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id);
-    if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    if (node == NULL ||
+        node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    {
         return REDISMODULE_ERR;
+    }
 
-    if (ip) memcpy(ip,node->name,REDISMODULE_NODE_ID_LEN);
+    if (ip) strncpy(ip,node->ip,NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the

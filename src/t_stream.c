@@ -67,6 +67,21 @@ void freeStream(stream *s) {
     zfree(s);
 }
 
+/* Set 'id' to be its successor streamID */
+void streamIncrID(streamID *id) {
+    if (id->seq == UINT64_MAX) {
+        if (id->ms == UINT64_MAX) {
+            /* Special case where 'id' is the last possible streamID... */
+            id->ms = id->seq = 0;
+        } else {
+            id->ms++;
+            id->seq = 0;
+        }
+    } else {
+        id->seq++;
+    }
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
@@ -77,8 +92,8 @@ void streamNextID(streamID *last_id, streamID *new_id) {
         new_id->ms = ms;
         new_id->seq = 0;
     } else {
-        new_id->ms = last_id->ms;
-        new_id->seq = last_id->seq+1;
+        *new_id = *last_id;
+        streamIncrID(new_id);
     }
 }
 
@@ -776,6 +791,16 @@ int streamDeleteItem(stream *s, streamID *id) {
     return deleted;
 }
 
+/* Get the last valid (non-tombstone) streamID of 's'. */
+void streamLastValidID(stream *s, streamID *maxid)
+{
+    streamIterator si;
+    streamIteratorStart(&si,s,NULL,NULL,1);
+    int64_t numfields;
+    streamIteratorGetID(&si,maxid,&numfields);
+    streamIteratorStop(&si);
+}
+
 /* Emit a reply in the client output buffer by formatting a Stream ID
  * in the standard <ms>-<seq> format, using the simple string protocol
  * of REPL. */
@@ -817,7 +842,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[11] = createStringObject("JUSTID",6);
     argv[12] = createStringObject("LASTID",6);
     argv[13] = createObjectFromStreamID(&group->last_id);
-    propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
     decrRefCount(argv[4]);
@@ -844,7 +869,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
     decrRefCount(argv[4]);
@@ -1233,6 +1258,13 @@ void xaddCommand(client *c) {
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
 
+    /* Return ASAP if the stream has reached the last possible ID */
+    if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
+        addReplyError(c,"The stream has exhausted the last possible ID, "
+                        "unable to add more items");
+        return;
+    }
+
     /* Append using the low level function and return the ID. */
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
         &id, id_given ? &id : NULL)
@@ -1496,20 +1528,23 @@ void xreadCommand(client *c) {
             {
                 serve_synchronously = 1;
                 serve_history = 1;
-            } else {
+            } else if (s->length) {
                 /* We also want to serve a consumer in a consumer group
                  * synchronously in case the group top item delivered is smaller
                  * than what the stream has inside. */
-                streamID *last = &groups[i]->last_id;
-                if (s->length && (streamCompareID(&s->last_id, last) > 0)) {
+                streamID maxid, *last = &groups[i]->last_id;
+                streamLastValidID(s, &maxid);
+                if (streamCompareID(&maxid, last) > 0) {
                     serve_synchronously = 1;
                     *gt = *last;
                 }
             }
-        } else {
+        } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
-            if (s->length && (streamCompareID(&s->last_id, gt) > 0)) {
+            streamID maxid;
+            streamLastValidID(s, &maxid);
+            if (streamCompareID(&maxid, gt) > 0) {
                 serve_synchronously = 1;
             }
         }
@@ -1521,7 +1556,7 @@ void xreadCommand(client *c) {
              * so start from the next ID, since we want only messages with
              * IDs greater than start. */
             streamID start = *gt;
-            start.seq++; /* uint64_t can't overflow in this context. */
+            streamIncrID(&start);
 
             /* Emit the two elements sub-array consisting of the name
              * of the stream and the data we extracted from it. */
@@ -1858,11 +1893,7 @@ void xsetidCommand(client *c) {
      * item, otherwise the fundamental ID monotonicity assumption is violated. */
     if (s->length > 0) {
         streamID maxid;
-        streamIterator si;
-        streamIteratorStart(&si,s,NULL,NULL,1);
-        int64_t numfields;
-        streamIteratorGetID(&si,&maxid,&numfields);
-        streamIteratorStop(&si);
+        streamLastValidID(s,&maxid);
 
         if (streamCompareID(&id,&maxid) < 0) {
             addReplyError(c,"The ID specified in XSETID is smaller than the "
@@ -2233,7 +2264,7 @@ void xclaimCommand(client *c) {
     }
 
     /* Do the actual claiming. */
-    streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
+    streamConsumer *consumer = NULL;
     void *arraylenptr = addDeferredMultiBulkLength(c);
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
@@ -2285,9 +2316,11 @@ void xclaimCommand(client *c) {
             if (nack->consumer)
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
+            if (consumer == NULL)
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
-            /* Set the delivery attempts counter if given, otherwise 
+            /* Set the delivery attempts counter if given, otherwise
              * autoincrement unless JUSTID option provided */
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
