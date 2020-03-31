@@ -21,7 +21,7 @@
     <Product Id="*"
              Name="Redis on Windows"
              Language="1033"
-             Version="5.0.7"
+             Version="5.0.8"
              Manufacturer="Poradowski.com"
              UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
         <Package InstallerVersion="200"
