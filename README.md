@@ -1,6 +1,6 @@
-# Redis 5.0.x for Windows
+# Redis 5.0.9 for Windows
 
-Branch **develop** is still under development and at the moment provides an unstable version of Redis 5.0.9. See below for information on latest release from 4.0.x branch.
+Branch [win-5.0 branch](https://github.com/tporadowski/redis/tree/win-5.0) at the moment provides version of Redis 5.0.9. It will be released shortly!
 
 ## Redis 4.0.14 for Windows
 
@@ -8,14 +8,14 @@ You can find the release of **Redis 4.0.14 for Windows** on [releases page](http
 
 **DISCLAIMER**
 
-At the moment [win-4.0.14 branch](https://github.com/tporadowski/redis/tree/win-4.0.14) provides a **fairly stable port of [Redis 4.0.14](https://github.com/antirez/redis/releases/tag/4.0.14) for Windows x64** merged with archived port of [win-3.2.100 version](https://github.com/MicrosoftArchive/redis/releases/tag/win-3.2.100) from MS Open Tech team. Since the latter is no longer maintained - the sources were merged by hand, projects updated to Visual Studio 2019 (v16.2.5) and any findings (mostly via unit tests) were fixed.
+At the moment [win-4.0.14 branch](https://github.com/tporadowski/redis/tree/win-4.0.14) provides a **stable port of [Redis 4.0.14](https://github.com/antirez/redis/releases/tag/4.0.14) for Windows x64** merged with archived port of [win-3.2.100 version](https://github.com/MicrosoftArchive/redis/releases/tag/win-3.2.100) from MS Open Tech team. Since the latter is no longer maintained - the sources were merged by hand, projects updated to Visual Studio 2019 (v16.2.5) and any findings (mostly via unit tests) were fixed.
 
 You can find the original description of what this fork provides, how it evolved, what are its requirements, etc. on Wiki: https://github.com/tporadowski/redis/wiki/Old-MSOpenTech-redis-README.md
 
 **Building from source code**
 
 In order to build this project from source code you need to have:
-  1. Visual Studio 2019 (i.e. Community Edition, version 16.2.5) with "C/C++ features" enabled,
+  1. Visual Studio 2019 (i.e. Community Edition, version 16.2.5 or newer) with "C/C++ features" enabled,
   1. Windows SDK 10,
   1. [Git Bash](https://gitforwindows.org/) for Windows or [Cygwin](http://cygwin.com/) with Git - after cloning this repository you need to run `src/mkreleasehdr.sh` script that creates `src/release.h` with some information taken from Git; optionally you can create that file by hand.
 
