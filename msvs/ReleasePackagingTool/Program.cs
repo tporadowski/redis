@@ -39,6 +39,7 @@ namespace ReleasePackagingTool
 					if (!string.IsNullOrWhiteSpace(cmdLineOptions.PrepareNewVersion))
 					{
 						p.PrepareNewVersion(cmdLineOptions.PrepareNewVersion);
+						p.UpdateNuSpecFiles(cmdLineOptions.PrepareNewVersion);
 					}
 
 					if (!cmdLineOptions.SkipPackage)
