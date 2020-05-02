@@ -6,6 +6,13 @@ For release notes related to original Redis project - please see 00-RELEASENOTES
 
 --------------------------------------------------------
 
+2020-05-02: Redis 5.0.9 for Windows
+https://github.com/tporadowski/redis/releases/tag/v5.0.9
+
+First release of Redis 5.x for Windows, updated to be in sync with antirez/5.0.9.
+
+--------------------------------------------------------
+
 2020-01-26: Redis 4.0.14.2 for Windows
 https://github.com/tporadowski/redis/releases/tag/v4.0.14.2
 

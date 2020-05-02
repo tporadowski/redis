@@ -13,6 +13,6 @@ msbuild RedisServer.sln -t:Rebuild -p:Configuration=%CONFIGURATION%;Platform=x64
 msbuild RedisServer.sln -t:RedisCli -p:Configuration=%CONFIGURATION%;Platform=x64;Machine=x64
 msbuild RedisServer.sln -t:RedisBenchmark -p:Configuration=%CONFIGURATION%;Platform=x64;Machine=x64
 
-rem cd msi
-rem msbuild RedisMsi.sln -t:Rebuild -p:Configuration=%CONFIGURATION%;Platform=x64
-rem cd ..
+cd msi
+msbuild RedisMsi.sln -t:Rebuild -p:Configuration=%CONFIGURATION%;Platform=x64
+cd ..
