@@ -88,7 +88,8 @@ listNode *listSearchKey(list *list, void *key);
 listNode *listIndex(list *list, PORT_LONG index);
 void listRewind(list *list, listIter *li);
 void listRewindTail(list *list, listIter *li);
-void listRotate(list *list);
+void listRotateTailToHead(list *list);
+void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
 
 /* Directions for iterators */
