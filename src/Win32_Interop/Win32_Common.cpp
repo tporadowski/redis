@@ -29,6 +29,12 @@ namespace Globals
 /* This function is used to force the VEH on the entire size of the buffer length,
  * in the event that the buffer crosses the memory page boundaries */
 void EnsureMemoryIsMapped(const void *buffer, size_t size) {
+    //[tporadowski/#62] when this is called from main process - Globals::pageSize is not initialized,
+    //                  so prevent EXCEPTION_INT_DIVIDE_BY_ZERO
+    if (Globals::pageSize == 0) {
+        return;
+    }
+        
     char* pFirstByte = (char*) buffer;
     char* pLastByte = (char*) buffer + size - 1;
     char* pFirstPage = pFirstByte - ((size_t) pFirstByte % Globals::pageSize);
