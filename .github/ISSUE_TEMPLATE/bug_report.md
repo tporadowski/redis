@@ -20,6 +20,9 @@ Please provide more information about:
 **Crash report**
 If Redis generated a crash report - please paste it here.
 
+**INFO output**
+If possible - please provide output of `INFO` command that might be helpful in analyzing your issue.
+
 **Event Log**
 Please check your system's Event Log to see if there are additional details logged related to this issue.
 
