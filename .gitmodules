@@ -1,0 +1,3 @@
+[submodule "deps/jemalloc-5.2.1"]
+	path = deps/jemalloc-5.2.1
+	url = https://github.com/paviad/jemalloc.git
