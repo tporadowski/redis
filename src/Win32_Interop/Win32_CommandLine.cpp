@@ -289,20 +289,22 @@ public:
         subCommands = RedisParameterMapper
         {
             { "monitor",                    &fp4 },    // sentinel monitor [master name] [ip] [port] [quorum]
-            { "auth-pass",                  &fp2 },    // sentinel auth-pass [master name] [password]
             { "down-after-milliseconds",    &fp2 },    // sentinel down-after-milliseconds [master name] [milliseconds]
-            { "parallel-syncs",             &fp2 },    // sentinel parallel-syncs [master name] [number]
             { "failover-timeout",           &fp2 },    // sentinel failover-timeout [master name] [number]
+            { "parallel-syncs",             &fp2 },    // sentinel parallel-syncs [master name] [number]
             { "notification-script",        &fp2 },    // sentinel notification-script [master name] [scriptPath]
             { "client-reconfig-script",     &fp2 },    // sentinel client-reconfig-script [master name] [scriptPath]
-            { "config-epoch",               &fp2 },    // sentinel config-epoch [name] [epoch]
+            { "auth-pass",                  &fp2 },    // sentinel auth-pass [master name] [password]
             { "current-epoch",              &fp1 },    // sentinel current-epoch <epoch>
+            { "myid",                       &fp1 },    // sentinel myid <id>
+            { "config-epoch",               &fp2 },    // sentinel config-epoch [name] [epoch]
             { "leader-epoch",               &fp2 },    // sentinel leader-epoch [name] [epoch]
             { "known-slave",                &fp3 },    // sentinel known-slave <name> <ip> <port>
+            { "known-replica",              &fp3 },    // sentinel known-slave <name> <ip> <port>
             { "known-sentinel",             &fp4 },    // sentinel known-sentinel <name> <ip> <port> [runid]
+            { "rename-command",             &fp3 },    // sentinel rename-command <name> <command> <renamed-command>
             { "announce-ip",                &fp1 },    // sentinel announce-ip <ip>
             { "announce-port",              &fp1 },    // sentinel announce-port <port>
-            { "myid",                       &fp1 },    // sentinel myid <id>
             { "deny-scripts-reconfig",      &fp1 }     // sentinel deny-scripts-reconfig [yes/no]
         };
     }
