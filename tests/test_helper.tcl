@@ -454,6 +454,18 @@ proc print_help_screen {} {
     } "\n"]
 }
 
+# [tporadowski] "debug restart" command in Redis for Windows causes a new process
+#  with new PID to be started, so we need to properly clean this up when running tests
+#  from Cygwin
+set ::winpids {}
+set ::uses_cygwin 0
+if {$::tcl_platform(platform) == "unix"} {
+    set uname [exec uname -s]
+    if {[string first "CYGWIN" $uname] != -1} {
+        set ::uses_cygwin 1
+    }
+}
+
 # parse arguments
 for {set j 0} {$j < [llength $argv]} {incr j} {
     set opt [lindex $argv $j]
