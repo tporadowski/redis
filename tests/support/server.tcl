@@ -96,30 +96,41 @@ if { $tcl_platform(platform) != "windows" } {
   }
 }
 
+proc windows_is_alive config {
+    set pid [dict get $config pid]
+    set mfilter {PID eq }
+    append mfilter $pid
+    if { [string first $pid [exec tasklist.exe -FI ${mfilter}]] != -1 } {
+        return 1
+    } else {
+        return 0
+    }
+}
+
+proc windows_kill_proc config {
+    set pid [dict get $config pid]
+    catch {exec taskkill.exe /F /T /PID $pid}
+}
+
+proc windows_kill_proc2 pid {
+    catch {exec taskkill.exe /F /T /PID $pid}
+}
 
 if { $tcl_platform(platform) == "windows" } {
     proc is_alive config {
-        set pid [dict get $config pid]
-        set mfilter {PID eq }
-        append mfilter $pid
-        if { [string first $pid [exec tasklist.exe -FI ${mfilter}]] != -1 } {
-            return 1
-        } else {
-            return 0
-        }
+        return [windows_is_alive $config]
     }
 }
 
 if { $tcl_platform(platform) == "windows" } {
     proc kill_proc config {
-        set pid [dict get $config pid]
-        catch {exec taskkill.exe -F -T -PID $pid}
+        windows_kill_proc $config
     }
 }
 
 if { $tcl_platform(platform) == "windows" } {
     proc kill_proc2 pid {
-        catch {exec taskkill.exe -F -T -PID $pid}
+        windows_kill_proc2 $pid
     }
 }
 
@@ -388,4 +399,20 @@ proc start_server {options {code undefined}} {
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
     }
+}
+
+proc cygwin_clean_up {} {
+    # clean up any new processes started with "debug restart" using Windows-specific tools
+    foreach newpid $::winpids {
+        set config [dict create "pid" $newpid]
+
+        if {$::verbose} { puts "Checking if WINPID=$newpid is still alive" }
+        while {[windows_is_alive $config]} {
+            if {$::verbose} { puts "Trying to stop server with WINPID=$newpid" }
+            windows_kill_proc $config
+            after 1000
+        }
+    }
+
+    set ::winpids {}
 }
