@@ -1193,7 +1193,7 @@ static int cliSendCommand(int argc, char **argv, PORT_LONG repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
-    while(repeat-- > 0) {
+    while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -1227,6 +1227,11 @@ static int cliSendCommand(int argc, char **argv, PORT_LONG repeat) {
             } else if (!strcasecmp(command,"auth") && argc == 2) {
                 cliSelect();
             }
+        }
+        if (config.cluster_reissue_command){
+            /* If we need to reissue the command, break to prevent a
+               further 'repeat' number of dud interations */
+            break;
         }
         if (config.interval) usleep(config.interval);
         fflush(stdout); /* Make it grep friendly */
@@ -6080,6 +6085,7 @@ static void getRDB(void) {
     }
     close(s); /* Close the file descriptor ASAP as fsync() may take time. */
     fsync(fd);
+    close(fd);
     fprintf(stderr,"Transfer finished with success.\n");
     exit(0);
 }

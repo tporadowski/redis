@@ -64,11 +64,15 @@
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_size(p)
-
 #endif
 
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
+#ifdef __GLIBC__
+#include <malloc.h>
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) malloc_usable_size(p)
+#endif
 #endif
 
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
