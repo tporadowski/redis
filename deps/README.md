@@ -42,6 +42,19 @@ the following additional steps:
    changed, otherwise you could just copy the old implementation if you are
    upgrading just to a similar version of Jemalloc.
 
+Jemalloc for Redis for Windows
+---
+
+In order to reconfigure `jemalloc` for Redis for Windows - please follow the steps from `msvc/ReadMe.txt` file. Due to memory allocation tracking in Windows
+port - options `--with-lg-page` and `--with-lg-hugepage` must be set to the same value (which is now `22` and it defines a `1 << 22` page size = 4MB).
+
+`jemalloc` has been confiured with:
+```
+sh -c "CC=cl ./autogen.sh --with-lg-quantum=3 --with-lg-page=22 --with-lg-hugepage=22 --with-version=5.2.1-0-g6619f70ffc9b53ba5d3b38c8c3d5676905242c87"
+```
+
+**NOTE**: active defragmentation is **switched OFF** for now as the Redis-specific modification that supports that feature seems to not work properly (either in jemalooc 5.2.1 or together with memory allocation code specific to Windows port of Redis).
+
 Geohash
 ---
 

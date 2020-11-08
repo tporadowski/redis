@@ -33,6 +33,7 @@
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/win32fixes.h"
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/Win32_PThread.h"
 #endif
 
 #include <stdio.h>
@@ -188,9 +189,6 @@ void *zrealloc(void *ptr, size_t size) {
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
-    /* Assume at least that all the allocations are padded at sizeof(long) by
-     * the underlying allocator. */
-    if (size&(sizeof(PORT_LONG)-1)) size += sizeof(PORT_LONG)-(size&(sizeof(PORT_LONG)-1));
     return size+PREFIX_SIZE;
 }
 size_t zmalloc_usable(void *ptr) {

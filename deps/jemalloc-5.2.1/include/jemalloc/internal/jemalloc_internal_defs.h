@@ -173,7 +173,7 @@
  * Minimum allocation alignment is 2^LG_QUANTUM bytes (ignoring tiny size
  * classes).
  */
-/* #undef LG_QUANTUM */
+#define LG_QUANTUM 3
 
 /* One page is 2^LG_PAGE bytes. */
 #define LG_PAGE 22

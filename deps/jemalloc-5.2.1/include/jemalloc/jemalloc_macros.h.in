@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <limits.h>
-#include <strings.h>
+#include <string.h>
 
 #define JEMALLOC_VERSION "@jemalloc_version@"
 #define JEMALLOC_VERSION_MAJOR @jemalloc_version_major@
@@ -130,4 +130,5 @@
 
 /* This version of Jemalloc, modified for Redis, has the je_get_defrag_hint()
  * function. */
-#define JEMALLOC_FRAG_HINT
+//[tporadowski] turned off as it no longer works properly and needs further investigation
+//#define JEMALLOC_FRAG_HINT

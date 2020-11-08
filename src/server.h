@@ -1292,6 +1292,7 @@ struct redisServer {
                              execution. */
     int lua_kill;         /* Kill the script if true. */
     int lua_always_replicate_commands; /* Default replication type. */
+    int lua_oom;          /* OOM detected when script start? */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -1853,6 +1854,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy);
 int expireIfNeeded(redisDb *db, robj *key);
 PORT_LONGLONG getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, PORT_LONGLONG when);
+int checkAlreadyExpired(PORT_LONGLONG when);
 #ifdef _WIN32
 time_t getExpireForSave(redisDb *db, robj *key);
 #endif

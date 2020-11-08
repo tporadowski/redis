@@ -2,15 +2,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <limits.h>
-#include <strings.h>
+#include <string.h>
 
-#define JEMALLOC_VERSION "5.2.1-0-gea6b3e973b477b8061e0076bb257dbd7f3faa756"
+#define JEMALLOC_VERSION "5.2.1-0-g6619f70ffc9b53ba5d3b38c8c3d5676905242c87"
 #define JEMALLOC_VERSION_MAJOR 5
 #define JEMALLOC_VERSION_MINOR 2
 #define JEMALLOC_VERSION_BUGFIX 1
 #define JEMALLOC_VERSION_NREV 0
-#define JEMALLOC_VERSION_GID "ea6b3e973b477b8061e0076bb257dbd7f3faa756"
-#define JEMALLOC_VERSION_GID_IDENT ea6b3e973b477b8061e0076bb257dbd7f3faa756
+#define JEMALLOC_VERSION_GID "6619f70ffc9b53ba5d3b38c8c3d5676905242c87"
+#define JEMALLOC_VERSION_GID_IDENT 6619f70ffc9b53ba5d3b38c8c3d5676905242c87
 
 #define MALLOCX_LG_ALIGN(la)	((int)(la))
 #if LG_SIZEOF_PTR == 2
@@ -130,4 +130,5 @@
 
 /* This version of Jemalloc, modified for Redis, has the je_get_defrag_hint()
  * function. */
-#define JEMALLOC_FRAG_HINT
+//[tporadowski] turned off as it no longer works properly and needs further investigation
+//#define JEMALLOC_FRAG_HINT
