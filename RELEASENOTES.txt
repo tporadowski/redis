@@ -6,6 +6,16 @@ For release notes related to original Redis project - please see 00-RELEASENOTES
 
 --------------------------------------------------------
 
+2020-11-08: Redis 5.0.10 for Windows
+https://github.com/tporadowski/redis/releases/tag/v5.0.10
+
+Bugfix/maintenance release of Redis for Windows, updated to be in sync with
+redis/5.0.10 (https://github.com/redis/redis/releases/tag/5.0.10)
+
+NOTE: active memory defragmentation feature ("activedefrag" option) is turned OFF.
+
+--------------------------------------------------------
+
 2020-05-02: Redis 5.0.9 for Windows
 https://github.com/tporadowski/redis/releases/tag/v5.0.9
 
