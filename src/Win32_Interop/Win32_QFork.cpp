@@ -101,6 +101,7 @@
 #include "Win32_EventLog.h"
 
 #include <jemalloc/jemalloc.h>
+#include <jemalloc/internal/jemalloc_internal_defs.h>
 
 #include <algorithm>
 #include <string>
@@ -163,9 +164,9 @@ extern "C"
     PORT_LONGLONG memtoll(const char *p, int *err);     // Forward def from util.h
 }
 
-const size_t cAllocationGranularity = 1 << 22;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
+const size_t cAllocationGranularity = 1 << LG_PAGE;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
 #ifdef _WIN64
-const int  cMaxBlocks = 1 << 18;                // 4MB * 256K heap blocks = 1TB
+const int  cMaxBlocks = 1 << (40 - LG_PAGE);                // 4MB * 256K heap blocks = 1TB
 #else
 const int  cMaxBlocks = 1 << 8;                 // 4MB * 256 heap blocks = 1GB
 #endif

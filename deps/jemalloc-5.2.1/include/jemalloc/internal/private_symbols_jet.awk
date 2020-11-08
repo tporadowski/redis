@@ -16,7 +16,7 @@ BEGIN {
         jet_malloc_stats_print \
         jet_malloc_usable_size \
         jet_mallocx \
-        jet_smallocx_ea6b3e973b477b8061e0076bb257dbd7f3faa756 \
+        jet_smallocx_6619f70ffc9b53ba5d3b38c8c3d5676905242c87 \
         jet_nallocx \
         jet_posix_memalign \
         jet_rallocx \
