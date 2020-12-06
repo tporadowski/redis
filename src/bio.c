@@ -163,15 +163,21 @@ void *bioProcessBackgroundJobs(void *arg) {
         return NULL;
     }
 
-    /* Make the thread killable at any time, so that bioKillThreads()
-     * can work reliably. */
-#ifndef _WIN32
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-#else
-    // TODO: if the ptherad support is important, then the current implementation 
-    // in win32fixes.h needs much rework. Cancellability requires a shared event.
-#endif
+    switch (type) {
+    case BIO_CLOSE_FILE:
+        redis_set_thread_title("bio_close_file");
+        break;
+    case BIO_AOF_FSYNC:
+        redis_set_thread_title("bio_aof_fsync");
+        break;
+    case BIO_LAZY_FREE:
+        redis_set_thread_title("bio_lazy_free");
+        break;
+    }
+
+    redisSetCpuAffinity(server.bio_cpulist);
+
+    makeThreadKillable();
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -273,10 +279,11 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        if (pthread_cancel(bio_threads[j]) == 0) {
+        if (bio_threads[j] == pthread_self()) continue;
+        if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can be joined: %s",
+                    "Bio thread for job type #%d can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,
