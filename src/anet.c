@@ -231,7 +231,7 @@ int anetSendTimeout(char *err, int fd, PORT_LONGLONG ms) {
 
 /* Set the socket receive timeout (SO_RCVTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
-int anetRecvTimeout(char *err, int fd, long long ms) {
+int anetRecvTimeout(char *err, int fd, PORT_LONGLONG ms) {
     struct timeval tv;
 
     tv.tv_sec = ms/1000;
