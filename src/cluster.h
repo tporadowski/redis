@@ -13,15 +13,10 @@
 
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
-#define CLUSTER_DEFAULT_NODE_TIMEOUT 15000
-#define CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
-#define CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
-#define CLUSTER_DEFAULT_SLAVE_NO_FAILOVER 0 /* Failover by default. */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
-#define CLUSTER_DEFAULT_MIGRATION_BARRIER 1
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
@@ -34,13 +29,14 @@
 #define CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
 #define CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
+#define CLUSTER_REDIR_DOWN_RO_STATE 7 /* -CLUSTERDOWN, allow reads. */
 
 struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
-    int fd;                     /* TCP socket file descriptor */
+    connection *conn;           /* Connection to remote node */
     sds sndbuf;                 /* Packet send buffer */
     sds rcvbuf;                 /* Packet reception buffer */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
@@ -55,8 +51,8 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-#define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
-#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failver. */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
+#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
@@ -168,10 +164,10 @@ typedef struct clusterState {
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     PORT_LONGLONG mf_master_offset; /* Master offset the slave needs to start MF
-                                   or zero if stil not received. */
+                                   or zero if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
-    /* The followign fields are used by masters to take state on elections. */
+    /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
@@ -287,5 +283,6 @@ typedef struct {
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+PORT_ULONG getClusterConnectionsCount(void);
 
 #endif /* __CLUSTER_H */
