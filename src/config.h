@@ -59,6 +59,7 @@
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
 #define HAVE_PROC_SOMAXCONN 1
+#define HAVE_PROC_OOM_SCORE_ADJ 1
 #endif
 
 /* Test for task_info() */
@@ -68,7 +69,7 @@
 
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
  || defined(__DragonFly__)
 #define HAVE_BACKTRACE 1
 #endif
@@ -128,6 +129,10 @@
 #define USE_SETPROCTITLE
 #endif
 
+#if defined(__HAIKU__)
+#define ESOCKTNOSUPPORT 0
+#endif
+
 #if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
@@ -170,7 +175,7 @@ void setproctitle(const char *fmt, ...);
 #endif /* BYTE_ORDER */
 
 /* Sometimes after including an OS-specific header that defines the
- * endianess we end with __BYTE_ORDER but not with BYTE_ORDER that is what
+ * endianness we end with __BYTE_ORDER but not with BYTE_ORDER that is what
  * the Redis code uses. In this case let's define everything without the
  * underscores. */
 #ifndef BYTE_ORDER
@@ -186,8 +191,6 @@ void setproctitle(const char *fmt, ...);
 #define BYTE_ORDER LITTLE_ENDIAN
 #else
 #define BYTE_ORDER BIG_ENDIAN
-#endif
-#endif
 #endif
 #endif
 
@@ -235,6 +238,33 @@ void setproctitle(const char *fmt, ...);
 
 #if defined(__sparc__) || defined(__arm__)
 #define USE_ALIGNED_ACCESS
+#endif
+
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
 #endif
 
 #endif
