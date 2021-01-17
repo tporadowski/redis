@@ -2359,10 +2359,6 @@ static int updateLogLevel(int val, int prev, char **err) {
     setLogVerbosityLevel(val);
     return 1;
 }
-
-static int updateSyslogEnabled() {
-
-}
 #endif
 
 standardConfig configs[] = {
