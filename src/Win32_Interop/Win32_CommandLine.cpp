@@ -288,6 +288,7 @@ public:
     SentinelParams() {
         subCommands = RedisParameterMapper
         {
+            //subcommands are parsed in src/sentinel.c/sentinelHandleConfiguration()
             { "monitor",                    &fp4 },    // sentinel monitor [master name] [ip] [port] [quorum]
             { "down-after-milliseconds",    &fp2 },    // sentinel down-after-milliseconds [master name] [milliseconds]
             { "failover-timeout",           &fp2 },    // sentinel failover-timeout [master name] [number]
@@ -359,6 +360,45 @@ public:
 
 static SentinelParams sp = SentinelParams();
 
+//TODO: add validation like in BindParams?
+typedef class UserParams : public ParamExtractor {
+public:
+    UserParams() {}
+
+    vector<string> Extract(int argStartIndex, int argc, char** argv) {
+        vector<string> params;
+        int argIndex = argStartIndex + 1;
+
+        // user <username> [acl rule, ...]
+        while (argIndex < argc) {
+            string param = string(argv[argIndex]);
+            transform(param.begin(), param.end(), param.begin(), ::tolower);
+            param = stripQuotes(param);
+            params.push_back(param);
+            argIndex++;
+        }
+        return params;
+    }
+
+    virtual vector<string> Extract(vector<string> tokens, int startIndex = 0) {
+        vector<string> params;
+        int skipCount = 1 + startIndex;
+        for (string token : tokens) {
+            if (skipCount > 0) {
+                skipCount--;
+                continue;
+            }
+            string param = string(token);
+            transform(param.begin(), param.end(), param.begin(), ::tolower);
+            param = stripQuotes(param);
+            params.push_back(param);
+        }
+        return params;
+    };
+} UserParams;
+
+static UserParams userp = UserParams();
+
 // Map of argument name to argument processing engine.
 static RedisParameterMapper g_redisArgMap =
 {
@@ -374,125 +414,294 @@ static RedisParameterMapper g_redisArgMap =
     { cServiceStart,                    &fp0 },    // service-start
     { cServiceStop,                     &fp0 },    // service-stop
 
-    // redis commands (ordered as they appear in config.c/loadServerConfigFromString())
-    { "timeout",                        &fp1 },    // timeout [value]
-    { "tcp-keepalive",                  &fp1 },    // tcp-keepalive [value]
+    // Redis standard configs (as defined in src/config.c/configs[])
+    // createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
+    { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
+    // createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
+    { "daemonize",                      &fp1 },    // daemonize [yes/no]
+    // createBoolConfig("io-threads-do-reads", NULL, IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
+    { "io-threads-do-reads",            &fp1 },    // io-threads-do-reads [yes/no]
+    // createBoolConfig("lua-replicate-commands", NULL, MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
+    { "lua-replicate-commands",         &fp1 },    // lua-replicate-commands [yes/no]
+    // createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
+    { "always-show-logo",               &fp1 },    // always-show-logo [yes/no]
+    // createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     { "protected-mode",                 &fp1 },    // protected-mode [yes/no]
-    { "port",                           &fp1 },    // port [port number]
-    { "tcp-backlog",                    &fp1 },    // tcp-backlog [number]
-    { "bind",                           &bp },     // bind [address] [address] ...
+    // createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
+    { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
+    // createBoolConfig("rdb-del-sync-files", NULL, MODIFIABLE_CONFIG, server.rdb_del_sync_files, 0, NULL, NULL),
+    { "rdb-del-sync-files",             &fp1 },    // rdb-del-sync-files [yes/no]
+    // createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, 1, NULL, NULL),
+    { "activerehashing",                &fp1 },    // activerehashing [yes/no]
+    // createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
+    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no]
+    // createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
+    { "dynamic-hz",                     &fp1 },    // dynamic-hz [yes/no]
+    // createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
+    { "lazyfree-lazy-eviction",         &fp1 },    // lazyfree-lazy-eviction [yes/no]
+    // createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
+    { "lazyfree-lazy-expire",           &fp1 },    // lazyfree-lazy-expire [yes/no]
+    // createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
+    { "lazyfree-lazy-server-del",       &fp1 },    // lazyfree-lazy-server-del [yes/no]
+    // createBoolConfig("lazyfree-lazy-user-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
+    { "lazyfree-lazy-user-del",         &fp1 },    // lazyfree-lazy-user-del [yes/no]
+    // createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
+    { "repl-disable-tcp-nodelay",       &fp1 },    // repl-disable-tcp-nodelay [yes/no]
+    // createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
+    { "repl-diskless-sync",             &fp1 },    // repl-diskless-sync [yes/no]
+    // createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, 0, NULL, NULL),
+    { "gopher-enabled",                 &fp1 },    // gopher-enabled [yes/no]
+    // createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),
+    { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
+    // createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, 0, NULL, NULL),
+    { "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
+    // createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),
+    { "cluster-require-full-coverage",  &fp1 },    // cluster-require-full-coverage [yes/no]
+    // createBoolConfig("rdb-save-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.rdb_save_incremental_fsync, 1, NULL, NULL),
+    { "rdb-save-incremental-fsync",     &fp1 },    // rdb-save-incremental-fsync [yes/no]
+    // createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, 1, NULL, NULL),
+    { "aof-load-truncated",             &fp1 },    // aof-load-truncated [yes/no]
+    // createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, 1, NULL, NULL),
+    { "aof-use-rdb-preamble",           &fp1 },    // aof-use-rdb-preamble [yes/no]
+    // createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, 0, NULL, NULL), /* Failover by default. */
+    { "cluster-replica-no-failover",    &fp1 },    // cluster-replica-no-failover [yes/no]
+    { "cluster-slave-no-failover",      &fp1 },    // cluster-slave-no-failover [yes/no]
+    // createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, 0, NULL, NULL),
+    { "replica-lazy-flush",             &fp1 },    // replica-lazy-flush [yes/no]
+    { "slave-lazy-flush",               &fp1 },    // slave-lazy-flush [yes/no]
+    // createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, 1, NULL, NULL),
+    { "replica-serve-stale-data",       &fp1 },    // replica-serve-stale-data [yes/no]
+    { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
+    // createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, 1, NULL, NULL),
+    { "replica-read-only",              &fp1 },    // replica-read-only [yes/no]
+    { "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
+    // createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, 1, NULL, NULL),
+    { "replica-ignore-maxmemory",       &fp1 },    // replica-ignore-maxmemory [yes/no]
+    { "slave-ignore-maxmemory",         &fp1 },    // slave-ignore-maxmemory [yes/no]
+    // createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1, NULL, updateJemallocBgThread),
+    { "jemalloc-bg-thread",             &fp1 },    // jemalloc-bg-thread [yes/no]
+    // createBoolConfig("activedefrag", NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
+    { "activedefrag",                   &fp1 },    // activedefrag [yes/no]
+    // createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
+    { "syslog-enabled",                 &fp1 },    // syslog-enabled [yes/no]
+    // createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
+    { "cluster-enabled",                &fp1 },    // cluster-enabled [yes/no]
+    // createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
+    { "appendonly",                     &fp1 },    // appendonly [yes/no]
+    // createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
+    { "cluster-allow-reads-when-down",  &fp1 },    // cluster-allow-reads-when-down [yes/no]
+    // createBoolConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, server.oom_score_adj, 0, NULL, updateOOMScoreAdj),
+    { "oom-score-adj",                  &fp1 },    // oom-score-adj [yes/no]
+    // createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
+    { "aclfile",                        &fp1 },    // aclfile [path]
+    // createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
     { "unixsocket",                     &fp1 },    // unixsocket [path]
+    // createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
+    { "pidfile",                        &fp1 },    // pidfile [file]
+    // createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
+    { "replica-announce-ip",            &fp1 },    // replica-announce-ip [string]
+    { "slave-announce-ip",              &fp1 },    // slave-announce-ip [string]
+    // createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
+    { "masteruser",                     &fp1 },    // masteruser [string]
+    // createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
+    { "masterauth",                     &fp1 },    // masterauth [master-password]
+    // createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
+    { "cluster-announce-ip",            &fp1 },    // cluster-announce-ip [string]
+    // createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
+    { "syslog-ident",                   &fp1 },    // syslog-ident [string]
+    // createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
+    { "dbfilename",                     &fp1 },    // dbfilename [filename]
+    // createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
+    { "appendfilename",                 &fp1 },    // appendfilename [filename]
+    // createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
+    { "server_cpulist",                 &fp1 },    // server_cpulist [string]
+    // createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
+    { "bio_cpulist",                    &fp1 },    // bio_cpulist [string]
+    // createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
+    { "aof_rewrite_cpulist",            &fp1 },    // aof_rewrite_cpulist [string]
+    // createStringConfig("bgsave_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bgsave_cpulist, NULL, NULL, NULL),
+    { "bgsave_cpulist",                 &fp1 },    // bgsave_cpulist [string]
+    // createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
+    { "supervised",                     &fp1 },    // supervised [upstart|systemd|auto|no]
+    // createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
+    { "syslog-facility",                &fp1 },    // syslog-facility [string]
+    // createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
+    { "repl-diskless-load",             &fp1 },    // repl-diskless-load [disabled|on-empty-db|swapdb]
+    // createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, IF_WIN32(updateLogLevel, NULL)),
+    { "loglevel",                       &fp1 },    // lovlevel [value]
+    // createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
+    { "maxmemory-policy",               &fp1 },    // maxmemory-policy [volatile-lru|volatile-lfu|volatile-random|volatile-ttl|allkeys-lru|allkeys-lfu|allkeys-random|noeviction]
+    // createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
+    { "appendfsync",                    &fp1 },    // appendfsync [value]
+    // createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
+    { "databases",                      &fp1 },    // databases [number]
+    // createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, NULL), /* TCP port. */
+    { "port",                           &fp1 },    // port [port number]
+    // createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
+    { "io-threads",                     &fp1 },    // io-threads [number]
+    // createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
+    { "auto-aof-rewrite-percentage",    &fp1 },    // auto-aof-rewrite-percentage [number]
+    // createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
+    { "cluster-replica-validity-factor",&fp1 },    // cluster-replica-validity-factor [number]
+    { "cluster-slave-validity-factor",  &fp1 },    // cluster-slave-validity-factor [number]
+    // createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, -2, INTEGER_CONFIG, NULL, NULL),
+    { "list-max-ziplist-size",          &fp1 },    // list-max-ziplist-size [number]
+    // createIntConfig("tcp-keepalive", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcpkeepalive, 300, INTEGER_CONFIG, NULL, NULL),
+    { "tcp-keepalive",                  &fp1 },    // tcp-keepalive [value]
+    // createIntConfig("cluster-migration-barrier", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_migration_barrier, 1, INTEGER_CONFIG, NULL, NULL),
+    { "cluster-migration-barrier",      &fp1 },    // cluster-migration-barrier [number]
+    // createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, 1, INTEGER_CONFIG, NULL, NULL), /* Default: 1% CPU min (at lower threshold) */
+    { "active-defrag-cycle-min",        &fp1 },    // active-defrag-cycle-min [number]
+    // createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, 25, INTEGER_CONFIG, NULL, NULL), /* Default: 25% CPU max (at upper threshold) */
+    { "active-defrag-cycle-max",        &fp1 },    // active-defrag-cycle-max [number]
+    // createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, 10, INTEGER_CONFIG, NULL, NULL), /* Default: don't defrag when fragmentation is below 10% */
+    { "active-defrag-threshold-lower",  &fp1 },    // active-defrag-threshold-lower [number]
+    // createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, 100, INTEGER_CONFIG, NULL, NULL), /* Default: maximum defrag force at 100% fragmentation */
+    { "active-defrag-threshold-upper",  &fp1 },    // active-defrag-threshold-upper [number]
+    // createIntConfig("lfu-log-factor", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_log_factor, 10, INTEGER_CONFIG, NULL, NULL),
+    { "lfu-log-factor",                 &fp1 },    // lfu-log-factor [number]
+    // createIntConfig("lfu-decay-time", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_decay_time, 1, INTEGER_CONFIG, NULL, NULL),
+    { "lfu-decay-time",                 &fp1 },    // lfu-decay-time [number]
+    // createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, 100, INTEGER_CONFIG, NULL, NULL),
+    { "replica-priority",               &fp1 },    // replica-priority [number]
+    { "slave-priority",                 &fp1 },    // slave-priority [number]
+     // createIntConfig("repl-diskless-sync-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_delay, 5, INTEGER_CONFIG, NULL, NULL),
+    { "repl-diskless-sync-delay",       &fp1 },    // repl-diskless-sync-delay [number]
+    // createIntConfig("maxmemory-samples", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.maxmemory_samples, 5, INTEGER_CONFIG, NULL, NULL),
+    { "maxmemory-samples",              &fp1 },    // maxmemory-samples [number]
+    // createIntConfig("timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.maxidletime, 0, INTEGER_CONFIG, NULL, NULL), /* Default client timeout: infinite */
+    { "timeout",                        &fp1 },    // timeout [value]
+    // createIntConfig("replica-announce-port", "slave-announce-port", MODIFIABLE_CONFIG, 0, 65535, server.slave_announce_port, 0, INTEGER_CONFIG, NULL, NULL),
+    { "replica-announce-port",          &fp1 },    // replica-announce-port [number]
+    { "slave-announce-port",            &fp1 },    // slave-announce-port [number]
+    // createIntConfig("tcp-backlog", NULL, IMMUTABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, 511, INTEGER_CONFIG, NULL, NULL), /* TCP listen backlog. */
+    { "tcp-backlog",                    &fp1 },    // tcp-backlog [number]
+    // createIntConfig("cluster-announce-bus-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_bus_port, 0, INTEGER_CONFIG, NULL, NULL), /* Default: Use +10000 offset. */
+    { "cluster-announce-bus-port",      &fp1 },    // cluster-announce-bus-port [number]
+    // createIntConfig("cluster-announce-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_port, 0, INTEGER_CONFIG, NULL, NULL), /* Use server.port */
+    { "cluster-announce-port",          &fp1 },    // cluster-announce-port [number]
+    // createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, 60, INTEGER_CONFIG, NULL, NULL),
+    { "repl-timeout",                   &fp1 },    // repl-timeout [number]
+    // createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, 10, INTEGER_CONFIG, NULL, NULL),
+    { "repl-ping-replica-period",       &fp1 },    // repl-ping-replica-period [number]
+    { "repl-ping-slave-period",         &fp1 },    // repl-ping-slave-period [number]
+    // createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
+    { "list-compress-depth",            &fp1 },    // list-compress-depth [number]
+    // createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    { "rdb-key-save-delay",             &fp1 },    // rdb-key-save-delay [number]
+    // createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    { "key-load-delay",                 &fp1 },    // key-load-delay [number]
+    // createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, 1, INTEGER_CONFIG, NULL, NULL), /* From 1 to 10. */
+    { "active-expire-effort",           &fp1 },    // active-expire-effort [number]
+    // createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
+    { "hz",                             &fp1 },    // hz [number]
+    // createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
+    { "min-replicas-to-write",          &fp1 },    // min-replicas-to-write [number]
+    { "min-slaves-to-write",            &fp1 },    // min-slaves-to-write [number]
+    // createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
+    { "min-replicas-max-lag",           &fp1 },    // min-replicas-max-lag [number]
+    { "min-slaves-max-lag",             &fp1 },    // min-slaves-max-lag [number]
+    // createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
+    { "maxclients",                     &fp1 },    // maxclients [number]
+    // createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */
+    { "active-defrag-max-scan-fields",  &fp1 },    // active-defrag-max-scan-fields [number]
+    // createULongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
+    { "slowlog-max-len",                &fp1 },    // slowlog-max-len [number]
+    // createULongConfig("acllog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.acllog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
+    { "acllog-max-len",                 &fp1 },    // acllog-max-len [number]
+    // createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, 5000, INTEGER_CONFIG, NULL, NULL),/* milliseconds */
+    { "lua-time-limit",                 &fp1 },    // lua-time-limit [number]
+    // createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, 15000, INTEGER_CONFIG, NULL, NULL),
+    { "cluster-node-timeout",           &fp1 },    // cluster-node-timeout [number]
+    // createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, 10000, INTEGER_CONFIG, NULL, NULL),
+    { "slowlog-log-slower-than",        &fp1 },    // slowlog-log-slower-than [number]
+    // createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
+    { "latency-monitor-threshold",      &fp1 },    // latency-monitor-threshold [number]
+    // createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 1024*1024, LLONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
+    { "proto-max-bulk-len",             &fp1 },    // proto-max-bulk-len [number]
+    // createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
+    { "stream-node-max-entries",        &fp1 },    // stream-node-max-entries [number]
+    // createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
+    { "repl-backlog-size",              &fp1 },    // repl-backlog-size [number]
+    // createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
+    { "maxmemory",                      &fp1 },    // maxmemory [bytes]
+    // createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),
+    { "hash-max-ziplist-entries",       &fp1 },    // hash-max-ziplist-entries [number]
+    // createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
+    { "set-max-intset-entries",         &fp1 },    // set-max-intset-entries [number]
+    // createSizeTConfig("zset-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_entries, 128, INTEGER_CONFIG, NULL, NULL),
+    { "zset-max-ziplist-entries",       &fp1 },    // zset-max-ziplist-entries [number]
+    // createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.active_defrag_ignore_bytes, 100<<20, MEMORY_CONFIG, NULL, NULL), /* Default: don't defrag if frag overhead is below 100mb */
+    { "active-defrag-ignore-bytes",     &fp1 },    // active-defrag-ignore-bytes [number]
+    // createSizeTConfig("hash-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_value, 64, MEMORY_CONFIG, NULL, NULL),
+    { "hash-max-ziplist-value",         &fp1 },    // hash-max-ziplist-value [number]
+    // createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, 4096, MEMORY_CONFIG, NULL, NULL),
+    { "stream-node-max-bytes",          &fp1 },    // stream-node-max-bytes [number]
+    // createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, 64, MEMORY_CONFIG, NULL, NULL),
+    { "zset-max-ziplist-value",         &fp1 },    // zset-max-ziplist-value [number]
+    // createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
+    { "hll-sparse-max-bytes",           &fp1 },    // hll-sparse-max-bytes [number]
+    // createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
+    { "tracking-table-max-keys",        &fp1 },    // tracking-table-max-keys [number]
+    // createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
+    { "repl-backlog-ttl",               &fp1 },    // repl-backlog-ttl [number]
+    // createOffTConfig("auto-aof-rewrite-min -size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    { "auto-aof-rewrite-min-size",      &fp1 },    // auto-aof-rewrite-min-size [number]
+
+#ifdef USE_OPENSSL
+    // createIntConfig("tls-port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTlsCfgInt), /* TCP port. */
+    { "tls-port",                       &fp1 },    // tls-port [number]
+    // createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, updateTlsCfgInt),
+    { "tls-session-cache-size",         &fp1 },    // tls-session-cache-size [number]
+    // createIntConfig("tls-session-cache-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_timeout, 300, INTEGER_CONFIG, NULL, updateTlsCfgInt),
+    { "tls-session-cache-timeout",      &fp1 },    // tls-session-cache-timeout [number]
+    // createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, updateTlsCfgBool),
+    { "tls-cluster",                    &fp1 },    // tls-cluster [yes/no]
+    // createBoolConfig("tls-replication", NULL, MODIFIABLE_CONFIG, server.tls_replication, 0, NULL, updateTlsCfgBool),
+    { "tls-replication",                &fp1 },    // tls-replication [yes/no]
+    // createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
+    { "tls-auth-clients",               &fp1 },    // tls-auth-clients [no|yes|optional]
+    // createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, updateTlsCfgBool),
+    { "tls-prefer-server-ciphers",      &fp1 },    // tls-prefer-server-ciphers [yes/no]
+    // createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, updateTlsCfgBool),
+    { "tls-session-caching",            &fp1 },    // tls-session-caching [yes/no]
+    // createStringConfig("tls-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, updateTlsCfg),
+    { "tls-cert-file",                  &fp1 },    // tls-cert-file [path]
+    // createStringConfig("tls-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, updateTlsCfg),
+    { "tls-key-file",                   &fp1 },    // tls-key-file [path]
+    // createStringConfig("tls-dh-params-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, updateTlsCfg),
+    { "tls-dh-params-file",             &fp1 },    // tls-dh-params-file [path]
+    // createStringConfig("tls-ca-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, updateTlsCfg),
+    { "tls-ca-cert-file",               &fp1 },    // tls-ca-cert-file [path]
+    // createStringConfig("tls-ca-cert-dir", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, updateTlsCfg),
+    { "tls-ca-cert-dir",                &fp1 },    // tls-ca-cert-dir [path]
+    // createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, updateTlsCfg),
+    { "tls-protocols",                  &fp1 },    // tls-protocols [string]
+    // createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, updateTlsCfg),
+    { "tls-ciphers",                    &fp1 },    // tls-ciphers [string]
+    // createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, updateTlsCfg),
+    { "tls-ciphersuites",               &fp1 },    // tls-ciphersuites [string]
+#endif
+
+    // Redis non-standard configs (ordered as they appear in config.c/loadServerConfigFromString())
+    { "bind",                           &bp },     // bind [address] [address] ...
     { "unixsocketperm",                 &fp1 },    // unixsocketperm [perm]
     { "save",                           &savep },  // save [seconds] [changes] or save ""
     { cDir,                             &fp1 },    // dir [path]
-    { "loglevel",                       &fp1 },    // lovlevel [value]
     { "logfile",                        &fp1 },    // logfile [file]
-    { "always-show-logo",               &fp1 },    // always-show-logo [yes/no]
-    { "syslog-enabled",                 &fp1 },    // syslog-enabled [yes/no]
-    { "syslog-ident",                   &fp1 },    // syslog-ident [string]
-    { "syslog-facility",                &fp1 },    // syslog-facility [string]
-    { "databases",                      &fp1 },    // databases [number]
     //"include" is handled in ParseConfFile()
-    { "maxclients",                     &fp1 },    // maxclients [number]
-    { "maxmemory",                      &fp1 },    // maxmemory [bytes]
-    { "maxmemory-policy",               &fp1 },    // maxmemory-policy [policy]
-    { "maxmemory-samples",              &fp1 },    // maxmemory-samples [number]
-    { "proto-max-bulk-len",             &fp1 },    // proto-max-bulk-len [number]
     { "client-query-buffer-limit",      &fp1 },    // client-query-buffer-limit [number]
-    { "lfu-log-factor",                 &fp1 },    // lfu-log-factor [number]
-    { "lfu-decay-time",                 &fp1 },    // lfu-decay-time [number]
     { "slaveof",                        &fp2 },    // slaveof [masterip] [master port]
     { "replicaof",                      &fp2 },    // replicaof [masterip] [master port]
-    { "repl-ping-slave-period",         &fp1 },    // repl-ping-slave-period [number]
-    { "repl-ping-replica-period",       &fp1 },    // repl-ping-replica-period [number]
-    { "repl-timeout",                   &fp1 },    // repl-timeout [number]
-    { "repl-disable-tcp-nodelay",       &fp1 },    // repl-disable-tcp-nodelay [yes/no]
-    { "repl-diskless-sync",             &fp1 },    // repl-diskless-sync [yes/no]
-    { "repl-diskless-sync-delay",       &fp1 },    // repl-diskless-sync-delay [number]
-    { "repl-backlog-size",              &fp1 },    // repl-backlog-size [number]
-    { "repl-backlog-ttl",               &fp1 },    // repl-backlog-ttl [number]
-    { "masterauth",                     &fp1 },    // masterauth [master-password]
-    { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
-    { "replica-serve-stale-data",       &fp1 },    // replica-serve-stale-data [yes/no]
-    { "slave-read-only",                &fp1 },    // slave-read-only [yes/no]
-    { "replica-read-only",              &fp1 },    // replica-read-only [yes/no]
-    { "slave-ignore-maxmemory",         &fp1 },    // slave-ignore-maxmemory [yes/no]
-    { "replica-ignore-maxmemory",       &fp1 },    // replica-ignore-maxmemory [yes/no]
-    { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
-    { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
-    { "activerehashing",                &fp1 },    // activerehashing [yes/no]
-    { "lazyfree-lazy-eviction",         &fp1 },    // lazyfree-lazy-eviction [yes/no]
-    { "lazyfree-lazy-expire",           &fp1 },    // lazyfree-lazy-expire [yes/no]
-    { "lazyfree-lazy-server-del",       &fp1 },    // lazyfree-lazy-server-del [yes/no]
-    { "slave-lazy-flush",               &fp1 },    // slave-lazy-flush [yes/no]
-    { "replica-lazy-flush",             &fp1 },    // replica-lazy-flush [yes/no]
-    { "activedefrag",                   &fp1 },    // activedefrag [yes/no]
-    { "daemonize",                      &fp1 },    // daemonize [yes/no]
-    { "dynamic-hz",                     &fp1 },    // dynamic-hz [yes/no]
-    { "hz",                             &fp1 },    // hz [number]
-    { "appendonly",                     &fp1 },    // appendonly [yes/no]
-    { "appendfilename",                 &fp1 },    // appendfilename [filename]
-    { "no-appendfsync-on-rewrite",      &fp1 },    // no-appendfsync-on-rewrite [value]
-    { "appendfsync",                    &fp1 },    // appendfsync [value]
-    { "auto-aof-rewrite-percentage",    &fp1 },    // auto-aof-rewrite-percentage [number]
-    { "auto-aof-rewrite-min-size",      &fp1 },    // auto-aof-rewrite-min-size [number]
-    { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
-    { "rdb-save-incremental-fsync",     &fp1 },    // rdb-save-incremental-fsync [yes/no]
-    { "aof-load-truncated",             &fp1 },    // aof-load-truncated [yes/no]
-    { "aof-use-rdb-preamble",           &fp1 },    // aof-use-rdb-preamble [yes/no]
     { "requirepass",                    &fp1 },    // requirepass [string]
-    { "pidfile",                        &fp1 },    // pidfile [file]
-    { "dbfilename",                     &fp1 },    // dbfilename [filename]
-    { "active-defrag-threshold-lower",  &fp1 },    // active-defrag-threshold-lower [number]
-    { "active-defrag-threshold-upper",  &fp1 },    // active-defrag-threshold-upper [number]
-    { "active-defrag-ignore-bytes",     &fp1 },    // active-defrag-ignore-bytes [number]
-    { "active-defrag-cycle-min",        &fp1 },    // active-defrag-cycle-min [number]
-    { "active-defrag-cycle-max",        &fp1 },    // active-defrag-cycle-max [number]
-    { "active-defrag-max-scan-fields",  &fp1 },    // active-defrag-max-scan-fields [number]
-    { "hash-max-ziplist-entries",       &fp1 },    // hash-max-ziplist-entries [number]
-    { "hash-max-ziplist-value",         &fp1 },    // hash-max-ziplist-value [number]
-    { "stream-node-max-bytes",          &fp1 },    // stream-node-max-bytes [number]
-    { "stream-node-max-entries",        &fp1 },    // stream-node-max-entries [number]
     { "list-max-ziplist-entries",       &fp1 },    // list-max-ziplist-entries [number]     DEAD OPTION
     { "list-max-ziplist-value",         &fp1 },    // list-max-ziplist-value [number]       DEAD OPTION
-    { "list-max-ziplist-size",          &fp1 },    // list-max-ziplist-size [number]
-    { "list-compress-depth",            &fp1 },    // list-compress-depth[number]
-    { "set-max-intset-entries",         &fp1 },    // set-max-intset-entries [number]
-    { "zset-max-ziplist-entries",       &fp1 },    // zset-max-ziplist-entries [number]
-    { "zset-max-ziplist-value",         &fp1 },    // zset-max-ziplist-value [number]
-    { "hll-sparse-max-bytes",           &fp1 },    // hll-sparse-max-bytes [number]
     { "rename-command",                 &fp2 },    // rename-command [command] [string]
-    { "cluster-enabled",                &fp1 },    // cluster-enabled [yes/no]
     { "cluster-config-file",            &fp1 },    // cluster-config-file [filename]
-    { "cluster-announce-ip",            &fp1 },    // cluster-announce-ip [string]
-    { "cluster-announce-port",          &fp1 },    // cluster-announce-port [number]
-    { "cluster-announce-bus-port",      &fp1 },    // cluster-announce-bus-port [number]
-    { "cluster-require-full-coverage",  &fp1 },    // cluster-require-full-coverage [yes/no]
-    { "cluster-node-timeout",           &fp1 },    // cluster-node-timeout [number]
-    { "cluster-migration-barrier",      &fp1 },    // cluster-migration-barrier [number]
-    { "cluster-slave-validity-factor",  &fp1 },    // cluster-slave-validity-factor [number]
-    { "cluster-replica-validity-factor",&fp1 },    // cluster-replica-validity-factor [number]
-    { "cluster-slave-no-failover",      &fp1 },    // cluster-slave-no-failover [yes/no]
-    { "cluster-replica-no-failover",    &fp1 },    // cluster-replica-no-failover [yes/no]
-    { "lua-time-limit",                 &fp1 },    // lua-time-limit [number]
-    { "lua-replicate-commands",         &fp1 },    // lua-replicate-commands [yes/no]
-    { "slowlog-log-slower-than",        &fp1 },    // slowlog-log-slower-than [number]
-    { "latency-monitor-threshold",      &fp1 },    // latency-monitor-threshold [number]
-    { "slowlog-max-len",                &fp1 },    // slowlog-max-len [number]
     { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
-    { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no]
-    { "slave-priority",                 &fp1 },    // slave-priority [number]
-    { "replica-priority",               &fp1 },    // replica-priority [number]
-    { "slave-announce-ip",              &fp1 },    // slave-announce-ip [string]
-    { "replica-announce-ip",            &fp1 },    // replica-announce-ip [string]
-    { "slave-announce-port",            &fp1 },    // slave-announce-port [number]
-    { "replica-announce-port",          &fp1 },    // replica-announce-port [number]
-    { "min-slaves-to-write",            &fp1 },    // min-slaves-to-write [number]
-    { "min-replicas-to-write",          &fp1 },    // min-replicas-to-write [number]
-    { "min-slaves-max-lag",             &fp1 },    // min-slaves-max-lag [number]
-    { "min-replicas-max-lag",           &fp1 },    // min-replicas-max-lag [number]
+    { "oom-score-adj-values",           &fp3 },    // oom-score-adj-values [number] [number] [number]
     { "notify-keyspace-events",         &fp1 },    // notify-keyspace-events [string]
-    { "supervised",                     &fp1 },    // supervised [upstart|systemd|auto|no]
+    { "user",                           &userp },  // user <username> ... acl rules ...
     { "loadmodule",                     &fp1 },    // loadmodule [filename]
     { "sentinel",                       &sp  },    // sentinel commands
     { "watchdog-period",                &fp1 },    // watchdog-period [number]
@@ -621,16 +830,17 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     }
 }
 
+//TODO: check if list is complete in 6.0 (any new config options related to persistence?)
 vector<string> incompatibleNoPersistenceCommands{
-    "min_slaves_towrite",
-    "min_slaves_max_lag",
+    "min-replicas-to-write", "min-slaves-to-write",
+    "min-replicas-max-lag", "min-slaves-max-lag",
     "appendonly",
     "appendfilename",
     "appendfsync",
-    "no_append_fsync_on_rewrite",
-    "auto_aof_rewrite_percentage",
-    "auto_aof_rewrite_on_size",
-    "aof_rewrite_incremental_fsync",
+    "no-appendfsync-on-rewrite",
+    "auto-aof-rewrite-percentage",
+    "auto-aof-rewrite-min-size",
+    "aof-rewrite-incremental-fsync",
     "save"
 };
 
