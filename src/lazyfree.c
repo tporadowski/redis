@@ -19,7 +19,7 @@ size_t lazyfreeGetPendingObjectsCount(void) {
 
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
- * object is compoesd of, but a number proportional to it.
+ * object is composed of, but a number proportional to it.
  *
  * For strings the function always returns 1.
  *
@@ -111,7 +111,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
@@ -141,7 +141,7 @@ void emptyDbAsync(redisDb *db) {
 }
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
- * and scheduiling the old for lazy freeing. */
+ * and scheduling the old for lazy freeing. */
 void slotToKeyFlushAsync(void) {
     rax *old = server.cluster->slots_to_keys;
 
@@ -160,7 +160,7 @@ void lazyfreeFreeObjectFromBioThread(robj *o) {
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the
- * database which was substitutied with a fresh one in the main thread
+ * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. 'sl' is a skiplist used by
  * Redis Cluster in order to take the hash slots -> keys mapping. This
  * may be NULL if Redis Cluster is disabled. */
