@@ -379,10 +379,15 @@ void memtest(size_t megabytes, int passes) {
         ws.ws_row = 20;
     }
 #else
+#if !defined(__HAIKU__)
     if (ioctl(1, TIOCGWINSZ, &ws) == -1) {
         ws.ws_col = 80;
         ws.ws_row = 20;
     }
+#else
+    ws.ws_col = 80;
+    ws.ws_row = 20;
+#endif
 #endif
     memtest_alloc_and_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
