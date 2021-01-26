@@ -142,10 +142,10 @@ int _dictInit(dict *d, dictType *type,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
-    int minimal;
+    PORT_ULONG minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = (int)d->ht[0].used;                                               WIN_PORT_FIX /* cast (int) */
+    minimal = d->ht[0].used;
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictExpand(d, minimal);
@@ -169,7 +169,7 @@ int dictExpand(dict *d, PORT_ULONG size)
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
-    n.used = (size_t) 0;                                                        WIN_PORT_FIX /* cast (size_t) */
+    n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
@@ -254,7 +254,9 @@ PORT_LONGLONG timeInMilliseconds(void) {
 #endif
 }
 
-/* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
+ * than 0, and is smaller than 1 in most cases. The exact upper bound 
+ * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
     PORT_LONGLONG start = timeInMilliseconds();
     int rehashes = 0;
@@ -495,7 +497,7 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     uint64_t h, idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
@@ -705,9 +707,9 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     }
 
     tables = dictIsRehashing(d) ? 2 : 1;
-    maxsizemask = (unsigned int) d->ht[0].sizemask;                             WIN_PORT_FIX /* cast (unsigned int) */
+    maxsizemask = (PORT_ULONG) d->ht[0].sizemask;                             WIN_PORT_FIX /* cast (PORT_ULONG) */
     if (tables > 1 && maxsizemask < d->ht[1].sizemask)
-        maxsizemask = (unsigned int) d->ht[1].sizemask;                         WIN_PORT_FIX /* cast (unsigned int) */
+        maxsizemask = (PORT_ULONG) d->ht[1].sizemask;                         WIN_PORT_FIX /* cast (PORT_ULONG) */
 
     /* Pick a random point inside the larger table. */
     PORT_ULONG i = random() & maxsizemask;
@@ -753,13 +755,37 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         }
         i = (i+1) & maxsizemask;
     }
-    return (unsigned int)stored;                                                WIN_PORT_FIX /* cast (unsigned int) */
+    return stored;
+}
+
+/* This is like dictGetRandomKey() from the POV of the API, but will do more
+ * work to ensure a better distribution of the returned element.
+ *
+ * This function improves the distribution because the dictGetRandomKey()
+ * problem is that it selects a random bucket, then it selects a random
+ * element from the chain in the bucket. However elements being in different
+ * chain lengths will have different probabilities of being reported. With
+ * this function instead what we do is to consider a "linear" range of the table
+ * that may be constituted of N buckets with chains of different lengths
+ * appearing one after the other. Then we report a random element in the range.
+ * In this way we smooth away the problem of different chain lengths. */
+#define GETFAIR_NUM_ENTRIES 15
+dictEntry *dictGetFairRandomKey(dict *d) {
+    dictEntry *entries[GETFAIR_NUM_ENTRIES];
+    unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
+    /* Note that dictGetSomeKeys() may return zero elements in an unlucky
+     * run() even if there are actually elements inside the hash table. So
+     * when we get zero, we call the true dictGetRandomKey() that will always
+     * yeld the element if the hash table has at least one. */
+    if (count == 0) return dictGetRandomKey(d);
+    unsigned int idx = rand() % count;
+    return entries[idx];
 }
 
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static PORT_ULONG rev(PORT_ULONG v) {
-    PORT_ULONG s = 8 * sizeof(v); // bit size; must be power of 2
+    PORT_ULONG s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
     PORT_ULONG mask = ~0;
     while ((s >>= 1) > 0) {
         mask ^= (mask << s);
@@ -864,6 +890,10 @@ PORT_ULONG dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
+    /* Having a safe iterator means no rehashing can happen, see _dictRehashStep.
+     * This is needed in case the scan callback tries to do dictFind or alike. */
+    d->iterators++;
+
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
         m0 = (PORT_ULONG)t0->sizemask;                                          WIN_PORT_FIX /* cast (PORT_ULONG) */
@@ -929,6 +959,9 @@ PORT_ULONG dictScan(dict *d,
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
+
+    /* undo the ++ at the top */
+    d->iterators--;
 
     return v;
 }
@@ -1030,7 +1063,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
     dictEntry *he, **heref;
     PORT_ULONG idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
         heref = &d->ht[table].table[idx];
@@ -1105,7 +1138,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
             i, clvector[i], ((float)clvector[i]/ht->size)*100);
     }
 
-    /* Unlike snprintf(), teturn the number of characters actually written. */
+    /* Unlike snprintf(), return the number of characters actually written. */
     if (bufsize) buf[bufsize-1] = '\0';
     return strlen(buf);
 }
