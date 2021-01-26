@@ -20,7 +20,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c99 -pedantic -DREDIS_STATIC=''
+STD=-std=c11 -pedantic -DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
@@ -32,6 +32,7 @@ OPT=$(OPTIMIZATION)
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
+PKG_CONFIG?=pkg-config
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -77,6 +78,15 @@ FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
+# Linux ARM needs -latomic at linking time
+ifneq (,$(filter aarch64 armv,$(uname_M)))
+        FINAL_LIBS+=-latomic
+else
+ifneq (,$(findstring armv,$(uname_M)))
+        FINAL_LIBS+=-latomic
+endif
+endif
+
 ifeq ($(uname_S),SunOS)
 	# SunOS
         ifneq ($(@@),32bit)
@@ -93,6 +103,8 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin
 	FINAL_LIBS+= -ldl
+	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
+	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
 else
 ifeq ($(uname_S),AIX)
         # AIX
@@ -109,13 +121,36 @@ ifeq ($(uname_S),OpenBSD)
     	endif
 
 else
+ifeq ($(uname_S),NetBSD)
+	# NetBSD
+	FINAL_LIBS+= -lpthread
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/pkg/include
+	    FINAL_LDFLAGS+= -L/usr/pkg/lib
+	    FINAL_LIBS+= -lexecinfo
+    	endif
+else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 ifeq ($(uname_S),DragonFly)
-	# FreeBSD
+	# DragonFly
 	FINAL_LIBS+= -lpthread -lexecinfo
+else
+ifeq ($(uname_S),OpenBSD)
+	# OpenBSD
+	FINAL_LIBS+= -lpthread -lexecinfo
+else
+ifeq ($(uname_S),NetBSD)
+	# NetBSD
+	FINAL_LIBS+= -lpthread -lexecinfo
+else
+ifeq ($(uname_S),Haiku)
+	# Haiku
+	FINAL_CFLAGS+= -DBSD_SOURCE
+	FINAL_LDFLAGS+= -lbsd -lnetwork
+	FINAL_LIBS+= -lpthread
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
@@ -126,8 +161,36 @@ endif
 endif
 endif
 endif
+endif
+endif
+endif
+endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
+
+# Determine systemd support and/or build preference (defaulting to auto-detection)
+BUILD_WITH_SYSTEMD=no
+# If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
+# auto-detect libsystemd's presence and link accordingly.
+ifneq ($(USE_SYSTEMD),no)
+	LIBSYSTEMD_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libsystemd && echo $$?)
+# If libsystemd cannot be detected, continue building without support for it
+# (unless a later check tells us otherwise)
+ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
+	BUILD_WITH_SYSTEMD=yes
+endif
+endif
+ifeq ($(USE_SYSTEMD),yes)
+ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
+$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
+endif
+# Force building with libsystemd
+	BUILD_WITH_SYSTEMD=yes
+endif
+ifeq ($(BUILD_WITH_SYSTEMD),yes)
+	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
+endif
 
 ifeq ($(MALLOC),tcmalloc)
 	FINAL_CFLAGS+= -DUSE_TCMALLOC
@@ -143,6 +206,24 @@ ifeq ($(MALLOC),jemalloc)
 	DEPENDENCY_TARGETS+= jemalloc
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
+endif
+
+ifeq ($(BUILD_TLS),yes)
+	FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
+	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
+	LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
+ifeq ($(LIBSSL_PKGCONFIG),0)
+	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)
+else
+	LIBSSL_LIBS=-lssl
+endif
+	LIBCRYPTO_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libcrypto && echo $$?)
+ifeq ($(LIBCRYPTO_PKGCONFIG),0)
+	LIBCRYPTO_LIBS=$(shell $(PKG_CONFIG) --libs libcrypto)
+else
+	LIBCRYPTO_LIBS=-lcrypto
+endif
+	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
@@ -162,15 +243,15 @@ QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(EN
 QUIET_INSTALL = @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
-REDIS_SERVER_NAME=redis-server
-REDIS_SENTINEL_NAME=redis-sentinel
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o
-REDIS_CLI_NAME=redis-cli
-REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o anet.o ae.o crc64.o siphash.o crc16.o
-REDIS_BENCHMARK_NAME=redis-benchmark
-REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
-REDIS_CHECK_RDB_NAME=redis-check-rdb
-REDIS_CHECK_AOF_NAME=redis-check-aof
+REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
+REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
+REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o gopher.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o
+REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
+REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o crcspeed.o crc64.o siphash.o crc16.o
+REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
+REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siphash.o
+REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
+REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -191,6 +272,8 @@ persist-settings: distclean
 	echo WARN=$(WARN) >> .make-settings
 	echo OPT=$(OPT) >> .make-settings
 	echo MALLOC=$(MALLOC) >> .make-settings
+	echo BUILD_TLS=$(BUILD_TLS) >> .make-settings
+	echo USE_SYSTEMD=$(USE_SYSTEMD) >> .make-settings
 	echo CFLAGS=$(CFLAGS) >> .make-settings
 	echo LDFLAGS=$(LDFLAGS) >> .make-settings
 	echo REDIS_CFLAGS=$(REDIS_CFLAGS) >> .make-settings
@@ -241,14 +324,18 @@ $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 dict-benchmark: dict.c zmalloc.c sds.c siphash.c
 	$(REDIS_CC) $(FINAL_CFLAGS) $^ -D DICT_BENCHMARK_MAIN -o $@ $(FINAL_LIBS)
 
+DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
+-include $(DEP)
+
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
-	$(REDIS_CC) -c $<
+	$(REDIS_CC) -MMD -o $@ -c $<
 
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
+	rm -f $(DEP)
 
 .PHONY: clean
 
