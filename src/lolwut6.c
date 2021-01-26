@@ -167,8 +167,8 @@ void generateSkyline(lwCanvas *canvas) {
  * per column.
  */
 void lolwut6Command(client *c) {
-    long cols = 80;
-    long rows = 20;
+    PORT_LONG cols = 80;
+    PORT_LONG rows = 20;
 
     /* Parse the optional arguments if any. */
     if (c->argc > 1 &&
