@@ -333,6 +333,9 @@ void loadServerConfigFromString(char *config) {
 #ifdef _WIN32
             setSyslogIdent(server.syslog_ident);
 #endif
+        } else if (!strcasecmp(argv[0],"ignore-warnings") && argc == 2) {
+            if (server.ignore_warnings) zfree(server.ignore_warnings);
+            server.ignore_warnings = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
 #ifdef _WIN32
             // Skip error - just ignore syslog-facility
@@ -966,10 +969,10 @@ void loadServerConfig(char *filename, char *options) {
         if (max != LLONG_MAX && ll > max) goto badfmt; \
         _var = ll;
 
-#define config_set_memory_field(_name,_var) \
+#define config_set_memory_field(_name,_var,min,max) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
         ll = memtoll(o->ptr,&err); \
-        if (err || ll < 0) goto badfmt; \
+        if (err || ll < (PORT_LONGLONG) (min) || ll > (PORT_LONGLONG) (max)) goto badfmt; \
         _var = ll;
 
 #define config_set_enum_field(_name,_var,_enumvar) \
@@ -1235,21 +1238,21 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "active-defrag-threshold-upper",server.active_defrag_threshold_upper,0,1000) {
     } config_set_memory_field(
-      "active-defrag-ignore-bytes",server.active_defrag_ignore_bytes) {
+      "active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
       "active-defrag-cycle-min",server.active_defrag_cycle_min,1,99) {
     } config_set_numerical_field(
       "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
     } config_set_numerical_field(
-      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LONG_MAX) {
+      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,PORT_LONG_MAX) {
     } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,INT_MAX){
     } config_set_numerical_field(
-      "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LONG_MAX) {
+      "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LONG_MAX) {
+      "hash-max-ziplist-value",server.hash_max_ziplist_value,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "stream-node-max-bytes",server.stream_node_max_bytes,0,LONG_MAX) {
+      "stream-node-max-bytes",server.stream_node_max_bytes,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
       "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
@@ -1257,19 +1260,19 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
     } config_set_numerical_field(
-      "set-max-intset-entries",server.set_max_intset_entries,0,LONG_MAX) {
+      "set-max-intset-entries",server.set_max_intset_entries,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "zset-max-ziplist-entries",server.zset_max_ziplist_entries,0,LONG_MAX) {
+      "zset-max-ziplist-entries",server.zset_max_ziplist_entries,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "zset-max-ziplist-value",server.zset_max_ziplist_value,0,LONG_MAX) {
+      "zset-max-ziplist-value",server.zset_max_ziplist_value,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,LONG_MAX) {
+      "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
-      "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
+      "lua-time-limit",server.lua_time_limit,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
       "slowlog-log-slower-than",server.slowlog_log_slower_than,-1,LLONG_MAX) {
     } config_set_numerical_field(
-      "slowlog-max-len",ll,0,LONG_MAX) {
+      "slowlog-max-len",ll,0,PORT_LONG_MAX) {
       /* Cast to unsigned. */
         server.slowlog_max_len = (PORT_ULONG)ll;
     } config_set_numerical_field(
@@ -1281,7 +1284,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "repl-timeout",server.repl_timeout,1,INT_MAX) {
     } config_set_numerical_field(
-      "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
+      "repl-backlog-ttl",server.repl_backlog_time_limit,0,PORT_LONG_MAX) {
     } config_set_numerical_field(
       "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,INT_MAX) {
     } config_set_numerical_field(
@@ -1331,7 +1334,7 @@ void configSetCommand(client *c) {
 
     /* Memory fields.
      * config_set_memory_field(name,var) */
-    } config_set_memory_field("maxmemory",server.maxmemory) {
+    } config_set_memory_field("maxmemory",server.maxmemory,0,PORT_LONG_MAX) {
         if (server.maxmemory) {
             if (server.maxmemory < zmalloc_used_memory()) {
                 serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.");
@@ -1339,12 +1342,12 @@ void configSetCommand(client *c) {
             freeMemoryIfNeededAndSafe();
         }
     } config_set_memory_field(
-      "proto-max-bulk-len",server.proto_max_bulk_len) {
+      "proto-max-bulk-len",server.proto_max_bulk_len,1024*1024,PORT_LONG_MAX/2) {
     } config_set_memory_field(
-      "client-query-buffer-limit",server.client_max_querybuf_len) {
-    } config_set_memory_field("repl-backlog-size",ll) {
+      "client-query-buffer-limit",server.client_max_querybuf_len,0,PORT_LONG_MAX) {
+    } config_set_memory_field("repl-backlog-size",ll,0,PORT_LONG_MAX) {
         resizeReplicationBacklog(ll);
-    } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
+    } config_set_memory_field("auto-aof-rewrite-min-size",ll,0,PORT_LONG_MAX) {
         server.aof_rewrite_min_size = ll;
 
     /* Enumeration fields.
@@ -2230,6 +2233,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
+    rewriteConfigStringOption(state,"ignore-warnings",server.ignore_warnings,CONFIG_DEFAULT_IGNORE_WARNINGS);
 #ifndef _WIN32
     rewriteConfigSyslogfacilityOption(state);
 #endif

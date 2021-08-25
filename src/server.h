@@ -128,6 +128,7 @@ typedef PORT_LONGLONG ustime_t; /* microsecond time type. */
 #define CONFIG_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
 #define CONFIG_DEFAULT_PID_FILE "/var/run/redis.pid"
 #define CONFIG_DEFAULT_SYSLOG_IDENT "redis"
+#define CONFIG_DEFAULT_IGNORE_WARNINGS "ARM64-COW-BUG"
 #define CONFIG_DEFAULT_CLUSTER_CONFIG_FILE "nodes.conf"
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP NULL         /* Auto detect. */
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT 0          /* Use server.port */
@@ -980,6 +981,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
+    char *ignore_warnings;      /* Config: warnings that should be ignored. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
@@ -1273,6 +1275,7 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+    int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
@@ -1452,7 +1455,7 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-size_t redisPopcount(void *s, PORT_LONG count);
+PORT_LONGLONG redisPopcount(void *s, PORT_LONG count);
 void redisSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
@@ -1775,6 +1778,7 @@ void populateCommandTable(void);
 void resetCommandTableStats(void);
 void adjustOpenFilesLimit(void);
 void closeListeningSockets(int unlink_unix_socket);
+void closeClildUnusedResourceAfterFork();
 void updateCachedTime(int update_daylight_info);
 void resetServerStats(void);
 void activeDefragCycle(void);

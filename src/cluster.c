@@ -437,7 +437,15 @@ int clusterLockConfig(char *filename) {
         return C_ERR;
     }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
-     * lock to the file as long as the process exists. */
+     * lock to the file as long as the process exists.
+     *
+     * After fork, the child process will get the fd opened by the parent process,
+     * we need save `fd` to `cluster_config_file_lock_fd`, so that in redisFork(),
+     * it will be closed in the child process.
+     * If it is not closed, when the main process is killed -9, but the child process
+     * (redis-aof-rewrite) is still alive, the fd(lock) will still be held by the
+     * child process, and the main process will fail to get lock, means fail to start. */
+    server.cluster_config_file_lock_fd = fd;
 #endif /* __sun */
 
     return C_OK;
@@ -488,6 +496,7 @@ void clusterInit(void) {
 #ifndef WIN32   // TODO: review this to verify if we can lock the file on Windows
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
+    server.cluster_config_file_lock_fd = -1;
     if (clusterLockConfig(server.cluster_configfile) == C_ERR)
         exit(1);
 #endif

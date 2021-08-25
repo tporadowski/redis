@@ -1626,7 +1626,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
 #ifndef _WIN32
         /* Child */
-        closeListeningSockets(0);
+        closeClildUnusedResourceAfterFork();
         redisSetProcTitle("redis-aof-rewrite");
 #endif
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
