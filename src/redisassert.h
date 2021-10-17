@@ -38,7 +38,9 @@
 #ifndef __REDIS_ASSERT_H__
 #define __REDIS_ASSERT_H__
 
-POSIX_ONLY(#include <unistd.h>) /* for _exit() */
+#ifndef _WIN32
+#include <unistd.h> /* for _exit() */
+#endif
 
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"

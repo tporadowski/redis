@@ -1,6 +1,6 @@
-# Redis 5.0.9 for Windows
+# Redis 5.0.14 for Windows
 
-You can find the release of **Redis 5.0.9 for Windows** on [releases page](https://github.com/tporadowski/redis/releases). Please test it and [report any issues](https://github.com/tporadowski/redis/wiki/Submitting-an-Issue), thanks in advance!
+You can find the release of **Redis 5.0.14 for Windows** on [releases page](https://github.com/tporadowski/redis/releases). Please test it and [report any issues](https://github.com/tporadowski/redis/wiki/Submitting-an-Issue), thanks in advance!
 
 ## Redis 4.0.14 for Windows
 
@@ -8,7 +8,7 @@ You can find the release of **Redis 4.0.14 for Windows** on [releases page](http
 
 **DISCLAIMER**
 
-At the moment [win-4.0.14 branch](https://github.com/tporadowski/redis/tree/win-4.0.14) provides a **stable port of [Redis 4.0.14](https://github.com/antirez/redis/releases/tag/4.0.14) for Windows x64** and [win-5.0 branch](https://github.com/tporadowski/redis/tree/win-5.0) provides a **fairly stable port of [Redis 5.0.9](https://github.com/antirez/redis/releases/tag/5.0.9) for Windows x64**, both merged with archived port of [win-3.2.100 version](https://github.com/MicrosoftArchive/redis/releases/tag/win-3.2.100) from MS Open Tech team. Since the latter is no longer maintained - the sources were merged by hand, projects updated to Visual Studio 2019 (v16.2.5) and any findings (mostly via unit tests) were fixed.
+At the moment [win-4.0.14 branch](https://github.com/tporadowski/redis/tree/win-4.0.14) provides a **stable port of [Redis 4.0.14](https://github.com/antirez/redis/releases/tag/4.0.14) for Windows x64** and [win-5.0 branch](https://github.com/tporadowski/redis/tree/win-5.0) provides a **stable port of [Redis 5.0.14](https://github.com/antirez/redis/releases/tag/5.0.14) for Windows x64**, both merged with archived port of [win-3.2.100 version](https://github.com/MicrosoftArchive/redis/releases/tag/win-3.2.100) from MS Open Tech team. Since the latter is no longer maintained - the sources were merged by hand, projects updated to Visual Studio 2019 (v16.2.5) and any findings (mostly via unit tests) were fixed.
 
 You can find the original description of what this fork provides, how it evolved, what are its requirements, etc. on Wiki: https://github.com/tporadowski/redis/wiki/Old-MSOpenTech-redis-README.md
 
