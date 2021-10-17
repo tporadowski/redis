@@ -6,6 +6,15 @@ For release notes related to original Redis project - please see 00-RELEASENOTES
 
 --------------------------------------------------------
 
+2021-10-18: Redis 5.0.14 for Windows
+https://github.com/tporadowski/redis/releases/tag/v5.0.14
+
+Bugfix/maintenance release of Redis for Windows, updated to be in sync with
+redis/5.0.14 (https://github.com/redis/redis/releases/tag/5.0.14).
+Additionally "SCRIPT DEBUG SYNC" is now available.
+
+--------------------------------------------------------
+
 2020-11-08: Redis 5.0.10 for Windows
 https://github.com/tporadowski/redis/releases/tag/v5.0.10
 
