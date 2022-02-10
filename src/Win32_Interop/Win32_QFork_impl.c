@@ -24,10 +24,12 @@
 #include "Win32_Portability.h"
 
 /*
-* Config file parameter filter that allows only "loadmodule" directives.
+* Config file parameter filter that allows only "loadmodule" or "include" directives.
 */
 int ConfigFilterModulesOnly(sds configLine) {
-    return strcasecmp(configLine, "loadmodule") == 0 ? TRUE : FALSE;
+    int includeDirective = strcasecmp(configLine, "include") == 0 ? TRUE : FALSE;
+    int loadModuleDirective = strcasecmp(configLine, "loadmodule") == 0 ? TRUE : FALSE;
+    return includeDirective || loadModuleDirective;
 }
 
 /*
