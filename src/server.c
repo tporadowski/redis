@@ -4479,7 +4479,11 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
+#ifdef _WIN32
+        loadServerConfig(configfile,options,NULL);
+#else
         loadServerConfig(configfile,options);
+#endif
         sdsfree(options);
     }
 

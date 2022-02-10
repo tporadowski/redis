@@ -23,12 +23,55 @@
 #include "..\server.h"
 #include "Win32_Portability.h"
 
+/*
+* Config file parameter filter that allows only "loadmodule" directives.
+*/
+int ConfigFilterModulesOnly(sds configLine) {
+    return strcasecmp(configLine, "loadmodule") == 0 ? TRUE : FALSE;
+}
+
+/*
+* Call to "SetupRedisGlobals" copies over "server" structure from the main process, but here
+* we are initializing parts of the application to allow modules to be loaded from config file,
+* so they can take part in asynchronous saves. For that we're clearing "server.commands",
+* "server.orig_commands", and then only take "loadmodule" directives from main process' config
+* file. This function consists of parts from server.c/main() function.
+*/
+void InitRedisModulesFromConfigFile() {
+#pragma warning( suppress : 6031 )
+    pthread_mutex_init(&lazyfree_objects_mutex, NULL);
+#pragma warning( suppress : 6031 )
+    pthread_mutex_init(&moduleUnblockedClientsMutex, NULL);
+#pragma warning( suppress : 6031 )
+    pthread_mutex_init(&moduleGIL, NULL);
+    moduleInitModulesSystem();
+
+    //re-create commands as the dictionary coming from main process contains commands
+    //  registered by modules, which would prevent them from loading in this child process
+    server.commands = dictCreate(server.commands->type, NULL);
+    server.orig_commands = dictCreate(server.orig_commands->type, NULL);
+    populateCommandTable();
+
+    //read only "loadmodule" directives from config file(s)
+    loadServerConfig(server.configfile, NULL, &ConfigFilterModulesOnly);
+
+    //load modules found in config file(s)
+    moduleLoadFromQueue();
+}
+
 void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint8_t *dictHashSeed, LPVOID redisModules)
 {
 #ifndef NO_QFORKIMPL
     memcpy(&server, redisData, redisDataSize);
     dictSetHashFunctionSeed(dictHashSeed);
-    modules = (dict*) redisModules;
+
+    //WORKAROUND: if main process was started with a config file - it contains modules
+    // to be loaded in this child process, so load them here as well
+    if (server.configfile) {
+        InitRedisModulesFromConfigFile();
+    } else {
+        modules = (dict*)redisModules;
+    }
 #endif
 }
 

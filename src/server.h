@@ -1845,7 +1845,13 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
-void loadServerConfig(char *filename, char *options);
+#ifdef _WIN32
+//callback to include/skip given config file parameter; TRUE = include, FALSE = skip
+typedef int (*configLineFilter)(sds);
+void loadServerConfig(char *filename, char *options, configLineFilter lineFilter);
+#else
+void loadServerConfig(char* filename, char* options);
+#endif
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */

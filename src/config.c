@@ -178,7 +178,11 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
 
-void loadServerConfigFromString(char *config) {
+#ifdef _WIN32
+void loadServerConfigFromString(char *config, configLineFilter lineFilter) {
+#else
+void loadServerConfigFromString(char* config) {
+#endif
     char *err = NULL;
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
@@ -209,6 +213,13 @@ void loadServerConfigFromString(char *config) {
             continue;
         }
         sdstolower(argv[0]);
+
+#ifdef _WIN32
+        //skip config parameter if "line filter" returns FALSE
+        if (lineFilter && lineFilter(argv[0]) == FALSE) {
+            continue;
+        }
+#endif
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"timeout") && argc == 2) {
@@ -353,7 +364,11 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
+#ifdef _WIN32
+            loadServerConfig(argv[1],NULL,lineFilter);
+#else
             loadServerConfig(argv[1],NULL);
+#endif
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
             if (server.maxclients < 1) {
@@ -922,7 +937,11 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-void loadServerConfig(char *filename, char *options) {
+#ifdef _WIN32
+void loadServerConfig(char *filename, char *options, configLineFilter lineFilter) {
+#else
+void loadServerConfig(char* filename, char* options) {
+#endif
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
 
@@ -948,7 +967,11 @@ void loadServerConfig(char *filename, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
+#ifdef _WIN32
+    loadServerConfigFromString(config,lineFilter);
+#else
     loadServerConfigFromString(config);
+#endif
     sdsfree(config);
 }
 
