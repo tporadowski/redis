@@ -166,7 +166,7 @@ int lpStringToInt64(const char *s, PORT_ULONG slen, int64_t *value) {
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
-    } else if (p[0] == '0' && slen == 1) {
+    } else if (p[0] == '0' && slen == 1 && value) {
         *value = 0;
         return 1;
     } else {
