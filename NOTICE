@@ -1,0 +1,15 @@
+This is a modified version of Redis Open Source 8.10.0.
+
+Unofficial native Windows port maintained at
+https://github.com/tporadowski/redis on branch win-8.10.
+
+This project is not affiliated with, endorsed by, or sponsored by Redis Ltd.
+Any use of Redis Ltd trademarks is subject to applicable law.
+
+Licensing is the same tri-license as official Redis 8.10.0. Recipients may
+choose RSALv2, SSPLv1, or AGPLv3. See LICENSE.txt and REDISCONTRIBUTIONS.txt.
+
+The Windows port program is described in WINDOWS_8.10_PORT_PLAN.md.
+
+Historical BSD Redis 5 for Windows remains on branch win-5.0 / tag v5.0.14.1
+and is not part of this modified Redis 8.10 tree.
