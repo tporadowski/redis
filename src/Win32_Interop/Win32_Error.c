@@ -23,6 +23,10 @@
 #include <Windows.h>
 #include <errno.h>
 
+#ifndef EINPROGRESS
+#define EINPROGRESS 112
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -39,6 +43,7 @@ int translate_sys_error(int sys_error) {
     case WSAEADDRNOTAVAIL:                  return EADDRNOTAVAIL;
     case WSAEAFNOSUPPORT:                   return EAFNOSUPPORT;
     case WSAEWOULDBLOCK:                    return EAGAIN;
+    case WSAEINPROGRESS:                    return EINPROGRESS;
     case WSAEALREADY:                       return EALREADY;
     case ERROR_INVALID_FLAGS:               return EBADF;
     case ERROR_INVALID_HANDLE:              return EBADF;

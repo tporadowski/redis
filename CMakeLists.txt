@@ -125,21 +125,25 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_Time.c
     src/Win32_Interop/Win32_Error.c
     src/Win32_Interop/Win32_PThread.c
-    src/Win32_Interop/Win32_FDAPI_stub.c
     src/Win32_Interop/Win32_APIs.c
     src/Win32_Interop/Win32_ANSI.c
-    src/Win32_Interop/Win32_cli.c)
+    src/Win32_Interop/Win32_cli.c
+    src/Win32_Interop/win32_rfdmap.cpp
+    src/Win32_Interop/Win32_fdapi_crt.cpp
+    src/Win32_Interop/Win32_FDAPI.cpp)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
+target_link_libraries(win32_interop PUBLIC ws2_32 mswsock)
 if(MSVC)
-    target_compile_options(win32_interop PRIVATE "/FI${REDIS_PRE_HEADER}")
+    target_compile_options(win32_interop PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:/FI${REDIS_PRE_HEADER}>
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
 endif()
 set_source_files_properties(
     src/Win32_Interop/Win32_Time.c
     src/Win32_Interop/Win32_Error.c
     src/Win32_Interop/Win32_PThread.c
-    src/Win32_Interop/Win32_FDAPI_stub.c
     src/Win32_Interop/Win32_APIs.c
     src/Win32_Interop/Win32_ANSI.c
     src/Win32_Interop/Win32_cli.c
@@ -164,4 +168,8 @@ redis_win32_src(redis-cli)
 target_link_libraries(redis-cli PRIVATE
     hiredis linenoise hdr_histogram win32_interop)
 
-message(STATUS "win-8.10 CMake: redis-cli + deps (lua hdr fpconv xxhash tre hiredis linenoise)")
+add_executable(fdapi_smoke tests/windows/fdapi_smoke.c)
+redis_win32_src(fdapi_smoke)
+target_link_libraries(fdapi_smoke PRIVATE win32_interop)
+
+message(STATUS "win-8.10 CMake: redis-cli + fdapi_smoke + deps")
