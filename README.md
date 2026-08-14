@@ -1,3 +1,9 @@
+> **Unofficial native Windows port** of Redis Open Source 8.10.0 (`win-8.10` on [tporadowski/redis](https://github.com/tporadowski/redis)). This is a **modified** version of Redis. It is **not affiliated with, endorsed by, or sponsored by Redis Ltd.**
+>
+> Need BSD Redis 5 for Windows? Use branch [`win-5.0`](https://github.com/tporadowski/redis/tree/win-5.0) / tag `v5.0.14.1`.
+>
+> Port plan: [WINDOWS_8.10_PORT_PLAN.md](WINDOWS_8.10_PORT_PLAN.md). Notices: [NOTICE](NOTICE). License: [LICENSE.txt](LICENSE.txt) (RSALv2 / SSPLv1 / AGPLv3).
+
 [![codecov](https://codecov.io/github/redis/redis/graph/badge.svg?token=6bVHb5fRuz)](https://codecov.io/github/redis/redis)
 
 This document serves as both a quick start guide to Redis and a detailed resource for building it from source.

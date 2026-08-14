@@ -1042,7 +1042,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 
 | ID | Milestone | Status | Branch/PR | Notes / acceptance |
 |----|-----------|--------|-----------|--------------------|
-| 0.1 | M0 | Not started | | `win-8.10` from `8.10.0`; LICENSE intact; `win-5.0` untouched |
+| 0.1 | M0 | Done | `win-8.10` | Imported official `8.10.0` (`5279a8d44`); `LICENSE.txt` + `REDISCONTRIBUTIONS.txt` intact; `NOTICE` + README modified-notice; `win-5.0` untouched |
 | 0.2 | M0 | Not started | | CMake **configures** + first compile: wrappers + types + FDAPI/pthread stubs + deps (merged former 0.2–0.4) |
 | 0.3 | M0 | Not started | | `redis-cli.exe` runs; `release.h` generated |
 | 1.1 | M1 | Not started | | FDAPI + errno table + RFDMap |
