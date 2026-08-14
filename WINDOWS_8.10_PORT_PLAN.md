@@ -1044,7 +1044,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 0.2 | M0 | Done | `win-8.10` | CMake + clang-cl/Ninja builds `redis-cli.exe`; lua/hdr/fpconv/xxhash/tre/hiredis/linenoise/win32_interop |
 | 0.3 | M0 | Done | `win-8.10` | `redis-cli --version`; hiredis TCP (`PING` → connection refused if no server); VT + HOME; ANSI lifted without `#define printf` |
 | 1.1 | M1 | Done | `win-8.10` | Real FDAPI + RFDMap; `fdapi_smoke` TCP loopback + pipe; `redis-cli --version`; connect `WSAEWOULDBLOCK` → `EINPROGRESS` |
-| 1.2 | M1 | Not started | | per-loop `ae_wsiocp`; no global `iocph` |
+| 1.2 | M1 | Done | `win-8.10` | One IOCP per `aeApiState`; delay-associate on first `AddEvent`; `wsiocp_smoke` |
 | 1.3 | M1 | Not started | | `unix.c` registers `CT_Unix`; CRT zmalloc; `arch_bits=64`; `daemonize` no-op; `PING` |
 | 2.1 | M2 | Not started | | cond broadcast + `pthread_join` |
 | 2.2 | M2 | Not started | | BIO + eventnotifier; Windows cancel/join/pipe |

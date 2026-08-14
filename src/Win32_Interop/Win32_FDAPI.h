@@ -302,6 +302,21 @@ void **FDAPI_GetSocketStatePtr(int rfd);
 void FDAPI_ClearSocketInfo(int rfd);
 intptr_t FDAPI_get_osfhandle(int fd);
 int FDAPI_open_osfhandle(intptr_t osfhandle, int flags);
+int FDAPI_AcceptEx(int listenfd, int acceptfd, void *buf,
+                   unsigned long rxlen, unsigned long locallen,
+                   unsigned long remotelen, unsigned long *recvd,
+                   void *overlapped);
+int FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen,
+                    void *sendbuf, unsigned long sendlen,
+                    unsigned long *sent, void *overlapped);
+void FDAPI_GetAcceptExSockaddrs(int rfd, void *buf, unsigned long rxlen,
+                                unsigned long locallen, unsigned long remotelen,
+                                struct sockaddr **local, int *locallen_out,
+                                struct sockaddr **remote, int *remotelen_out);
+int FDAPI_UpdateAcceptContext(int acceptfd, int listenfd);
+int FDAPI_WSAGetOverlappedResult(int rfd, void *overlapped,
+                                 unsigned long *transferred, int wait,
+                                 unsigned long *flags);
 
 #ifdef __cplusplus
 }

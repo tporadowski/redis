@@ -32,7 +32,9 @@ unsigned int sleep(unsigned int seconds);
 int usleep(unsigned int usec);
 int mkstemp(char *template);
 int geteuid(void);
+#ifndef _WINSOCKAPI_
 int gethostname(char *name, size_t len);
+#endif
 long random(void);
 void srandom(unsigned int seed);
 
