@@ -29,6 +29,9 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+#ifdef _WIN32
+#include "ae_wsiocp.c"
+#else
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -41,6 +44,7 @@
         #include "ae_select.c"
         #endif
     #endif
+#endif
 #endif
 
 #define INITIAL_EVENT 1024

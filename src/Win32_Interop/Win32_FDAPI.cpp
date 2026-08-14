@@ -559,9 +559,98 @@ int FDAPI_WSAGetLastError(void) { return WSAGetLastError(); }
 
 int FDAPI_SocketAttachIOCP(int rfd, void *iocph) {
     SOCKET s = sock_of(rfd);
+    u_long nb = 1;
     if (s == INVALID_SOCKET || !iocph) return 0;
+    if (ioctlsocket(s, FIONBIO, &nb) == SOCKET_ERROR) return 0;
+    SetHandleInformation((HANDLE)s, HANDLE_FLAG_INHERIT, 0);
     return CreateIoCompletionPort((HANDLE)s, (HANDLE)iocph,
                                   (ULONG_PTR)(intptr_t)rfd, 0) != NULL;
+}
+
+static int get_ext_fn(SOCKET s, const GUID *guid, void *out, DWORD outlen) {
+    DWORD bytes = 0;
+    return WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                    (void *)guid, sizeof(GUID), out, outlen,
+                    &bytes, NULL, NULL) == 0;
+}
+
+int FDAPI_AcceptEx(int listenfd, int acceptfd, void *buf,
+                   unsigned long rxlen, unsigned long locallen,
+                   unsigned long remotelen, unsigned long *recvd,
+                   void *overlapped) {
+    SOCKET ls = sock_of(listenfd);
+    SOCKET as = sock_of(acceptfd);
+    LPFN_ACCEPTEX fn = NULL;
+    GUID guid = WSAID_ACCEPTEX;
+    if (ls == INVALID_SOCKET || as == INVALID_SOCKET) {
+        errno = EBADF;
+        return 0;
+    }
+    if (!get_ext_fn(ls, &guid, &fn, sizeof(fn)) || !fn) {
+        set_wsa_errno(0);
+        return 0;
+    }
+    return fn(ls, as, buf, rxlen, locallen, remotelen, recvd,
+              (LPOVERLAPPED)overlapped);
+}
+
+int FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen,
+                    void *sendbuf, unsigned long sendlen,
+                    unsigned long *sent, void *overlapped) {
+    SOCKET s = sock_of(rfd);
+    LPFN_CONNECTEX fn = NULL;
+    GUID guid = WSAID_CONNECTEX;
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return 0;
+    }
+    if (!get_ext_fn(s, &guid, &fn, sizeof(fn)) || !fn) {
+        set_wsa_errno(0);
+        return 0;
+    }
+    return fn(s, name, namelen, sendbuf, sendlen, sent,
+              (LPOVERLAPPED)overlapped);
+}
+
+void FDAPI_GetAcceptExSockaddrs(int rfd, void *buf, unsigned long rxlen,
+                                unsigned long locallen, unsigned long remotelen,
+                                struct sockaddr **local, int *locallen_out,
+                                struct sockaddr **remote, int *remotelen_out) {
+    SOCKET s = sock_of(rfd);
+    LPFN_GETACCEPTEXSOCKADDRS fn = NULL;
+    GUID guid = WSAID_GETACCEPTEXSOCKADDRS;
+    if (s == INVALID_SOCKET) return;
+    if (!get_ext_fn(s, &guid, &fn, sizeof(fn)) || !fn) return;
+    fn(buf, rxlen, locallen, remotelen,
+       (LPSOCKADDR *)local, locallen_out,
+       (LPSOCKADDR *)remote, remotelen_out);
+}
+
+int FDAPI_UpdateAcceptContext(int acceptfd, int listenfd) {
+    SOCKET as = sock_of(acceptfd);
+    SOCKET ls = sock_of(listenfd);
+    if (as == INVALID_SOCKET || ls == INVALID_SOCKET) {
+        errno = EBADF;
+        return SOCKET_ERROR;
+    }
+    if (setsockopt(as, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+                   (const char *)&ls, sizeof(ls)) == SOCKET_ERROR) {
+        set_wsa_errno(0);
+        return SOCKET_ERROR;
+    }
+    return 0;
+}
+
+int FDAPI_WSAGetOverlappedResult(int rfd, void *overlapped,
+                                 unsigned long *transferred, int wait,
+                                 unsigned long *flags) {
+    SOCKET s = sock_of(rfd);
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return 0;
+    }
+    return WSAGetOverlappedResult(s, (LPWSAOVERLAPPED)overlapped,
+                                  transferred, wait ? TRUE : FALSE, flags);
 }
 
 int FDAPI_WSASend(int rfd, void *buffers, unsigned long count,

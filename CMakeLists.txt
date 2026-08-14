@@ -130,7 +130,8 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_cli.c
     src/Win32_Interop/win32_rfdmap.cpp
     src/Win32_Interop/Win32_fdapi_crt.cpp
-    src/Win32_Interop/Win32_FDAPI.cpp)
+    src/Win32_Interop/Win32_FDAPI.cpp
+    src/Win32_Interop/win32_wsiocp.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -147,6 +148,7 @@ set_source_files_properties(
     src/Win32_Interop/Win32_APIs.c
     src/Win32_Interop/Win32_ANSI.c
     src/Win32_Interop/Win32_cli.c
+    src/Win32_Interop/win32_wsiocp.c
     PROPERTIES LANGUAGE C)
 set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
     PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
@@ -171,5 +173,11 @@ target_link_libraries(redis-cli PRIVATE
 add_executable(fdapi_smoke tests/windows/fdapi_smoke.c)
 redis_win32_src(fdapi_smoke)
 target_link_libraries(fdapi_smoke PRIVATE win32_interop)
+
+add_executable(wsiocp_smoke
+    tests/windows/wsiocp_smoke.c
+    src/ae.c src/zmalloc.c src/monotonic.c src/redisassert.c)
+redis_win32_src(wsiocp_smoke)
+target_link_libraries(wsiocp_smoke PRIVATE win32_interop)
 
 message(STATUS "win-8.10 CMake: redis-cli + fdapi_smoke + deps")
