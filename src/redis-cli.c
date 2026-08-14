@@ -8,6 +8,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_cli.h"
+#endif
+
 #include "fmacros.h"
 
 #include <stdarg.h>
@@ -11276,6 +11280,9 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 int main(int argc, char **argv) {
     int firstarg;
     struct timeval tv;
+#ifdef _WIN32
+    cliWin32Init();
+#endif
 
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.conn_info.hostip = sdsnew("127.0.0.1");

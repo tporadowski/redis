@@ -1042,7 +1042,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 |----|-----------|--------|-----------|--------------------|
 | 0.1 | M0 | Done | `win-8.10` | Imported official `8.10.0` (`5279a8d44`); `LICENSE.txt` + `REDISCONTRIBUTIONS.txt` intact; `NOTICE` + README modified-notice; `win-5.0` untouched |
 | 0.2 | M0 | Done | `win-8.10` | CMake + clang-cl/Ninja builds `redis-cli.exe`; lua/hdr/fpconv/xxhash/tre/hiredis/linenoise/win32_interop |
-| 0.3 | M0 | Not started | | `redis-cli.exe` runs; `release.h` generated |
+| 0.3 | M0 | Done | `win-8.10` | `redis-cli --version`; hiredis TCP (`PING` → connection refused if no server); VT + HOME; ANSI lifted without `#define printf` |
 | 1.1 | M1 | Not started | | FDAPI + errno table + RFDMap |
 | 1.2 | M1 | Not started | | per-loop `ae_wsiocp`; no global `iocph` |
 | 1.3 | M1 | Not started | | `unix.c` registers `CT_Unix`; CRT zmalloc; `arch_bits=64`; `daemonize` no-op; `PING` |

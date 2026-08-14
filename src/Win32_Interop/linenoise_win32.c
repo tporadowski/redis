@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
 /*
- * Minimal linenoise for Windows (0.2). Interactive editing is PR 0.3.
- * Provides the API redis-cli links so the first compile succeeds.
+ * Windows linenoise: fgets input + file-backed history.
+ * Full line editing can wait; redis-cli interactive mode works without it.
  */
 
 #include "linenoise.h"
@@ -13,9 +13,14 @@
 #define UNUSED(V) ((void)(V))
 #endif
 
+#define LINENOISE_DEFAULT_MAX 100
+
 static linenoiseCompletionCallback *completion_cb;
 static linenoiseHintsCallback *hints_cb;
 static linenoiseFreeHintsCallback *free_hints_cb;
+static char **hist;
+static int hist_len;
+static int hist_max = LINENOISE_DEFAULT_MAX;
 
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
     completion_cb = fn;
@@ -36,31 +41,72 @@ char *linenoise(const char *prompt) {
     if (!fgets(buf, sizeof(buf), stdin)) return NULL;
     {
         size_t n = strlen(buf);
-        if (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
-        if (n && buf[n - 1] == '\r') buf[--n] = 0;
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
         return _strdup(buf);
     }
 }
 
 void linenoiseFree(void *ptr) { free(ptr); }
+
 int linenoiseHistoryAdd(const char *line, int is_sensitive) {
-    UNUSED(line);
+    char *copy;
     UNUSED(is_sensitive);
-    return 0;
+    if (!line || !line[0] || hist_max <= 0) return 0;
+    if (hist_len > 0 && hist[hist_len - 1] && strcmp(hist[hist_len - 1], line) == 0)
+        return 0;
+    if (!hist) {
+        hist = (char **)calloc((size_t)hist_max, sizeof(char *));
+        if (!hist) return 0;
+    }
+    if (hist_len == hist_max) {
+        free(hist[0]);
+        memmove(hist, hist + 1, (size_t)(hist_max - 1) * sizeof(char *));
+        hist_len--;
+    }
+    copy = _strdup(line);
+    if (!copy) return 0;
+    hist[hist_len++] = copy;
+    return 1;
 }
+
 int linenoiseHistorySetMaxLen(int len) {
-    UNUSED(len);
-    return 0;
+    if (len < 1) return 0;
+    hist_max = len;
+    return 1;
 }
+
 int linenoiseHistorySave(const char *filename) {
-    UNUSED(filename);
+    FILE *fp;
+    int i;
+    if (!filename) return -1;
+    fp = fopen(filename, "w");
+    if (!fp) return -1;
+    for (i = 0; i < hist_len; i++) {
+        if (hist[i]) fprintf(fp, "%s\n", hist[i]);
+    }
+    fclose(fp);
     return 0;
 }
+
 int linenoiseHistoryLoad(const char *filename) {
-    UNUSED(filename);
+    FILE *fp;
+    char buf[4096];
+    if (!filename) return -1;
+    fp = fopen(filename, "r");
+    if (!fp) return -1;
+    while (fgets(buf, sizeof(buf), fp)) {
+        size_t n = strlen(buf);
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
+        if (n) linenoiseHistoryAdd(buf, 0);
+    }
+    fclose(fp);
     return 0;
 }
-void linenoiseClearScreen(void) {}
+
+void linenoiseClearScreen(void) {
+    fputs("\x1b[H\x1b[2J", stdout);
+    fflush(stdout);
+}
 void linenoiseSetMultiLine(int ml) { UNUSED(ml); }
 void linenoisePrintKeyCodes(void) {}
 void linenoiseMaskModeEnable(void) {}

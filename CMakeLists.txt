@@ -126,7 +126,9 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_Error.c
     src/Win32_Interop/Win32_PThread.c
     src/Win32_Interop/Win32_FDAPI_stub.c
-    src/Win32_Interop/Win32_APIs.c)
+    src/Win32_Interop/Win32_APIs.c
+    src/Win32_Interop/Win32_ANSI.c
+    src/Win32_Interop/Win32_cli.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -139,7 +141,11 @@ set_source_files_properties(
     src/Win32_Interop/Win32_PThread.c
     src/Win32_Interop/Win32_FDAPI_stub.c
     src/Win32_Interop/Win32_APIs.c
+    src/Win32_Interop/Win32_ANSI.c
+    src/Win32_Interop/Win32_cli.c
     PROPERTIES LANGUAGE C)
+set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
+    PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 
 # ---------------------------------------------------------------------------
 # redis-cli
