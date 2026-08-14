@@ -23,7 +23,7 @@ This program produces **native Redis Open Source 8.10.0 for Windows x64** and sh
 
 The engineering strategy is locked: **start from official Redis 8.10.0 and lift/modernize `Win32_Interop` from 5.0.14.1**. Do not merge six years of Redis into the 5.0 tree.
 
-**“Confine Windows” applies to algorithms and new persistence APIs, not to every line that must compile.** Windows-specific *behavior* lives in `src/Win32_Interop/`, jemalloc `pages.c` hooks, one `ae` backend, service/Event Log, and a child dispatcher. Compile-time reality is broader: POSIX wrapper headers, a `WIN_PORT_FIX` / `PORT_LONG` sweep across many `src/*.c` files, and thin `#ifdef _WIN32` at the 8.10 fork call sites (`rdb.c`, `aof.c`, `module.c`, `eval.c`) so the parent does not pretend `CreateProcess` returned 0 on the caller’s stack.
+**“Confine Windows” applies to algorithms and new persistence APIs, not to every line that must compile.** Windows-specific *behavior* lives in `src/Win32_Interop/`, jemalloc `pages.c` hooks, one `ae` backend, service/Event Log, and a child dispatcher. Compile-time reality is broader: POSIX wrapper headers, a handful of LLP64 site fixes (`sizeof(long)`, `clzl`), and thin `#ifdef _WIN32` at the 8.10 fork call sites (`rdb.c`, `aof.c`, `module.c`, `eval.c`) so the parent does not pretend `CreateProcess` returned 0 on the caller’s stack. Do **not** introduce `PORT_LONG` / `PORT_LONGLONG` aliases.
 
 ---
 
@@ -275,7 +275,7 @@ Windows-specific **behavior** is allowed in:
 |----------|------|
 | `src/Win32_Interop/` | Entire modernized interop library, POSIX wrappers, process table |
 | `src/Win32_Interop/posix/` | Wrapper headers so `server.h` compiles (see Appendix A) |
-| `src/config.h`, `src/fmacros.h`, `src/server.h` | Include guards, `off_t`, `PORT_LONG` |
+| `src/config.h`, `src/fmacros.h`, `src/server.h` | Include guards, `off_t`, `arch_bits` |
 | `src/server.c` `redisFork()` | Parent-only Windows path; `daemonize()` no-op; `arch_bits` |
 | `src/rdb.c`, `src/aof.c`, `src/module.c`, `src/eval.c` | Thin `#ifdef _WIN32` at fork sites: parent captures payload args, child branch is not compiled or is `serverPanic` |
 | `src/ae.c` include chain | `#ifdef _WIN32` → `ae_wsiocp.c` (same pattern as 5.0 `ae.c:59–60`; 8.10 `ae.c` has no such guard yet) |
@@ -286,7 +286,7 @@ Windows-specific **behavior** is allowed in:
 | `src/config.c` | `createBoolConfig("persistence-available", ...)` |
 | `src/sentinel.c` | Lift 5.0 `CreateProcessA` script path; register pids in the waitpid table |
 | Service / Event Log / installer / CMake | New files |
-| Many `src/*.c` | `WIN_PORT_FIX` / `PORT_LONG` / `sizeof(long)` only — not new algorithms |
+| Many `src/*.c` | Only the LLP64 sites that are actually wrong (`sizeof(long)`, `clzl`) — not a type rename |
 
 **Honest rule:** do not invent a second persistence API (`BeginForkOperation_*` called from `rdb.c`). Do **not** claim the four fork files stay byte-identical. “Confine Windows” = no Windows algorithms in eviction, cluster state machines, ACL, Functions. Type-width edits and the four fork-site `#ifdef`s are in scope.
 
@@ -597,21 +597,19 @@ Set `errno` in FDAPI after every Winsock call (and `WSAGetLastError` when the SO
 
 ### LLP64 — M1 correctness, not M10 lint
 
-MSVC / clang-cl x64 is **LLP64** (`long` = 32-bit). Linux Redis is **LP64**. Keep `PORT_LONG` / `WIN_PORT_FIX` / `_OFF_T_DEFINED` (`off_t` = `__int64`). Do **not** `#define long __int64`.
+MSVC / clang-cl x64 is **LLP64** (`long` = 32-bit). Linux Redis is **LP64**. Keep upstream `long` as `long`. Do **not** `#define long __int64` and do **not** reintroduce `PORT_LONG` / `PORT_LONGLONG`. `_OFF_T_DEFINED` + `off_t` = `__int64` stays (POSIX file offsets, not a `long` rename).
 
-**“Confine Windows” applies to behavior, not to type-width edits.** `WIN_PORT_FIX` will touch many upstream files. That is expected and is how 5.0 survived.
-
-M1 (before any TCP accept) must fix `sizeof(long)` landmines that would make a 64-bit Windows build advertise itself as 32-bit and cap `maxmemory` at 3 GB:
+M1 (before any TCP accept) must fix the few `sizeof(long)` landmines that would make a 64-bit Windows build advertise itself as 32-bit and cap `maxmemory` at 3 GB. Prefer a portable fix that is correct on Unix too:
 
 ```c
-// server.c:2420 — 5.0 used sizeof(PORT_LONG); 8.10 is sizeof(long)
-server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+// server.c:2420 — do not use sizeof(long)
+server.arch_bits = (sizeof(void *) == 8) ? 64 : 32;
 // server.c:3223 — then forces 3 GB + noeviction on "32-bit"
 ```
 
-Other first-wave sites: `server.c:7269,7322,8312`, `dict.c:1739–1741` (`__builtin_clzl` on `long` is 32-bit on LLP64 — use `PORT_ULONG` / `_BitScanReverse64`), `util.c:1438`, `bitops.c:1291`.
+Other first-wave sites: `server.c:7269,7322,8312`, `dict.c:1739–1741` (`__builtin_clzl` on `long` is 32-bit on LLP64 — use a 64-bit builtin / `_BitScanReverse64` on `unsigned long long`), `util.c:1438`, `bitops.c:1291`.
 
-M10 lint is a **regression net**, not the first audit: `\\blong\\b` not part of `long long` / `PORT_LONG` / `unsigned long` / comments, with a baseline allow-list.
+M10 lint is a **regression net** for those known sites, not a campaign to rename every `long`.
 
 ### QFork + jemalloc 5.3
 
@@ -765,7 +763,7 @@ jemalloc: CMake target, not `deps/jemalloc/msvc/` vcxproj.
 | IO freeze | `RequestSuspension` only | `pauseAllIOThreads` then `RequestSuspension` |
 | `daemonize` | log + return | same (M1) |
 | `persistence-available` | `Win32_CommandLine` pre-parse → `g_argMap` / `IsPersistenceDisabled` before `QForkParentInit` | **Keep that pre-parse** (phase 1) **and** `createBoolConfig` seeded from the same value (phase 2) |
-| `arch_bits` | `sizeof(PORT_LONG)` | keep that; 8.10 `sizeof(long)` is wrong on LLP64 |
+| `arch_bits` | `sizeof(PORT_LONG)` | `sizeof(void *)` (portable; do not rename `long`) |
 | `waitpid` | not used; `GetForkOperationStatus` in `serverCron` | process table; Windows `checkChildrenDone` / `killAppendOnlyChild` use `waitpid(server.child_pid)`; Sentinel `waitpid(-1)` is `WP_SENTINEL_SCRIPT` only |
 | Sentinel scripts | `CreateProcessA` + `hScriptProcess` | same + `winpid_register` |
 | jemalloc | 5.2.1 `pages_commit_impl` | 5.3 `os_pages_commit` + commit-in-place |
@@ -1249,7 +1247,7 @@ Fallback if Git Bash is missing: CMake writes `#define REDIS_GIT_SHA1 "00000000"
 | 28 | **`redis-check-*` are separate CMake targets** that skip QFork (cleaner than 5.0 argv[0] detection). | **Locked** |
 | 29 | Upstream `io-threads` default is already 1 (`config.c:3396`). Windows lock: **do not ship docs/conf recommending `io-threads > 1` until M9 is proven.** | **Locked** |
 | 30 | **`daemonize yes` is a documented no-op** (log; use Windows Service). Not a hard error. | **Locked** |
-| 31 | **`arch_bits` / `sizeof(long)` is M1 correctness**, not M10 lint. | **Locked** |
+| 31 | **`arch_bits` / `sizeof(long)` is M1 correctness**, not M10 lint. No `PORT_LONG` typedef dialect. | **Locked** |
 
 ---
 
@@ -1271,7 +1269,7 @@ PRs are independently reviewable and mapped to the tracker IDs. Later PRs may re
 |---|---------|--------------------|------------|-------------|
 | 1.1 | `port: FDAPI + RFDMap + errno map` | `Win32_FDAPI.cpp`, `win32_rfdmap.cpp`, `Win32_fdapi_crt.cpp`, `Win32_Error.c`, `Win32_Time.c`, `Win32_APIs.c` | 0.3 | Real sockets/pipes; errno table. |
 | 1.2 | `port: ae_wsiocp per event loop` | `src/ae_wsiocp.c`, `ae.c` include, `win32_wsiocp.c` (no global `iocph`; delay-associate helper) | 1.1 | One IOCP per `aeApiState`. |
-| 1.3 | `port: redis-server TCP PING` | minimal `Win32_QFork.cpp` `main` → `redis_main` **no heap**; `unix.c` register only; `daemonize` no-op; `arch_bits` via `PORT_LONG`; CRT zmalloc; `persistence-available` forced off | 1.2 | `PING`/`SET`/`GET`. |
+| 1.3 | `port: redis-server TCP PING` | minimal `Win32_QFork.cpp` `main` → `redis_main` **no heap**; `unix.c` register only; `daemonize` no-op; `arch_bits` via `sizeof(void *)`; CRT zmalloc; `persistence-available` forced off | 1.2 | `PING`/`SET`/`GET`. |
 
 ### M2 — Pthreads + BIO + eventnotifier
 
