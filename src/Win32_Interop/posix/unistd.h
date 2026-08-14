@@ -9,19 +9,19 @@
 #include "../Win32_FDAPI.h"
 
 #ifndef close
-#define close _close
+#define close fdapi_close
 #endif
 #ifndef read
-#define read _read
+#define read fdapi_read
 #endif
 #ifndef write
-#define write _write
+#define write fdapi_write
 #endif
 #ifndef isatty
-#define isatty _isatty
+#define isatty fdapi_isatty
 #endif
 #ifndef lseek
-#define lseek _lseeki64
+#define lseek fdapi_lseek
 #endif
 
 #ifdef __cplusplus
