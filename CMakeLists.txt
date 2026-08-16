@@ -377,4 +377,31 @@ add_custom_target(smoke_service
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M5 smoke: console PING + --service-run (no SCM)")
 
-message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork + service) + smokes")
+# ---------------------------------------------------------------------------
+# hello-world module (6.1)
+# ---------------------------------------------------------------------------
+add_library(helloworld SHARED src/modules/helloworld.c)
+set_source_files_properties(src/modules/helloworld.c PROPERTIES LANGUAGE C)
+target_include_directories(helloworld PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${REDIS_POSIX_INC}"
+    "${REDIS_INTEROP_INC}")
+set_target_properties(helloworld PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME helloworld
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+if(MSVC)
+    target_compile_options(helloworld PRIVATE "/FI${REDIS_PRE_HEADER}")
+    target_link_options(helloworld PRIVATE /EXPORT:RedisModule_OnLoad)
+endif()
+
+add_custom_target(smoke_module
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_module.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli helloworld
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M6 smoke: loadmodule helloworld.dll + HELLO.SIMPLE")
+
+message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

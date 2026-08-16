@@ -140,13 +140,25 @@ Default `win-8.10` is built with `USE_OPENSSL=0`. TLS (`tls-port`, …) is
 
 ## Modules
 
-In-tree `LoadLibrary` of a `.dll` is **M6**. Bundled Rust modules (Search,
-JSON, Time Series, Bloom) are out of scope for this program.
+`loadmodule path\to\mod.dll` uses `LoadLibrary` / `GetProcAddress` (POSIX
+`dlopen`/`dlsym` wrappers). The DLL must **export** `RedisModule_OnLoad`
+(C linkage). The in-tree `helloworld.dll` is built that way
+(`/EXPORT:RedisModule_OnLoad`).
+
+Windows is LLP64 (`unsigned long` is 32-bit). `redismodule.h`
+`RedisModule_Init` casts `GetApi` through `uintptr_t` on `_WIN32`. Rebuild
+modules against this header; a module compiled with stock upstream
+`unsigned long` casts will crash on load.
+
+Module allocations **must** go through `RedisModule_Alloc` (and friends),
+not `malloc`/`HeapAlloc`, so they sit on the Redis heap.
+
+Bundled Rust modules (Search, JSON, Time Series, Bloom) are out of scope.
 
 `RedisModule_Fork`: Windows cannot return 0 into the caller the way POSIX
 `fork` does. The GA contract is **return an error** unless a child function
 is registered by **exported name** (a raw parent function pointer is invalid
-in the child; ASLR is off only on `redis-server.exe`).
+in the child; ASLR is off only on `redis-server.exe`). That contract is M6.3.
 
 ## What this port does not do
 

@@ -1537,7 +1537,12 @@ REDISMODULE_API int (*RedisModule_GetKeyMeta)(RedisModuleKeyMetaClassId id, Redi
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR_UNUSED;
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     void *getapifuncptr = ((void**)ctx)[0];
+#ifdef _WIN32
+    /* LLP64: unsigned long is 32-bit and would truncate the GetApi pointer. */
+    RedisModule_GetApi = (int (*)(const char *, void *)) (uintptr_t)getapifuncptr;
+#else
     RedisModule_GetApi = (int (*)(const char *, void *)) (unsigned long)getapifuncptr;
+#endif
     REDISMODULE_GET_API(Alloc);
     REDISMODULE_GET_API(TryAlloc);
     REDISMODULE_GET_API(Calloc);
