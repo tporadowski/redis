@@ -30,11 +30,17 @@
 /* Data. */
 
 /* Runtime configuration options. */
+#ifdef _WIN32
+/*
+ * Windows has no weak symbols. Redis (zmalloc.c) provides the definition
+ * (tcache tuning). Other embedders must supply je_malloc_conf as well.
+ */
+extern const char	*je_malloc_conf;
+#else
 const char	*je_malloc_conf
-#ifndef _WIN32
     JEMALLOC_ATTR(weak)
-#endif
     ;
+#endif
 /*
  * The usual rule is that the closer to runtime you are, the higher priority
  * your configuration settings are (so the jemalloc config options get lower
@@ -4506,6 +4512,19 @@ jemalloc_postfork_child(void) {
 /* Helps the application decide if a pointer is worth re-allocating in order to reduce fragmentation.
  * returns 1 if the allocation should be moved, and 0 if the allocation be kept.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
+#ifdef JEMALLOC_NO_PRIVATE_NAMESPACE
+/*
+ * Redis extras are unprefixed in the vendored source; Unix builds rename
+ * them via private_namespace.h. Windows CMake sets JEMALLOC_NO_PRIVATE_NAMESPACE
+ * so export the je_ names Redis calls.
+ */
+#define get_defrag_hint je_get_defrag_hint
+#define malloc_with_usize je_malloc_with_usize
+#define calloc_with_usize je_calloc_with_usize
+#define realloc_with_usize je_realloc_with_usize
+#define free_with_usize je_free_with_usize
+#endif
+
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
 get_defrag_hint(void* ptr) {
 	assert(ptr != NULL);

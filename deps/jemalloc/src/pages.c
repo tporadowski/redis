@@ -124,8 +124,13 @@ os_pages_map(void *addr, size_t size, size_t alignment, bool *commit) {
 	 * If VirtualAlloc can't allocate at the given address when one is
 	 * given, it fails and returns NULL.
 	 */
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	/* New reservation (reserve+commit). Not commit-in-place. */
+	ret = AllocHeapBlock(addr, size, TRUE);
+#else
 	ret = VirtualAlloc(addr, size, MEM_RESERVE | (*commit ? MEM_COMMIT : 0),
 	    PAGE_READWRITE);
+#endif
 #else
 	/*
 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
@@ -200,7 +205,11 @@ os_pages_unmap(void *addr, size_t size) {
 	assert(ALIGNMENT_CEILING(size, os_page) == size);
 
 #ifdef _WIN32
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	if (FreeHeapBlock(addr, size) == 0)
+#else
 	if (VirtualFree(addr, 0, MEM_RELEASE) == 0)
+#endif
 #else
 	if (munmap(addr, size) == -1)
 #endif
@@ -210,7 +219,11 @@ os_pages_unmap(void *addr, size_t size) {
 		buferror(get_errno(), buf, sizeof(buf));
 		malloc_printf("<jemalloc>: Error in "
 #ifdef _WIN32
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+		    "FreeHeapBlock"
+#else
 		    "VirtualFree"
+#endif
 #else
 		    "munmap"
 #endif
@@ -321,8 +334,13 @@ os_pages_commit(void *addr, size_t size, bool commit) {
 	assert(PAGE_CEILING(size) == size);
 
 #ifdef _WIN32
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	/* Commit/decommit in place. Never AllocHeapBlock (wrong address). */
+	return !CommitHeapBlock(addr, size, commit ? TRUE : FALSE);
+#else
 	return (commit ? (addr != VirtualAlloc(addr, size, MEM_COMMIT,
 	    PAGE_READWRITE)) : (!VirtualFree(addr, size, MEM_DECOMMIT)));
+#endif
 #else
 	{
 		int prot = commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
@@ -440,7 +458,11 @@ pages_purge_lazy(void *addr, size_t size) {
 	}
 
 #ifdef _WIN32
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+	PurgePages(addr, size);
+#else
 	VirtualAlloc(addr, size, MEM_RESET, PAGE_READWRITE);
+#endif
 	return false;
 #elif defined(JEMALLOC_PURGE_MADVISE_FREE)
 	return (madvise(addr, size,

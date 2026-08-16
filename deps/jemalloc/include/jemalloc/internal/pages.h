@@ -116,4 +116,17 @@ void pages_set_thp_state (void *ptr, size_t size);
 void pages_mark_guards(void *head, void *tail);
 void pages_unmark_guards(void *head, void *tail);
 
+#ifdef USE_WIN32_EXTERNAL_HEAP_ALLOC
+/*
+ * Page-layer hooks for the Redis Windows port (tporadowski/redis).
+ * Map/unmap allocate a new run; commit/decommit must be in-place
+ * (5.3 split os_pages_commit out of pages_commit_impl — do not call
+ * AllocHeapBlock for commit, it ignores addr when the QFork map is live).
+ */
+extern LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero);
+extern BOOL FreeHeapBlock(LPVOID addr, size_t size);
+extern BOOL PurgePages(LPVOID addr, size_t length);
+extern BOOL CommitHeapBlock(LPVOID addr, size_t size, BOOL commit);
+#endif
+
 #endif /* JEMALLOC_INTERNAL_PAGES_EXTERNS_H */

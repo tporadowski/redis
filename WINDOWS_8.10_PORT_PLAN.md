@@ -175,7 +175,7 @@ Pattern: upstream version + `-win.` + port revision. Do not reuse bare `v8.10.0`
 
 **Decision: continue [tporadowski/jemalloc](https://github.com/tporadowski/jemalloc) as the patch source; copy the result into `deps/jemalloc`.**
 
-The live GitHub contents of `tporadowski/jemalloc` were **not re-verified** from this workspace. Local 5.0 vendors jemalloc **5.2.1** with `USE_WIN32_EXTERNAL_HEAP_ALLOC`. Official 8.10 vendors **5.3.0-0-g0**. PR 3.1’s first job is: rebase the 5.2.1 page hooks onto the Redis-vendored 5.3 tree (do not replace Redis jemalloc with a pristine upstream 5.3; keep `JEMALLOC_FRAG_HINT` / `JEMALLOC_ALLOC_WITH_USIZE` / `je_get_defrag_hint`). Then push that rebased branch to tporadowski/jemalloc and copy into `deps/jemalloc`.
+The live GitHub contents of `tporadowski/jemalloc` were **not re-verified** from this workspace. Local 5.0 vendors jemalloc **5.2.1** with `USE_WIN32_EXTERNAL_HEAP_ALLOC`. Official 8.10 vendors **5.3.0-0-g0**. **3.1 rebased the 5.2.1 page hooks onto the Redis-vendored 5.3 tree** (did not replace Redis jemalloc; kept `JEMALLOC_FRAG_HINT` / `JEMALLOC_ALLOC_WITH_USIZE` / `je_get_defrag_hint`). `os_pages_commit` calls new `CommitHeapBlock` (not `AllocHeapBlock`). Windows CMake headers are checked in (`JEMALLOC_RETAIN` undefined, `LG_PAGE=22`, `JEMALLOC_NO_PRIVATE_NAMESPACE`). `je_malloc_conf` is `extern` in jemalloc on Windows (no weak symbols; Redis `zmalloc.c` defines it). Push the same `pages.c`/`pages.h` + Windows headers to tporadowski/jemalloc when that repo is next updated.
 
 ---
 
@@ -1048,7 +1048,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 1.3 | M1 | Done | `win-8.10` | `redis-server` TCP `PING`/`SET`/`GET`; `arch_bits=64`; CRT libc; `WinSock_IOCP`; `unix.c` registers; no QFork heap |
 | 2.1 | M2 | Done | `win-8.10` | HANDLE map join; cond broadcast; ThreadControl; `pthread_cancel` is ENOSYS |
 | 2.2 | M2 | Done | `win-8.10` | BIO cooperative stop+join; anetPipe CLOEXEC inherit; eventnotifier EAGAIN |
-| 3.1 | M3 | Not started | | jemalloc 5.3 rebase + retain OFF + map/commit split |
+| 3.1 | M3 | Done | `win-8.10` | Vendored 5.3 `pages.c`/`pages.h` hooks; `CommitHeapBlock` for `os_pages_commit`; `JEMALLOC_RETAIN` undefined; `LG_PAGE=22`; CMake `jemalloc`; `INFO mem_allocator:jemalloc-5.3.0`; `jemalloc_smoke` |
 | 3.2 | M3 | Not started | | QFork heap; NULL-safe AllocHeapBlock |
 | 3.3 | M3 | Not started | | parent-only `redisFork`; `do_rdbSave`; process table; `persistence-available` config |
 | 3.4 | M3 | Not started | | **Smoke:** `BGSAVE` + `redis-check-rdb` |
