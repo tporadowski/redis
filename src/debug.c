@@ -1520,13 +1520,15 @@ void logStackContent(void **sp) {
     }
     int i;
     for (i = 15; i >= 0; i--) {
-        unsigned long addr = (unsigned long) sp+i;
-        unsigned long val = (unsigned long) sp[i];
+        uintptr_t addr = (uintptr_t)(sp + i);
+        uintptr_t val = (uintptr_t)sp[i];
 
-        if (sizeof(long) == 4)
-            serverLog(LL_WARNING, "(%08lx) -> %08lx", addr, val);
+        if (sizeof(void *) == 4)
+            serverLog(LL_WARNING, "(%08lx) -> %08lx",
+                      (unsigned long)addr, (unsigned long)val);
         else
-            serverLog(LL_WARNING, "(%016lx) -> %016lx", addr, val);
+            serverLog(LL_WARNING, "(%016llx) -> %016llx",
+                      (unsigned long long)addr, (unsigned long long)val);
     }
 }
 

@@ -1,0 +1,25 @@
+# LLP64 lint allow-list (10.4). One entry per remaining hit:
+#   relative/path|unique-substring-of-the-line
+# These are not pointer-width landmines. Do not allow
+#   server.arch_bits = sizeof(long)
+# or PORT_LONG typedefs.
+
+# dict uses unsigned long for table size (32-bit cap on Windows).
+src/dict.c|if (size >= LONG_MAX) return (8*sizeof(long)-1);
+src/dict.c|return 8*sizeof(long) - __builtin_clzl(size-1);
+
+# BITOP length array; long is the element type, not pointer width.
+src/bitops.c|len = zmalloc(sizeof(long) * numkeys);
+
+# %l vs %ll in async-signal-safe printf; sizeof(long)==8 is LP64-only.
+src/util.c|*have_longlong = (sizeof(long) == sizeof(int64_t));
+
+# Word-swap / min-alloc / memtest word size, not arch_bits.
+src/pqsort.c|swaptype = (uintptr_t)a % sizeof(long) || \
+src/pqsort.c|es % sizeof(long) ? 2 : es == sizeof(long)? 0 : 1;
+src/zmalloc.c|#define MALLOC_MIN_SIZE(x) ((x) > 0 ? (x) : sizeof(long))
+src/memtest.c|#define MEMTEST_BACKUP_WORDS (1024*(1024/sizeof(long)))
+
+# Comment only: do not invent PORT_LONG.
+src/Win32_Interop/win32_types_hiredis.h|Do not invent PORT_LONG
+src/Win32_Interop/win32_types_hiredis.h|Fix the few sizeof(long)
