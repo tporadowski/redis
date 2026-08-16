@@ -132,6 +132,10 @@ QFork / parent-side `BGSAVE` pauses IO threads, requests BIO suspension,
 then resumes immediately after the snapshot/`CreateProcess` (not for the
 whole save). Smoke: `tests/windows/smoke_iothreads.ps1`.
 
+The 9.3 gate stays on IOCP (not wepoll). TLS + `io-threads 4` is
+`tests/windows/smoke_tls_iothreads.ps1`. See
+`tests/windows/iocp-vs-wepoll.md`.
+
 ## AF_UNIX
 
 `unixsocket path\to\redis.sock` listens on a pathname socket (`AF_UNIX`,
@@ -162,7 +166,8 @@ with IOCP. `SSL_set_fd` is given the native `SOCKET`, not the RFD
 
 `tls-port` handshake + `GET`/`SET`: `tests/windows/smoke_tls.ps1` (needs
 an `openssl.exe` to mint a self-signed cert). `tls-auth-clients no` and
-`redis-cli --tls --insecure` are enough for that smoke.
+`redis-cli --tls --insecure` are enough for that smoke. Combined with
+`io-threads 4`: `tests/windows/smoke_tls_iothreads.ps1`.
 
 ## Modules
 

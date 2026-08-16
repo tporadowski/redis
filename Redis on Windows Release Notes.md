@@ -13,8 +13,9 @@ Unofficial native port of Redis Open Source 8.10.0. Tri-licensed
   to `win-8.10` at that GA.
 
 Known gaps on current `win-8.10` (see the port plan tracker): jemalloc still
-uses `VirtualAlloc` (mapped-heap OOM); replica PSYNC handshake can stall;
-AF_UNIX listen, TLS, and `LoadLibrary` modules are later milestones.
+uses `VirtualAlloc` (mapped-heap OOM); replica diskless PSYNC is not
+end-to-end re-verified. IOCP is the production backend (9.3: stay; no
+wepoll cut-over).
 
 ## 5.0 and earlier
 

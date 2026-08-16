@@ -1066,7 +1066,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 8.3 | M8 | Done | `win-8.10` | `tests/windows/smoke_tls.ps1`: self-signed cert, `tls-port` PING + SET/GET |
 | 9.1 | M9 | Done | `win-8.10` | AF_UNIX listen: skip SO_REUSEADDR, DeleteFile stale path, poll+accept (no AcceptEx). hiredis `redis-cli -s` connect. `unixsocket` PING/SET/GET |
 | 9.2 | M9 | Done | `win-8.10` | `WSIOCP_SetDestLoop` delay-associate + forward if already on another IOCP. Parent-side and mapped-heap fork freeze IO+BIO; tcache flush. `io-threads 4` + BGSAVE + unix PING |
-| 9.3 | M9 | Not started | | **Gate:** IOCP vs wepoll |
+| 9.3 | M9 | Done | `win-8.10` | **Stay on IOCP.** `tests/windows/iocp-vs-wepoll.md`. Gate combo `tls-port` + `io-threads 4` PING/SET/GET (`smoke_tls_iothreads.ps1`). No unfixed IOCP+`SSL_set_fd`+N-loop correctness bug; two-week clock does not start |
 | 10.1 | M10 | Not started | | `wintest.tcl` first + skip-list |
 | 10.2 | M10 | Not started | | zip layout |
 | 10.3 | M10 | Not started | | README both-stories |
@@ -1082,7 +1082,7 @@ None remaining. All previously open items are locked:
 |-----|-----|
 | Default-branch timing | **At first GA** (`v8.10.0-win.1`) → `win-8.10` (Decision 18) |
 | LDB QFork vs SYNC-only | SYNC-only (Decision 27) |
-| wepoll cutover | Evaluate at 9.3; cut over only if a correctness bug in IOCP + `SSL_set_fd` + N loops is unfixed after two weeks of dedicated work post-9.2 (Decision 15) |
+| wepoll cutover | **Closed at 9.3: stay on IOCP.** Re-open only if IOCP + `SSL_set_fd` + N loops has an unfixed correctness bug after two weeks of dedicated work (Decision 15) |
 | MSI / Chocolatey / signing | Out of scope until requested (Decision 19) |
 | `redis-check-*` targets | Separate CMake targets that skip QFork (Decision 28) |
 
@@ -1231,7 +1231,7 @@ Fallback if Git Bash is missing: CMake writes `#define REDIS_GIT_SHA1 "00000000"
 | 12 | Heap/mapped QFork payload; delete `MAX_REDIS_DATA_SIZE 10000`. Full per-purpose schema. | **Locked** |
 | 13 | Freeze: `pauseAllIOThreads` then `RequestSuspension` for BIO. Flush main-thread jemalloc tcache best-effort. **Resume immediately after `CreateProcess`** — do not hold pause until COW rejoin. | **Locked** |
 | 14 | `persistence-available` is a **two-phase** read: (1) `Win32_CommandLine` pre-parse of argv+conf before `QForkParentInit`; (2) `createBoolConfig` seeded from that same value. M1 forces off. | **Locked** |
-| 15 | wepoll is fallback only; `select` is not production. **Gate is 9.3.** Cut over only if a correctness bug in IOCP + `SSL_set_fd` + N loops is unfixed after two weeks of dedicated work post-9.2. | **Locked** |
+| 15 | wepoll is fallback only; `select` is not production. **Gate is 9.3.** Cut over only if a correctness bug in IOCP + `SSL_set_fd` + N loops is unfixed after two weeks of dedicated work post-9.2. **Evaluated 9.3: stay on IOCP.** | **Locked** |
 | 16 | OpenSSL 3.x via vcpkg `x64-windows`. Memory-BIO IOCP path is post-GA. | **Locked** |
 | 17 | Tags `v8.10.0-win.N`. README tells both stories. Unofficial, not affiliated with Redis Ltd. | **Locked** |
 | 18 | At first 8.10 Windows GA (`v8.10.0-win.1`), switch the GitHub default branch to `win-8.10`. | **Locked** |
