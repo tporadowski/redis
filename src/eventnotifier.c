@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #ifdef HAVE_EVENT_FD
 #include <sys/eventfd.h>
 #endif
@@ -59,11 +60,14 @@ int triggerEventNotifier(struct eventNotifier *en) {
 #ifdef HAVE_EVENT_FD
     uint64_t u = 1;
     if (write(en->efd, &u, sizeof(uint64_t)) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return EN_OK;
         return EN_ERR;
     }
 #else
     char buf[1] = {'R'};
     if (write(en->pipefd[1], buf, 1) == -1) {
+        /* Non-blocking pipe full: the reader is already runnable. */
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return EN_OK;
         return EN_ERR;
     }
 #endif
@@ -74,11 +78,13 @@ int handleEventNotifier(struct eventNotifier *en) {
 #ifdef HAVE_EVENT_FD
     uint64_t u;
     if (read(en->efd, &u, sizeof(uint64_t)) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return EN_OK;
         return EN_ERR;
     }
 #else
     char buf[1];
     if (read(en->pipefd[0], buf, 1) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return EN_OK;
         return EN_ERR;
     }
 #endif

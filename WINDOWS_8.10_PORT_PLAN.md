@@ -1047,7 +1047,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 1.2 | M1 | Done | `win-8.10` | One IOCP per `aeApiState`; delay-associate on first `AddEvent`; `wsiocp_smoke` |
 | 1.3 | M1 | Done | `win-8.10` | `redis-server` TCP `PING`/`SET`/`GET`; `arch_bits=64`; CRT libc; `WinSock_IOCP`; `unix.c` registers; no QFork heap |
 | 2.1 | M2 | Done | `win-8.10` | HANDLE map join; cond broadcast; ThreadControl; `pthread_cancel` is ENOSYS |
-| 2.2 | M2 | Not started | | BIO + eventnotifier; Windows cancel/join/pipe |
+| 2.2 | M2 | Done | `win-8.10` | BIO cooperative stop+join; anetPipe CLOEXEC inherit; eventnotifier EAGAIN |
 | 3.1 | M3 | Not started | | jemalloc 5.3 rebase + retain OFF + map/commit split |
 | 3.2 | M3 | Not started | | QFork heap; NULL-safe AllocHeapBlock |
 | 3.3 | M3 | Not started | | parent-only `redisFork`; `do_rdbSave`; process table; `persistence-available` config |

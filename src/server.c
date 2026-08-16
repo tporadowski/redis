@@ -2995,8 +2995,13 @@ void resetServerStats(void) {
  * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
  * Needed for pthread_cancel used by the fast memory test used by the crash report. */
 void makeThreadKillable(void) {
+#ifdef _WIN32
+    /* Cooperative stop + join. Do not enable async cancel (no TerminateThread). */
+    return;
+#else
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+#endif
 }
 
 void initServer(void) {
@@ -5215,6 +5220,10 @@ int finishShutdown(void) {
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
+#ifdef _WIN32
+    /* Join BIO workers instead of letting process exit tear them down. */
+    bioKillThreads();
+#endif
 
 #if !defined(__sun)
     /* Unlock the cluster config file before shutdown */

@@ -745,7 +745,9 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
         return -1;
 
     /* File descriptor flags.
-     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
+     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag.
+     * On Windows this is SetHandleInformation(..., HANDLE_FLAG_INHERIT, 0).
+     * Ends without O_CLOEXEC stay inheritable for QFork child_info / diskless. */
     if (read_flags & O_CLOEXEC)
         if (fcntl(fds[0], F_SETFD, FD_CLOEXEC))
             goto error;

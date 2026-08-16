@@ -47,6 +47,9 @@
 #include "server.h"
 #include "bio.h"
 #include <fcntl.h>
+#ifdef _WIN32
+#include "Win32_Interop/Win32_ThreadControl.h"
+#endif
 
 static char* bio_worker_title[] = {
     "bio_close_file",
@@ -78,6 +81,9 @@ static unsigned long bio_jobs_counter[BIO_NUM_OPS] = {0};
 static list *bio_comp_list;
 static pthread_mutex_t bio_mutex_comp;
 static int job_comp_pipe[2];   /* Pipe used to awake the event loop */
+#ifdef _WIN32
+static volatile int bio_stop;  /* Cooperative stop; no pthread_cancel. */
+#endif
 
 typedef struct bio_comp_item {
     comp_fn *func;    /* callback after completion job will be processed  */
@@ -286,8 +292,26 @@ void *bioProcessBackgroundJobs(void *arg) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
+#ifdef _WIN32
+        if (bio_stop) {
+            pthread_mutex_unlock(&bio_mutex[worker]);
+            return NULL;
+        }
+#endif
         if (listLength(bio_jobs[worker]) == 0) {
+#ifdef _WIN32
+            WorkerThread_EnterSafeMode();
+#endif
             pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
+#ifdef _WIN32
+            pthread_mutex_unlock(&bio_mutex[worker]);
+            WorkerThread_ExitSafeMode();
+            pthread_mutex_lock(&bio_mutex[worker]);
+            if (bio_stop) {
+                pthread_mutex_unlock(&bio_mutex[worker]);
+                return NULL;
+            }
+#endif
             continue;
         }
         /* Get the job from the queue. */
@@ -402,6 +426,25 @@ void bioKillThreads(void) {
     int err;
     unsigned long j;
 
+#ifdef _WIN32
+    /* Cooperative stop: wake cond waiters and join. No TerminateThread. */
+    bio_stop = 1;
+    for (j = 0; j < BIO_WORKER_NUM; j++) {
+        if (!bio_threads[j] || bio_threads[j] == pthread_self()) continue;
+        pthread_mutex_lock(&bio_mutex[j]);
+        pthread_cond_broadcast(&bio_newjob_cond[j]);
+        pthread_mutex_unlock(&bio_mutex[j]);
+    }
+    for (j = 0; j < BIO_WORKER_NUM; j++) {
+        if (!bio_threads[j] || bio_threads[j] == pthread_self()) continue;
+        if ((err = pthread_join(bio_threads[j], NULL)) != 0) {
+            serverLog(LL_WARNING,
+                "Bio worker thread #%lu can not be joined: %s",
+                    j, strerror(err));
+        }
+        bio_threads[j] = 0;
+    }
+#else
     for (j = 0; j < BIO_WORKER_NUM; j++) {
         if (bio_threads[j] == pthread_self()) continue;
         if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
@@ -415,6 +458,7 @@ void bioKillThreads(void) {
             }
         }
     }
+#endif
 }
 
 void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask) {
