@@ -1049,7 +1049,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 2.1 | M2 | Done | `win-8.10` | HANDLE map join; cond broadcast; ThreadControl; `pthread_cancel` is ENOSYS |
 | 2.2 | M2 | Done | `win-8.10` | BIO cooperative stop+join; anetPipe CLOEXEC inherit; eventnotifier EAGAIN |
 | 3.1 | M3 | Done | `win-8.10` | Vendored 5.3 `pages.c`/`pages.h` hooks; `CommitHeapBlock` for `os_pages_commit`; `JEMALLOC_RETAIN` undefined; `LG_PAGE=22`; CMake `jemalloc`; `INFO mem_allocator:jemalloc-5.3.0`; `jemalloc_smoke` |
-| 3.2 | M3 | Not started | | QFork heap; NULL-safe AllocHeapBlock |
+| 3.2 | M3 | Done | `win-8.10` | QFork pagefile heap + NULL-safe `AllocHeapBlock`; no `MAX_REDIS_DATA_SIZE`; `/DYNAMICBASE:NO`; `qfork_heap_smoke`. jemalloc stays on VirtualAlloc (`g_BypassMemoryMapOnAlloc=1`) — mapped-heap backing OOMs 16-byte during db init; flip off in 3.3 |
 | 3.3 | M3 | Not started | | parent-only `redisFork`; `do_rdbSave`; process table; `persistence-available` config |
 | 3.4 | M3 | Not started | | **Smoke:** `BGSAVE` + `redis-check-rdb` |
 | 4.1 | M4 | Not started | | `do_aofRewrite` + MP-AOF |

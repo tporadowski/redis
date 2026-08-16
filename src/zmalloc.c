@@ -87,9 +87,17 @@ void je_free_with_usize(void *ptr, size_t *usize);
  *
  *   lg_tcache_nslots_mul:3       default slot count log2 multiplier: 1 (2x) → 3 (8x).
  *   tcache_nslots_small_max:1000 per-bin hard cap 200 -> 1000.
+ *
+ * Windows LG_PAGE=22 makes "small" classes up to 8 MB. The Linux 1000-slot
+ * cap would cache 1000×4 MB slabs. Keep the default tcache on Windows.
  */
+#ifdef _WIN32
+/* LG_PAGE=22: Linux's 1000-slot small tcache would cache 4 MB classes. */
+const char *je_malloc_conf = "tcache_nslots_small_max:8";
+#else
 const char *je_malloc_conf =
     "lg_tcache_nslots_mul:3,tcache_nslots_small_max:1000";
+#endif
 #endif
 
 /* Per-thread memory accounting slots. The first DEDICATED_ENTRIES threads

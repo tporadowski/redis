@@ -4,6 +4,8 @@
 
 #ifdef _WIN32
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -11,12 +13,19 @@ extern "C" {
 int redis_main(int argc, char **argv);
 
 /*
- * jemalloc page hooks (3.1). Implementations are VirtualAlloc fallbacks until
- * 3.2 installs the QFork mapped heap. AllocHeapBlock is NULL-safe: if
- * g_pQForkControl is NULL it never dereferences the map.
+ * jemalloc page hooks. AllocHeapBlock is NULL-safe: if g_pQForkControl is
+ * NULL (pages_boot before QForkStartup, check tools, sentinel) it never
+ * dereferences the map — VirtualAlloc fallback.
+ *
+ * No MAX_REDIS_DATA_SIZE. Fork payload is a separate mapped section (3.3).
  */
 extern void *g_pQForkControl;
 extern int g_BypassMemoryMapOnAlloc;
+extern int g_HasMemoryMappedHeap;
+
+/* heap_bytes == 0 → default (10× physical RAM, cap 1 TB). */
+int QForkParentInit(size_t heap_bytes);
+void QForkShutdown(void);
 
 void *AllocHeapBlock(void *addr, size_t size, int zero);
 int FreeHeapBlock(void *addr, size_t size);
