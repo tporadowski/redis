@@ -169,6 +169,22 @@ an `openssl.exe` to mint a self-signed cert). `tls-auth-clients no` and
 `redis-cli --tls --insecure` are enough for that smoke. Combined with
 `io-threads 4`: `tests/windows/smoke_tls_iothreads.ps1`.
 
+## Tests (10.1)
+
+`tests/windows/runtest-win.ps1` (CMake target `wintest`):
+
+1. Load a Redis 5.0 `encodings.rdb` (`smoke_rdb50.ps1`).
+2. Run the 5.0-first Tcl units via Git `tclsh` (`wintest.tcl`: `unit/printver`,
+   `unit/type/incr`).
+
+RDB/AOF files are opened with `fopen(..., "rb"/"wb")`. Text mode on Windows
+treats `0x1A` as EOF and truncated old RDBs.
+
+Skip-list: `tests/windows/skip-list.txt` (replica PSYNC, hiredis protocol-error
+close, Linux `fork`/`/proc`/`setsid`/`taskset`, abstract Unix). Lifted 5.0
+`tests/windows/regression.tcl` is in the tree; it is not in the default run
+until replica sync is end-to-end.
+
 ## Modules
 
 `loadmodule path\to\mod.dll` uses `LoadLibrary` / `GetProcAddress` (POSIX

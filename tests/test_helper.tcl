@@ -18,6 +18,7 @@ package require Tcl 8.5-10
 if {$tcl_version < 9.0} { set tcl_precision 17 }
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
+source tests/support/win32.tcl
 source tests/support/server.tcl
 source tests/support/cluster_util.tcl
 source tests/support/tmpfile.tcl
@@ -33,6 +34,7 @@ set test_dirs {
     unit/moduleapi
     unit/cluster
     integration
+    windows
 }
 
 foreach test_dir $test_dirs {
@@ -270,8 +272,8 @@ proc run_solo {name code} {
 proc cleanup {} {
     if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
     flush stdout
-    catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
-    catch {exec rm -rf {*}[glob tests/tmp/server.*]}
+    catch {file delete -force {*}[glob -nocomplain tests/tmp/redis.conf.*]}
+    catch {file delete -force {*}[glob -nocomplain tests/tmp/server.*]}
     if {!$::quiet} {puts "OK"}
 }
 
@@ -627,7 +629,11 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set fp [open $arg r]
         set file_data [read $fp]
         close $fp
-        set ::skiptests [concat $::skiptests [split $file_data "\n"]]
+        foreach line [split $file_data "\n"] {
+            set line [string trim $line]
+            if {$line eq "" || [string index $line 0] eq "#"} continue
+            lappend ::skiptests $line
+        }
     } elseif {$opt eq {--skiptest}} {
         lappend ::skiptests $arg
         incr j

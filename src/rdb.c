@@ -2116,7 +2116,7 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     int saved_errno;
     char *err_op;    /* For a detailed log */
 
-    FILE *fp = fopen(filename,"w");
+    FILE *fp = fopen(filename,"wb");
     if (!fp) {
         saved_errno = errno;
         char *str_err = strerror(errno);
@@ -5140,7 +5140,7 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
     struct stat sb;
     int rdb_fd;
 
-    fp = fopen(filename, "r");
+    fp = fopen(filename, "rb");
     if (fp == NULL) {
         if (errno == ENOENT) return RDB_NOT_EXIST;
 

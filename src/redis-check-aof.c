@@ -225,7 +225,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
     int multi = 0;
     char buf[2];
 
-    FILE *fp = fopen(aof_filepath, "r+");
+    FILE *fp = fopen(aof_filepath, "r+b");
     if (fp == NULL) {
         printf("Cannot open file %s: %s, aborting...\n", aof_filepath, strerror(errno));
         exit(1);
@@ -337,7 +337,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
  * 2. The file is a BASE AOF in Multi Part AOF
  * */
 int fileIsRDB(char *filepath) {
-    FILE *fp = fopen(filepath, "r");
+    FILE *fp = fopen(filepath, "rb");
     if (fp == NULL) {
         printf("Cannot open file %s: %s\n", filepath, strerror(errno));
         exit(1);

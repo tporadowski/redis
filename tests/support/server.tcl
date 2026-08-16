@@ -16,11 +16,15 @@ set ::global_overrides {}
 set ::tags {}
 set ::valgrind_errors {}
 
+if {![llength [info procs file_contents]]} {
+    source [file join [file dirname [info script]] win32.tcl]
+}
+
 proc start_server_error {config_file error} {
     set err {}
     append err "Can't start the Redis server\n"
     append err "CONFIGURATION:\n"
-    append err [exec cat $config_file]
+    append err [file_contents $config_file]
     append err "\nERROR:\n"
     append err [string trim $error]
     send_data_packet $::test_server_fd err $err
@@ -53,7 +57,7 @@ proc clean_persistence config {
     }
     set aof_dirpath [format "%s/%s" $dir $aofdir]
     clean_aof_persistence $aof_dirpath
-    catch {exec rm -rf $rdb}
+    catch {file delete -force $rdb}
 }
 
 proc kill_server config {
@@ -109,10 +113,14 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
-    # Node might have been stopped in the test
-    # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
-    catch {exec kill -SIGCONT $pid}
-    catch {exec kill $pid}
+    if {$::tcl_platform(platform) eq "windows"} {
+        win32_kill_pid $pid
+    } else {
+        # Node might have been stopped in the test
+        # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
+        catch {exec kill -SIGCONT $pid}
+        catch {exec kill $pid}
+    }
     if {$::valgrind} {
         set max_wait 120000
     } else {
@@ -123,10 +131,18 @@ proc kill_server config {
 
         if {$wait == $max_wait} {
             puts "Forcing process $pid to crash..."
-            catch {exec kill -SEGV $pid}
+            if {$::tcl_platform(platform) eq "windows"} {
+                win32_kill_pid $pid
+            } else {
+                catch {exec kill -SEGV $pid}
+            }
         } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
-            catch {exec kill -KILL $pid}
+            if {$::tcl_platform(platform) eq "windows"} {
+                win32_kill_pid $pid
+            } else {
+                catch {exec kill -KILL $pid}
+            }
         } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
         }
@@ -145,6 +161,9 @@ proc kill_server config {
 }
 
 proc is_alive pid {
+    if {$::tcl_platform(platform) eq "windows"} {
+        return [win32_pid_alive $pid]
+    }
     if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
@@ -422,10 +441,20 @@ proc create_server_config_file {filename config config_lines} {
 }
 
 proc spawn_server {config_file stdout stderr args} {
-    set cmd [list src/redis-server $config_file]
+    set cmd [list [redis_server_bin] $config_file]
     set args {*}$args
     if {[llength $args] > 0} {
         lappend cmd {*}$args
+    }
+
+    if {$::tcl_platform(platform) eq "windows"} {
+        set pid [exec {*}$cmd >> $stdout 2>> $stderr &]
+        if {$::wait_server} {
+            puts "server started PID: $pid. press any key to continue..."
+            read stdin 1
+        }
+        send_data_packet $::test_server_fd server-spawned $pid
+        return $pid
     }
 
     if {$::valgrind} {
@@ -461,7 +490,9 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid.*Server initialized" [exec cat $stdout]]} {
+        set log [file_contents $stdout]
+        if {[regexp -- "$pid:.*Server initialized" $log] ||
+            [string match "*Server initialized*" $log]} {
             break
         }
         after $checkperiod
@@ -469,14 +500,14 @@ proc wait_server_started {config_file stdout pid} {
         if {$maxiter == 0} {
             start_server_error $config_file "No PID detected in log $stdout"
             puts "--- LOG CONTENT ---"
-            puts [exec cat $stdout]
+            puts [file_contents $stdout]
             puts "-------------------"
             break
         }
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
+        if {[regexp {Failed listening on port} [file_contents $stdout]]} {
             set port_busy 1
             break
         }
@@ -487,11 +518,11 @@ proc wait_server_started {config_file stdout pid} {
 proc dump_server_log {srv} {
     set pid [dict get $srv "pid"]
     puts "\n===== Start of server log (pid $pid) =====\n"
-    puts [exec cat [dict get $srv "stdout"]]
+    puts [file_contents [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
 
     puts "\n===== Start of server stderr log (pid $pid) =====\n"
-    puts [exec cat [dict get $srv "stderr"]]
+    puts [file_contents [dict get $srv "stderr"]]
     puts "===== End of server stderr log (pid $pid) =====\n"
 }
 
@@ -633,7 +664,7 @@ proc start_server {options {code undefined}} {
         return
     }
 
-    set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
+    set data [split [file_contents "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
         if {$::tls_module} {
@@ -768,7 +799,7 @@ proc start_server {options {code undefined}} {
 
         if {!$serverisup} {
             set err {}
-            append err [exec cat $stdout] "\n" [exec cat $stderr]
+            append err [file_contents $stdout] "\n" [file_contents $stderr]
             start_server_error $config_file $err
             set ::tags [lrange $::tags 0 end-[llength $tags]]
             return
@@ -798,7 +829,7 @@ proc start_server {options {code undefined}} {
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
     if {$code ne "undefined"} {
-        set line [exec head -n1 $stdout]
+        set line [file_first_line $stdout]
         if {[string match {*already in use*} $line]} {
             set ::tags [lrange $::tags 0 end-[llength $tags]]
             error_and_quit $config_file $line
