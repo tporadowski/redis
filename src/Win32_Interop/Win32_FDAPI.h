@@ -327,6 +327,10 @@ int FDAPI_AcceptEx(int listenfd, int acceptfd, void *buf,
 int FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen,
                     void *sendbuf, unsigned long sendlen,
                     unsigned long *sent, void *overlapped);
+/* Native SOCKET as intptr_t; (intptr_t)-1 if rfd is not a socket. */
+intptr_t FDAPI_GetSocket(int rfd);
+/* CancelIoEx on the SOCKET. ov NULL cancels all. Returns 1 on success. */
+int FDAPI_CancelIoEx(int rfd, void *ov);
 void FDAPI_GetAcceptExSockaddrs(int rfd, void *buf, unsigned long rxlen,
                                 unsigned long locallen, unsigned long remotelen,
                                 struct sockaddr **local, int *locallen_out,

@@ -141,8 +141,12 @@ vcpkg at `D:\xAI\vcpkg` (or `$env:VCPKG_ROOT`) and passes the vcpkg
 toolchain. `libssl` / `libcrypto` DLLs are copied next to the exes.
 `BUILD_TLS=OFF` / `-NoTls` still produces a TCP-only server.
 
-Handshake + `tls-port` GET/SET is **8.2/8.3** (cancel outstanding
-`WSARecv` before `SSL_set_fd`). Until then do not rely on TLS I/O.
+TLS I/O uses the same zero-byte `WSARecv` readiness as TCP. Before
+`SSL_set_fd` / `SSL_read` / `SSL_write` the port **cancels and drains**
+any outstanding overlapped recv — OpenSSL must not share the socket
+with IOCP. `SSL_set_fd` is given the native `SOCKET`, not the RFD
+(OpenSSL on Windows treats that int as a `SOCKET`). End-to-end
+`tls-port` GET/SET smoke is **8.3**.
 
 ## Modules
 

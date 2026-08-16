@@ -192,6 +192,49 @@ int WSIOCP_QueueNextRead(int fd) {
     return -1;
 }
 
+int WSIOCP_CancelAndDrainRead(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    HANDLE iocp;
+    DWORD deadline;
+
+    if (!ss || (ss->masks & READ_QUEUED) == 0)
+        return 0;
+    iocp = (HANDLE)ss->iocp;
+    if (!iocp)
+        return 0;
+
+    FDAPI_CancelIoEx(rfd, &ss->ov_read);
+
+    /* Steal only this OV from the port; re-queue everything else. */
+    deadline = GetTickCount() + 2000;
+    while (ss->masks & READ_QUEUED) {
+        OVERLAPPED_ENTRY ent;
+        ULONG n = 0;
+        DWORD left = deadline - GetTickCount();
+        if ((int)left <= 0)
+            break;
+        if (!GetQueuedCompletionStatusEx(iocp, &ent, 1, &n, left, FALSE) || n == 0)
+            break;
+        if (ent.lpOverlapped == &ss->ov_read) {
+            ss->masks &= ~READ_QUEUED;
+            break;
+        }
+        PostQueuedCompletionStatus(iocp, ent.dwNumberOfBytesTransferred,
+                                   ent.lpCompletionKey, ent.lpOverlapped);
+    }
+    ss->masks &= ~READ_QUEUED;
+    return 0;
+}
+
+int WSIOCP_RearmRead(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    if (!ss) return 0;
+    if ((ss->masks & AE_READABLE) == 0) return 0;
+    if (ss->masks & (READ_QUEUED | CONNECT_PENDING | CLOSE_PENDING | LISTEN_SOCK))
+        return 0;
+    return WSIOCP_QueueNextRead(rfd);
+}
+
 int WSIOCP_QueueAccept(int listenfd) {
     iocpSockState *lss, *ass;
     aacceptreq *areq;
@@ -497,9 +540,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
             } else {
                 int matched = 0;
                 if (ov == &ss->ov_read) {
+                    /* Internal is NTSTATUS; cancelled Completions are < 0. */
                     matched = 1;
                     ss->masks &= ~READ_QUEUED;
-                    if (ss->masks & AE_READABLE) {
+                    if ((ss->masks & AE_READABLE) &&
+                        (LONG)entries[j].Internal >= 0) {
                         el->fired[numevents].fd = rfd;
                         el->fired[numevents].mask = AE_READABLE;
                         numevents++;

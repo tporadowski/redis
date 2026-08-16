@@ -30,6 +30,30 @@
 #endif
 #include <sys/uio.h>
 #include <arpa/inet.h>
+#ifdef _WIN32
+#include "Win32_Interop/win32_wsiocp.h"
+#include "Win32_Interop/Win32_FDAPI.h"
+
+/* OpenSSL on Windows treats SSL_set_fd's int as a SOCKET, not an RFD.
+ * Cancel any zero-byte WSARecv first so OpenSSL never shares the socket
+ * with an outstanding overlapped recv. */
+static void tlsWin32EnterSsl(int rfd) {
+    if (rfd >= 0) WSIOCP_CancelAndDrainRead(rfd);
+}
+static void tlsWin32LeaveSsl(int rfd) {
+    if (rfd >= 0) WSIOCP_RearmRead(rfd);
+}
+static int tlsSslSetFd(SSL *ssl, int rfd) {
+    intptr_t s = FDAPI_GetSocket(rfd);
+    if (s == (intptr_t)-1) return 0;
+    tlsWin32EnterSsl(rfd);
+    return SSL_set_fd(ssl, (int)s);
+}
+#else
+#define tlsWin32EnterSsl(fd) ((void)0)
+#define tlsWin32LeaveSsl(fd) ((void)0)
+#define tlsSslSetFd(ssl, fd) SSL_set_fd((ssl), (fd))
+#endif
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -511,7 +535,7 @@ static connection *connCreateAcceptedTLS(struct aeEventLoop *el, int fd, void *p
             break;
     }
 
-    SSL_set_fd(conn->ssl, conn->c.fd);
+    tlsSslSetFd(conn->ssl, conn->c.fd);
     SSL_set_accept_state(conn->ssl);
 
     return (connection *) conn;
@@ -719,10 +743,12 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                 conn->c.state = CONN_STATE_ERROR;
             } else {
                 if (!(conn->flags & TLS_CONN_FLAG_FD_SET)) {
-                    SSL_set_fd(conn->ssl, conn->c.fd);
+                    tlsSslSetFd(conn->ssl, conn->c.fd);
                     conn->flags |= TLS_CONN_FLAG_FD_SET;
                 }
+                tlsWin32EnterSsl(conn->c.fd);
                 ret = SSL_connect(conn->ssl);
+                tlsWin32LeaveSsl(conn->c.fd);
                 if (ret <= 0) {
                     WantIOType want = 0;
                     if (!handleSSLReturnCode(conn, ret, &want)) {
@@ -747,7 +773,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             break;
         case CONN_STATE_ACCEPTING:
             ERR_clear_error();
+            tlsWin32EnterSsl(conn->c.fd);
             ret = SSL_accept(conn->ssl);
+            tlsWin32LeaveSsl(conn->c.fd);
             if (ret <= 0) {
                 WantIOType want = 0;
                 if (!handleSSLReturnCode(conn, ret, &want)) {
@@ -872,8 +900,11 @@ static void connTLSShutdown(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
     if (conn->ssl) {
-        if (conn->c.state == CONN_STATE_CONNECTED)
+        if (conn->c.state == CONN_STATE_CONNECTED) {
+            tlsWin32EnterSsl(conn->c.fd);
             SSL_shutdown(conn->ssl);
+            tlsWin32LeaveSsl(conn->c.fd);
+        }
         SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
@@ -885,8 +916,11 @@ static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
     if (conn->ssl) {
-        if (conn->c.state == CONN_STATE_CONNECTED)
+        if (conn->c.state == CONN_STATE_CONNECTED) {
+            tlsWin32EnterSsl(conn->c.fd);
             SSL_shutdown(conn->ssl);
+            tlsWin32LeaveSsl(conn->c.fd);
+        }
         SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
@@ -914,7 +948,9 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
 
     /* Try to accept */
     conn->c.conn_handler = accept_handler;
+    tlsWin32EnterSsl(conn->c.fd);
     ret = SSL_accept(conn->ssl);
+    tlsWin32LeaveSsl(conn->c.fd);
 
     if (ret <= 0) {
         WantIOType want = 0;
@@ -1081,7 +1117,9 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
 
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
+    tlsWin32EnterSsl(conn->c.fd);
     ret = SSL_write(conn->ssl, data, data_len);
+    tlsWin32LeaveSsl(conn->c.fd);
     return updateStateAfterSSLIO(conn, ret, 1);
 }
 
@@ -1134,7 +1172,9 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
 
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
+    tlsWin32EnterSsl(conn->c.fd);
     ret = SSL_read(conn->ssl, buf, buf_len);
+    tlsWin32LeaveSsl(conn->c.fd);
     return updateStateAfterSSLIO(conn, ret, 1);
 }
 
@@ -1189,11 +1229,14 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
 
     /* Initiate TLS connection now.  We set up a send/recv timeout on the socket,
      * which means the specified timeout will not be enforced accurately. */
-    SSL_set_fd(conn->ssl, conn->c.fd);
+    tlsSslSetFd(conn->ssl, conn->c.fd);
     setBlockingTimeout(conn, timeout);
     ERR_clear_error();
 
-    if ((ret = SSL_connect(conn->ssl)) <= 0) {
+    tlsWin32EnterSsl(conn->c.fd);
+    ret = SSL_connect(conn->ssl);
+    tlsWin32LeaveSsl(conn->c.fd);
+    if (ret <= 0) {
         conn->c.state = CONN_STATE_ERROR;
         return C_ERR;
     }
@@ -1209,7 +1252,9 @@ static ssize_t connTLSSyncWrite(connection *conn_, char *ptr, ssize_t size, long
     setBlockingTimeout(conn, timeout);
     SSL_clear_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     ERR_clear_error();
+    tlsWin32EnterSsl(conn->c.fd);
     int ret = SSL_write(conn->ssl, ptr, size);
+    tlsWin32LeaveSsl(conn->c.fd);
     ret = updateStateAfterSSLIO(conn, ret, 0);
     SSL_set_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     unsetBlockingTimeout(conn);
@@ -1222,7 +1267,9 @@ static ssize_t connTLSSyncRead(connection *conn_, char *ptr, ssize_t size, long 
 
     setBlockingTimeout(conn, timeout);
     ERR_clear_error();
+    tlsWin32EnterSsl(conn->c.fd);
     int ret = SSL_read(conn->ssl, ptr, size);
+    tlsWin32LeaveSsl(conn->c.fd);
     ret = updateStateAfterSSLIO(conn, ret, 0);
     unsetBlockingTimeout(conn);
 
@@ -1240,7 +1287,9 @@ static ssize_t connTLSSyncReadLine(connection *conn_, char *ptr, ssize_t size, l
         char c;
 
         ERR_clear_error();
+        tlsWin32EnterSsl(conn->c.fd);
         int ret = SSL_read(conn->ssl, &c, 1);
+        tlsWin32LeaveSsl(conn->c.fd);
         ret = updateStateAfterSSLIO(conn, ret, 0);
         if (ret <= 0) {
             nread = -1;
