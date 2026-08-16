@@ -3,6 +3,8 @@
 > Need BSD Redis 5 for Windows? Use branch [`win-5.0`](https://github.com/tporadowski/redis/tree/win-5.0) / tag `v5.0.14.1`.
 >
 > Port plan: [WINDOWS_8.10_PORT_PLAN.md](WINDOWS_8.10_PORT_PLAN.md). Notices: [NOTICE](NOTICE). License: [LICENSE.txt](LICENSE.txt) (RSALv2 / SSPLv1 / AGPLv3).
+>
+> **Windows operators:** [Redis on Windows.md](Redis%20on%20Windows.md) (QFork, pagefile, ASLR, `maxmemory`). Conf: [`redis.windows.conf`](redis.windows.conf) / [`redis.windows-service.conf`](redis.windows-service.conf). Service: [Windows Service Documentation.md](Windows%20Service%20Documentation.md). Build: `scripts\build-win.ps1` (clang-cl + CMake + Ninja, x64). Minimum OS: Windows 10 1803 / Server 2019.
 
 [![codecov](https://codecov.io/github/redis/redis/graph/badge.svg?token=6bVHb5fRuz)](https://codecov.io/github/redis/redis)
 
