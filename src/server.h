@@ -2364,6 +2364,9 @@ struct redisServer {
     time_t backup_sealed_ttl;        /* Seconds to keep SEALED backup files; 0 disables auto cleanup. */
 
     /* RDB persistence */
+#ifdef _WIN32
+    int persistence_available;      /* Windows: QFork / BGSAVE allowed */
+#endif
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */

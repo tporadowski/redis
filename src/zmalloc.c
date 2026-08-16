@@ -93,7 +93,7 @@ void je_free_with_usize(void *ptr, size_t *usize);
  */
 #ifdef _WIN32
 /* LG_PAGE=22: Linux's 1000-slot small tcache would cache 4 MB classes. */
-const char *je_malloc_conf = "tcache_nslots_small_max:8";
+const char *je_malloc_conf = "narenas:1,tcache_nslots_small_max:8";
 #else
 const char *je_malloc_conf =
     "lg_tcache_nslots_mul:3,tcache_nslots_small_max:1000";

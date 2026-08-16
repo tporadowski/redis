@@ -366,12 +366,13 @@ int pipe(int pipefd[2]) {
 }
 
 int fsync(int fd) {
+    /* fopen/fileno yields a CRT fd. RFDs (sockets/pipes) map to a CRT fd. */
+    if (crt_commit(fd) == 0)
+        return 0;
     int crt = RFDMap::getInstance().lookupCrtFD(fd);
-    if (crt < 0) {
-        errno = EBADF;
-        return -1;
-    }
-    return crt_commit(crt);
+    if (crt >= 0 && crt != fd)
+        return crt_commit(crt);
+    return -1;
 }
 
 int fcntl(int fd, int cmd, ...) {

@@ -25,6 +25,9 @@
 #include <locale.h>
 #include <ctype.h>
 #include <arpa/inet.h>
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -3252,6 +3255,14 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
     rewriteConfigRewriteLine(state,name,line,1);
 }
 
+#ifdef _WIN32
+static int applyPersistenceAvailable(const char **err) {
+    UNUSED(err);
+    win32ApplyPersistenceAvailable(server.persistence_available);
+    return 1;
+}
+#endif
+
 static int applyClientMaxMemoryUsage(const char **err) {
     UNUSED(err);
     listIter li;
@@ -3287,6 +3298,10 @@ static int applyClientMaxMemoryUsage(const char **err) {
 
 standardConfig static_configs[] = {
     /* Bool configs */
+#ifdef _WIN32
+    createBoolConfig("persistence-available", NULL, IMMUTABLE_CONFIG,
+                     server.persistence_available, 1, NULL, applyPersistenceAvailable),
+#endif
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),

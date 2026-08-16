@@ -1425,7 +1425,14 @@ void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
 
+#ifdef _WIN32
+    /* waitpid(-1) only reaps Sentinel scripts. QFork children must be
+     * reaped by pid so a script cannot steal the RDB child's status. */
+    pid_t wait_for = (server.child_pid != -1) ? server.child_pid : -1;
+    if ((pid = waitpid(wait_for, &statloc, WNOHANG)) != 0) {
+#else
     if ((pid = waitpid(-1, &statloc, WNOHANG)) != 0) {
+#endif
         int exitcode = WIFEXITED(statloc) ? WEXITSTATUS(statloc) : -1;
         int bysignal = 0;
 
@@ -2406,6 +2413,9 @@ void initServerConfig(void) {
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     initConfigValues();
+#ifdef _WIN32
+    server.persistence_available = !g_PersistenceDisabled;
+#endif
     updateCachedTime(1);
     server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -7500,10 +7510,45 @@ void closeChildUnusedResourceAfterFork(void) {
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
 #ifdef _WIN32
-    /* M1: no QFork heap. M3 installs parent-only win32RedisFork. */
-    UNUSED(purpose);
-    errno = ENOSYS;
-    return -1;
+    if (isMutuallyExclusiveChildType(purpose)) {
+        if (hasActiveChildProcess()) {
+            errno = EEXIST;
+            return -1;
+        }
+        openChildInfoPipe();
+    }
+
+    long long start = ustime();
+    int childpid = win32RedisFork(purpose);
+    if (childpid == -1) {
+        int fork_errno = errno;
+        if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
+        errno = fork_errno;
+        return -1;
+    }
+
+    server.stat_total_forks++;
+    server.stat_fork_time = ustime()-start;
+    if (server.stat_fork_time > 0)
+        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024);
+    latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
+
+    if (isMutuallyExclusiveChildType(purpose)) {
+        server.child_pid = childpid;
+        server.child_type = purpose;
+        server.stat_current_cow_peak = 0;
+        server.stat_current_cow_bytes = 0;
+        server.stat_current_cow_updated = 0;
+        server.stat_current_save_keys_processed = 0;
+        server.stat_module_progress = 0;
+        server.stat_current_save_keys_total = dbTotalServerKeyCount();
+    }
+
+    updateDictResizePolicy();
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
+                          NULL);
+    return childpid;
 #else
     if (isMutuallyExclusiveChildType(purpose)) {
         if (hasActiveChildProcess()) {
@@ -8298,6 +8343,11 @@ int main(int argc, char **argv) {
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
+#ifdef _WIN32
+    if (g_PersistenceDisabled)
+        server.persistence_available = 0;
+    win32ApplyPersistenceAvailable(server.persistence_available);
+#endif
     if (server.sentinel_mode) sentinelCheckConfigFile();
 
     /* Reserve dedicated used_memory slots for main + IO threads (single-writer

@@ -138,12 +138,7 @@ struct tm *gmtime_r(const time_t *timep, struct tm *result) {
     return result;
 }
 
-int kill(pid_t pid, int sig) {
-    UNUSED(pid);
-    UNUSED(sig);
-    errno = ENOSYS;
-    return -1;
-}
+/* kill() is implemented in Win32_ProcessTable.c */
 
 int flock(int fd, int operation) {
     UNUSED(fd);

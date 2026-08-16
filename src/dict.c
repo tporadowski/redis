@@ -107,6 +107,10 @@ void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
 
+void dictGetHashFunctionSeed(uint8_t *seed) {
+    memcpy(seed, dict_hash_function_seed, sizeof(dict_hash_function_seed));
+}
+
 /* The default hashing function uses SipHash implementation
  * in siphash.c. */
 

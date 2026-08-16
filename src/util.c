@@ -1287,6 +1287,11 @@ cleanup:
  * 4. rename the temp file to the appropriate name
  * 5. fsync() the containing directory */
 int fsyncFileDir(const char *filename) {
+#ifdef _WIN32
+    /* NTFS has no directory fsync. */
+    (void)filename;
+    return 0;
+#endif
 #ifdef _AIX
     /* AIX is unable to fsync a directory */
     return 0;

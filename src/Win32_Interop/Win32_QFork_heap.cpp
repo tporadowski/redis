@@ -43,6 +43,7 @@ struct QForkControl {
 void *g_pQForkControl = NULL;
 int g_BypassMemoryMapOnAlloc = 0;
 int g_HasMemoryMappedHeap = 0;
+int g_PersistenceDisabled = 0;
 
 static HANDLE g_hQForkControlFileMap = NULL;
 
@@ -190,7 +191,14 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
      * on VirtualAlloc; the QFork heap is 4 MB blocks for jemalloc PAGE. */
     if ((size % QFORK_BLOCK_SIZE) != 0) {
         void *place = (addr && !addr_in_heap(addr)) ? addr : NULL;
-        return VirtualAlloc(place, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        void *p = VirtualAlloc(place, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (!p) {
+            fprintf(stderr,
+                    "AllocHeapBlock: VirtualAlloc(%p,%zu) fallback gle=%lu\n",
+                    place, size, GetLastError());
+            errno = ENOMEM;
+        }
+        return p;
     }
 
     QForkControl *c = ctrl();
@@ -201,6 +209,8 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
     if (addr != NULL) {
         if (!addr_in_heap(addr) ||
             (((uintptr_t)addr - (uintptr_t)c->heapStart) % QFORK_BLOCK_SIZE) != 0) {
+            fprintf(stderr, "AllocHeapBlock: honor-addr %p not a heap block\n",
+                    addr);
             errno = EINVAL;
             return NULL;
         }
@@ -294,6 +304,99 @@ int FreeHeapBlock(void *addr, size_t size) {
 
 int PurgePages(void *addr, size_t length) {
     return VirtualAlloc(addr, length, MEM_RESET, PAGE_READWRITE) != NULL ? TRUE : FALSE;
+}
+
+void *QForkGetControlMap(void) {
+    return (void *)g_hQForkControlFileMap;
+}
+
+int QForkProtectForFork(void) {
+    QForkControl *c = ctrl();
+    if (!c)
+        return 1;
+    DWORD old;
+    if (!VirtualProtect(c, sizeof(QForkControl), PAGE_WRITECOPY, &old))
+        return 0;
+    for (int i = 0; i < c->maxAvailableBlocks; i++) {
+        if (c->heapBlockList[i].state != bsMAPPED_IN_USE)
+            continue;
+        LPVOID addr = (BYTE *)c->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
+        if (!VirtualProtect(addr, QFORK_BLOCK_SIZE, PAGE_WRITECOPY, &old))
+            return 0;
+    }
+    return 1;
+}
+
+int QForkChildAttach(void *parent_process, void *control_map) {
+    HANDLE parent = (HANDLE)parent_process;
+    HANDLE local_ctl = NULL;
+    if (!DuplicateHandle(parent, (HANDLE)control_map, GetCurrentProcess(),
+                         &local_ctl, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        fprintf(stderr, "QForkChildAttach: DuplicateHandle control gle=%lu\n",
+                GetLastError());
+        return 0;
+    }
+    QForkControl *view = (QForkControl *)MapViewOfFile(local_ctl, FILE_MAP_COPY,
+                                                       0, 0, 0);
+    if (!view) {
+        fprintf(stderr, "QForkChildAttach: MapViewOfFile control gle=%lu\n",
+                GetLastError());
+        CloseHandle(local_ctl);
+        return 0;
+    }
+    g_pQForkControl = view;
+    g_hQForkControlFileMap = local_ctl;
+    g_HasMemoryMappedHeap = 1;
+    g_BypassMemoryMapOnAlloc = 1; /* new allocs in the child stay off the COW map */
+
+    for (int i = 0; i < view->maxAvailableBlocks; i++) {
+        if (view->heapBlockList[i].state != bsMAPPED_IN_USE)
+            continue;
+        HANDLE local_heap = NULL;
+        if (!DuplicateHandle(parent, view->heapBlockList[i].heapMap,
+                             GetCurrentProcess(), &local_heap, 0, FALSE,
+                             DUPLICATE_SAME_ACCESS)) {
+            fprintf(stderr, "QForkChildAttach: dup heap %d gle=%lu\n", i,
+                    GetLastError());
+            return 0;
+        }
+        LPVOID addr = (BYTE *)view->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
+        if (!MapViewOfFileEx(local_heap, FILE_MAP_COPY, 0, 0, QFORK_BLOCK_SIZE,
+                             addr)) {
+            fprintf(stderr, "QForkChildAttach: map heap %d at %p gle=%lu\n",
+                    i, addr, GetLastError());
+            return 0;
+        }
+        view->heapBlockList[i].heapMap = local_heap;
+    }
+    return 1;
+}
+
+int QForkRejoinAfterFork(void) {
+    QForkControl *c = ctrl();
+    if (!c)
+        return 1;
+    for (int i = 0; i < c->maxAvailableBlocks; i++) {
+        if (c->heapBlockList[i].state != bsMAPPED_IN_USE ||
+            !c->heapBlockList[i].heapMap)
+            continue;
+        LPVOID addr = (BYTE *)c->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
+        UnmapViewOfFile(addr);
+        if (!MapViewOfFileEx(c->heapBlockList[i].heapMap, FILE_MAP_ALL_ACCESS,
+                             0, 0, 0, addr)) {
+            fprintf(stderr, "QForkRejoinAfterFork: remap %d gle=%lu\n",
+                    i, GetLastError());
+            return 0;
+        }
+    }
+    if (g_hQForkControlFileMap && c) {
+        UnmapViewOfFile(c);
+        g_pQForkControl = MapViewOfFile(g_hQForkControlFileMap, FILE_MAP_ALL_ACCESS,
+                                        0, 0, 0);
+        if (!g_pQForkControl)
+            return 0;
+    }
+    return 1;
 }
 
 int CommitHeapBlock(void *addr, size_t size, int commit) {

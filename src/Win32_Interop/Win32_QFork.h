@@ -5,6 +5,7 @@
 #ifdef _WIN32
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,40 @@ void *AllocHeapBlock(void *addr, size_t size, int zero);
 int FreeHeapBlock(void *addr, size_t size);
 int PurgePages(void *addr, size_t length);
 int CommitHeapBlock(void *addr, size_t size, int commit);
+
+/* Pre-parse result: 1 if persistence-available no (argv or conf). */
+extern int g_PersistenceDisabled;
+
+#define QFORK_MAGIC 0x51463130u /* 'QF10' */
+
+typedef struct QForkPayloadHeader {
+    uint32_t magic;
+    uint32_t purpose;
+    size_t   redisDataSize;
+    uint8_t  dictHashSeed[16];
+    unsigned long parent_pid;
+    /* RDB disk */
+    int      rdb_req;
+    int      rdb_flags;
+    int      rsi_valid;
+    char     filename[260];
+    unsigned char rsi[80];
+} QForkPayloadHeader;
+
+void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags);
+int win32RedisFork(int purpose);
+void win32ApplyPersistenceAvailable(int available);
+int QForkChildMain(void *control_handle, void *payload_handle, unsigned long parent_pid);
+int QForkPreparsePersistence(int argc, char **argv);
+
+/* Parent: create the --QFork child. process_out receives an owned HANDLE. */
+int QForkSpawnChild(void *payload_map, void *abort_event,
+                    unsigned long *pid_out, void **process_out);
+
+void *QForkGetControlMap(void);
+int QForkProtectForFork(void);
+int QForkChildAttach(void *parent_process, void *control_map);
+int QForkRejoinAfterFork(void);
 
 #ifndef QFORK_MAIN_IMPL
 #define main redis_main
