@@ -376,10 +376,13 @@ add_custom_command(TARGET redis-server POST_BUILD
         $<TARGET_FILE:redis-server>
         $<TARGET_FILE_DIR:redis-server>/redis-check-rdb.exe
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:redis-server>
+        $<TARGET_FILE_DIR:redis-server>/redis-sentinel.exe
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/redis.windows.conf"
         "${CMAKE_SOURCE_DIR}/redis.windows-service.conf"
         $<TARGET_FILE_DIR:redis-server>
-    COMMENT "Copy redis-check-rdb.exe and Windows conf overlays")
+    COMMENT "Copy redis-check-rdb.exe, redis-sentinel.exe, Windows conf")
 
 add_custom_target(smoke_bgsave
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
@@ -455,5 +458,13 @@ add_custom_target(smoke_fork
     DEPENDS redis-server redis-cli forkcheck
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M6 smoke: RedisModule_Fork without SetForkChildFn is -1")
+
+add_custom_target(smoke_sentinel
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_sentinel.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M7 smoke: Sentinel + notification-script reap")
 
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")
