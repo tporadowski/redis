@@ -7,7 +7,7 @@ sponsored by Redis Ltd.**
 
 Need BSD Redis 5 for Windows? Use branch
 [`win-5.0`](https://github.com/tporadowski/redis/tree/win-5.0) / tag
-`v5.0.14.1`.
+`v5.0.14.1`. Both stories: [README.md](README.md).
 
 This note is the Windows operator guide. The full 8.10 option list is in
 [`redis.conf`](redis.conf). Windows overlays:

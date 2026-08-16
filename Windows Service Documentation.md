@@ -1,13 +1,18 @@
 # Running Redis 8.10 as a Windows Service
 
+This is the **8.10** (`win-8.10`) service CLI. It is an unofficial native
+port, not Redis Ltd. Need BSD Redis 5? Use [`win-5.0`](https://github.com/tporadowski/redis/tree/win-5.0)
+/ `v5.0.14.1` — that line still has its own MSI-era docs; they do not apply
+to these binaries. Landing page: [README.md](README.md).
+
 `--service-install`, `--service-start`, `--service-stop`,
 `--service-uninstall`, `--service-name`, and `--service-run` are the supported
 SCM interface. They match the 5.0 CLI.
 
 The 5.0 **MSI / Chocolatey** installers are historical. This 8.10 program
-ships a zip (when released); MSI and Chocolatey are out of scope. If you have
-an old 5.0 MSI, its `redis.windows-service.conf` + Services MMC workflow does
-not apply to these 8.10 binaries.
+ships a zip (`Redis-x64-8.10.0-win.1.zip`); MSI and Chocolatey are out of
+scope. If you have an old 5.0 MSI, its `redis.windows-service.conf` + Services
+MMC workflow does not apply to these 8.10 binaries.
 
 Service commands talk to the Service Control Manager and need an elevated
 token. From a non-elevated prompt Redis relaunches itself (`runas`) and a UAC

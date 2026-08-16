@@ -10,7 +10,7 @@ Unofficial native port of Redis Open Source 8.10.0. Tri-licensed
 - Conf overlays: `redis.windows.conf`, `redis.windows-service.conf`.
 - Operator notes: `Redis on Windows.md`.
 - First GA tag (when cut): `v8.10.0-win.1`. Default GitHub branch switches
-  to `win-8.10` at that GA.
+  to `win-8.10` at that GA. README tells both 8.10 and 5.0 stories.
 
 Known gaps on current `win-8.10` (see the port plan tracker): jemalloc still
 uses `VirtualAlloc` (mapped-heap OOM); replica diskless PSYNC is not
