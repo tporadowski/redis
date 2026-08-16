@@ -153,6 +153,11 @@ modules against this header; a module compiled with stock upstream
 Module allocations **must** go through `RedisModule_Alloc` (and friends),
 not `malloc`/`HeapAlloc`, so they sit on the Redis heap.
 
+In-tree **vector-sets** (`VADD`, `VSIM`, `VCARD`, …) are compiled into
+`redis-server` when CMake `INCLUDE_VEC_SETS=ON` (the default). They are
+not a separate `.dll`. HNSW uses the scalar distance path on Windows
+(clang-cl has no `__cpu_model` for `__builtin_cpu_supports`).
+
 Bundled Rust modules (Search, JSON, Time Series, Bloom) are out of scope.
 
 `RedisModule_Fork`: Windows cannot return 0 into the caller the way POSIX

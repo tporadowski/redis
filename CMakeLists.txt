@@ -11,6 +11,8 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "win-8.10 is x64 only.")
 endif()
 
+option(INCLUDE_VEC_SETS "Compile in-tree vector-sets into redis-server" ON)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -326,7 +328,20 @@ set(REDIS_SERVER_SRC
     src/Win32_Interop/Win32_QFork_heap.cpp
     src/Win32_Interop/Win32_QFork_impl.c
     src/Win32_Interop/resources/EventLog.rc)
+if(INCLUDE_VEC_SETS)
+    list(APPEND REDIS_SERVER_SRC
+        modules/vector-sets/hnsw.c
+        modules/vector-sets/vset.c
+        modules/vector-sets/vset_config.c)
+endif()
 set_source_files_properties(src/Win32_Interop/Win32_QFork_impl.c PROPERTIES LANGUAGE C)
+if(INCLUDE_VEC_SETS)
+    set_source_files_properties(
+        modules/vector-sets/hnsw.c
+        modules/vector-sets/vset.c
+        modules/vector-sets/vset_config.c
+        PROPERTIES LANGUAGE C)
+endif()
 set_source_files_properties(src/Win32_Interop/resources/EventLog.rc PROPERTIES
     INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/src/Win32_Interop/resources")
 
@@ -340,6 +355,11 @@ redis_win32_src(redis-server)
 target_compile_definitions(redis-server PRIVATE
     USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
     USE_JEMALLOC JEMALLOC_EXPORT=)
+if(INCLUDE_VEC_SETS)
+    target_compile_definitions(redis-server PRIVATE INCLUDE_VEC_SETS=1)
+    target_include_directories(redis-server PRIVATE
+        "${CMAKE_SOURCE_DIR}/modules/vector-sets")
+endif()
 target_link_libraries(redis-server PRIVATE
     lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc
     advapi32 shell32)
@@ -403,5 +423,13 @@ add_custom_target(smoke_module
     DEPENDS redis-server redis-cli helloworld
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M6 smoke: loadmodule helloworld.dll + HELLO.SIMPLE")
+
+add_custom_target(smoke_vecset
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_vecset.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M6 smoke: in-tree VADD/VCARD/VSIM")
 
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

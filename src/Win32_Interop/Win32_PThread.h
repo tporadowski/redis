@@ -100,6 +100,43 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
 int pthread_cond_signal(pthread_cond_t *cond);
 int pthread_cond_broadcast(pthread_cond_t *cond);
 
+/* SRWLOCK cannot Release without knowing shared vs exclusive. Track writer. */
+typedef struct {
+    SRWLOCK lock;
+    volatile LONG exclusive_tid;
+} pthread_rwlock_t;
+typedef int pthread_rwlockattr_t;
+
+static __inline int pthread_rwlock_init(pthread_rwlock_t *rw,
+                                        const pthread_rwlockattr_t *attr) {
+    (void)attr;
+    InitializeSRWLock(&rw->lock);
+    rw->exclusive_tid = 0;
+    return 0;
+}
+static __inline int pthread_rwlock_destroy(pthread_rwlock_t *rw) {
+    (void)rw;
+    return 0;
+}
+static __inline int pthread_rwlock_rdlock(pthread_rwlock_t *rw) {
+    AcquireSRWLockShared(&rw->lock);
+    return 0;
+}
+static __inline int pthread_rwlock_wrlock(pthread_rwlock_t *rw) {
+    AcquireSRWLockExclusive(&rw->lock);
+    rw->exclusive_tid = (LONG)GetCurrentThreadId();
+    return 0;
+}
+static __inline int pthread_rwlock_unlock(pthread_rwlock_t *rw) {
+    if ((DWORD)rw->exclusive_tid == GetCurrentThreadId()) {
+        rw->exclusive_tid = 0;
+        ReleaseSRWLockExclusive(&rw->lock);
+    } else {
+        ReleaseSRWLockShared(&rw->lock);
+    }
+    return 0;
+}
+
 #ifndef PTHREAD_CANCEL_ENABLE
 #define PTHREAD_CANCEL_ENABLE 0
 #define PTHREAD_CANCEL_DISABLE 1
