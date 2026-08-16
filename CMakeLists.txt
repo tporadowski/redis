@@ -521,4 +521,12 @@ add_custom_target(smoke_tls_iothreads
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M9 gate: tls-port + io-threads 4")
 
+add_custom_target(wintest
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/runtest-win.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "M10: 5.0 RDB load + 5.0-first Tcl suite")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

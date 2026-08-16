@@ -206,10 +206,12 @@ proc count_log_lines {srv_idx} {
 # returns the number of times a line with that pattern appears in a file
 proc count_message_lines {file pattern} {
     set res 0
-    # exec fails when grep exists with status other than 0 (when the pattern wasn't found)
-    catch {
-        set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
+    if {![file exists $file]} { return 0 }
+    set fd [open $file r]
+    while {[gets $fd line] >= 0} {
+        if {[string match "*$pattern*" $line]} { incr res }
     }
+    close $fd
     return $res
 }
 
@@ -761,6 +763,9 @@ proc process_is_alive pid {
 }
 
 proc get_system_name {} {
+    if {$::tcl_platform(platform) eq "windows"} {
+        return "windows"
+    }
     return [string tolower [exec uname -s]]
 }
 

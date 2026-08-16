@@ -198,7 +198,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     struct stat sb;
 
     int closefile = (fp == NULL);
-    if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
+    if (fp == NULL && (fp = fopen(rdbfilename,"rb")) == NULL) return 1;
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;

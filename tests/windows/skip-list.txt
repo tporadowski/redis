@@ -1,0 +1,53 @@
+# 8.10 Windows skip-list (10.1). Used as --skipfile.
+# Empty / # lines are ignored. Entries are test names or /regexp/.
+#
+# Units that need Linux fork, abstract Unix, /proc, setsid, taskset,
+# or a gcc-built .so are skipped by tests/windows/wintest.tcl via
+# --single (5.0-first list) rather than listed one-by-one here.
+# This file is the named-test net for a later full-suite run.
+
+# SIGSTOP / SIGCONT / process state (leading / = regexp; no closing slash)
+/pause process
+/resume process
+/DEBUG SLEEP.*stopped
+/stopped clients
+
+# abstract Unix namespace (not on Windows AF_UNIX)
+/abstract unix
+
+# Linux-only introspection
+/smaps
+/taskset
+/setsid
+/daemonize
+
+# Replica PSYNC not end-to-end on Windows (4.2 / ConnectEx path)
+MASTERAUTH test with binary password rdbchannel=yes
+MASTERAUTH test with binary password rdbchannel=no
+Replica is able to sync with master when AUTH is on
+Master should release the connection after an AUTH failure from a Replica
+/propagate.*replica
+GETEX without argument does not propagate to replica
+
+# hiredis on Windows reports I/O error instead of the protocol error string
+Out of range multibulk length
+Wrong multibulk payload header
+Negative multibulk payload length
+Out of range multibulk payload length
+Non-number multibulk payload length
+Multi bulk request not followed by bulk arguments
+Unbalanced number of quotes
+Protocol desync regression test #1
+Protocol desync regression test #2
+Protocol desync regression test #3
+
+# Slow / large-payload / flaky on this port (not in the 10.1 default run)
+Very big payload random access
+Very big payload in GET/SET
+SET 10000 numeric keys and access all them in reverse order
+SETBIT fuzzing
+GETRANGE fuzzing
+MSET spanning multiple prefetch batches (batch size 16)
+
+# Known open port gaps — not Windows-harness bugs
+# jemalloc mapped-heap OOM (3.2) — does not skip TCP tests

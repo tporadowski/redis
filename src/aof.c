@@ -271,7 +271,7 @@ aofManifest *aofLoadManifestFromFile(sds am_filepath) {
     long long maxseq = 0;
 
     aofManifest *am = aofManifestCreate();
-    FILE *fp = fopen(am_filepath, "r");
+    FILE *fp = fopen(am_filepath, "rb");
     if (fp == NULL) {
         serverLog(LL_WARNING, "Fatal error: can't open the AOF manifest "
             "file %s for reading: %s", am_filepath, strerror(errno));
@@ -1827,7 +1827,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     int ret = AOF_OK;
 
     sds aof_filepath = makePath(server.aof_dirname, filename);
-    FILE *fp = fopen(aof_filepath, "r");
+    FILE *fp = fopen(aof_filepath, "rb");
     if (fp == NULL) {
         int en = errno;
         if (redis_stat(aof_filepath, &sb) == 0 || errno != ENOENT) {
@@ -3131,7 +3131,7 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
-    fp = fopen(tmpfile,"w");
+    fp = fopen(tmpfile,"wb");
     if (!fp) {
         serverLog(LL_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", strerror(errno));
         return C_ERR;
