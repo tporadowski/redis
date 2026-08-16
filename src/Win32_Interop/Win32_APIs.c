@@ -68,7 +68,8 @@ int usleep(unsigned int usec) {
 
 int mkstemp(char *template) {
     if (!_mktemp(template)) return -1;
-    return _open(template, _O_RDWR | _O_CREAT | _O_EXCL | _O_BINARY, 0600);
+    /* Must return an RFD so fdapi_write/fsync/close hit the CRT handle. */
+    return fdapi_open(template, O_RDWR | O_CREAT | O_EXCL, 0600);
 }
 
 long random(void) {

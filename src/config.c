@@ -1740,6 +1740,21 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 
     if (fsync(fd))
         serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
+#ifdef _WIN32
+    else if (close(fd) == -1)
+        serverLog(LL_WARNING, "Could not close tmp config file (%s)", strerror(errno));
+    else {
+        /* NTFS: close before rename; Windows rename does not overwrite. */
+        fd = -1;
+        unlink(configfile);
+        if (rename(tmp_conffile, configfile) == -1)
+            serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
+        else {
+            retval = 0;
+            serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
+        }
+    }
+#else
     else if (fchmod(fd, 0644 & ~server.umask) == -1)
         serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
     else if (rename(tmp_conffile, configfile) == -1)
@@ -1750,6 +1765,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         retval = 0;
         serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
     }
+#endif
 
 cleanup:
     old_errno = errno;

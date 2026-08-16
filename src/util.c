@@ -1041,6 +1041,12 @@ sds getAbsolutePath(char *filename) {
     sds relpath = sdsnew(filename);
 
     relpath = sdstrim(relpath," \r\n\t");
+#ifdef _WIN32
+    /* Drive-absolute (C:\...), UNC (\\server\share), or root-relative (\foo). */
+    if ((relpath[0] && relpath[1] == ':') ||
+        relpath[0] == '\\' || relpath[0] == '/')
+        return relpath;
+#endif
     if (relpath[0] == '/') return relpath; /* Path is already absolute. */
 
     /* If path is relative, join cwd and relative path. */

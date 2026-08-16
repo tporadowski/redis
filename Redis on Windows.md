@@ -171,6 +171,18 @@ invalid in the child (the `.dll` may load at a different base; ASLR is off
 only on `redis-server.exe`). `user_data` is only meaningful if it lives on
 the COW heap.
 
+## Sentinel
+
+`redis-sentinel.exe` is a copy of `redis-server.exe` (or pass `--sentinel`).
+Sentinel skips the QFork heap. Notification / reconfig scripts are started
+with `CreateProcessA` and registered as `WP_SENTINEL_SCRIPT` so
+`waitpid(-1)` reaps only those pids (never a QFork child). `kill` on a
+script uses `TerminateProcess`.
+
+`getAbsolutePath` treats `C:\…` and `\\server\share` as absolute. `mkstemp`
+returns an RFD so `CONFIG REWRITE` can write; Windows `rename` unlinks the
+dest first (NTFS).
+
 ## What this port does not do
 
 - 32-bit

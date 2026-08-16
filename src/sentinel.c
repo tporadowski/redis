@@ -21,6 +21,9 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#ifdef _WIN32
+#include "Win32_Interop/Win32_ProcessTable.h"
+#endif
 
 extern char **environ;
 
@@ -839,6 +842,58 @@ void sentinelRunPendingScripts(void) {
         sj->flags |= SENTINEL_SCRIPT_RUNNING;
         sj->start_time = mstime();
         sj->retry_num++;
+#ifdef _WIN32
+        {
+            char cmdline[4096];
+            size_t pos = 0;
+            int j;
+            STARTUPINFOA si;
+            PROCESS_INFORMATION pi;
+
+            cmdline[0] = '\0';
+            for (j = 0; sj->argv[j]; j++) {
+                const char *arg = sj->argv[j];
+                const char *p;
+                int need_quote = 0;
+                if (pos && pos < sizeof(cmdline) - 1)
+                    cmdline[pos++] = ' ';
+                for (p = arg; *p; p++) {
+                    if (*p == ' ' || *p == '\t' || *p == '"') {
+                        need_quote = 1;
+                        break;
+                    }
+                }
+                if (need_quote && pos < sizeof(cmdline) - 1)
+                    cmdline[pos++] = '"';
+                for (p = arg; *p && pos < sizeof(cmdline) - 1; p++) {
+                    if (*p == '"' && pos < sizeof(cmdline) - 1)
+                        cmdline[pos++] = '"';
+                    cmdline[pos++] = *p;
+                }
+                if (need_quote && pos < sizeof(cmdline) - 1)
+                    cmdline[pos++] = '"';
+            }
+            cmdline[pos] = '\0';
+
+            memset(&si, 0, sizeof(si));
+            si.cb = sizeof(si);
+            memset(&pi, 0, sizeof(pi));
+            if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE,
+                               CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                sj->pid = (pid_t)pi.dwProcessId;
+                winpid_register(sj->pid, pi.hProcess, WP_SENTINEL_SCRIPT, NULL);
+                sentinel.running_scripts++;
+                sentinelEvent(LL_DEBUG,"+script-child",NULL,"%ld",(long)sj->pid);
+            } else {
+                sentinelEvent(LL_WARNING,"-script-error",NULL,
+                              "%s %d %d", sj->argv[0], 99, 0);
+                sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
+                sj->pid = 0;
+            }
+        }
+        (void)pid;
+#else
         pid = fork();
 
         if (pid == -1) {
@@ -860,6 +915,7 @@ void sentinelRunPendingScripts(void) {
             sj->pid = pid;
             sentinelEvent(LL_DEBUG,"+script-child",NULL,"%ld",(long)pid);
         }
+#endif
     }
 }
 
