@@ -331,16 +331,16 @@ void reqresReset(client *c, int free_buf) {
     UNUSED(free_buf);
 }
 
-inline void reqresSaveClientReplyOffset(client *c) {
+void reqresSaveClientReplyOffset(client *c) {
     UNUSED(c);
 }
 
-inline size_t reqresAppendRequest(client *c) {
+size_t reqresAppendRequest(client *c) {
     UNUSED(c);
     return 0;
 }
 
-inline size_t reqresAppendResponse(client *c) {
+size_t reqresAppendResponse(client *c) {
     UNUSED(c);
     return 0;
 }

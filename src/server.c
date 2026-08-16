@@ -33,6 +33,9 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 
 #include <time.h>
 #include <signal.h>
@@ -2417,7 +2420,7 @@ void initServerConfig(void) {
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+    server.arch_bits = (sizeof(void *) == 8) ? 64 : 32;
 #if DEBUG_ASSERT_KEYSPACE
     server.dbg_assert_flags = DBG_ASSERT_KEYSIZES | DBG_ASSERT_ALLOC_SLOT;
 #else
@@ -7243,6 +7246,10 @@ void createPidFile(void) {
 }
 
 void daemonize(void) {
+#ifdef _WIN32
+    serverLog(LL_WARNING,
+              "daemonize is not supported on Windows; use --service-install");
+#else
     int fd;
 
     if (fork() != 0) exit(0); /* parent exits */
@@ -7257,6 +7264,7 @@ void daemonize(void) {
         dup2(fd, STDERR_FILENO);
         if (fd > STDERR_FILENO) close(fd);
     }
+#endif
 }
 
 sds getVersion(void) {
@@ -7266,7 +7274,7 @@ sds getVersion(void) {
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
-        sizeof(long) == 4 ? 32 : 64,
+        sizeof(void *) == 4 ? 32 : 64,
         (unsigned long long) redisBuildId());
     return version;
 }
@@ -7319,7 +7327,7 @@ void redisAsciiArt(void) {
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(long) == 8) ? "64" : "32",
+            (sizeof(void *) == 8) ? "64" : "32",
             mode, server.port ? server.port : server.tls_port,
             (long) getpid()
         );
@@ -7482,6 +7490,12 @@ void closeChildUnusedResourceAfterFork(void) {
 
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
+#ifdef _WIN32
+    /* M1: no QFork heap. M3 installs parent-only win32RedisFork. */
+    UNUSED(purpose);
+    errno = ENOSYS;
+    return -1;
+#else
     if (isMutuallyExclusiveChildType(purpose)) {
         if (hasActiveChildProcess()) {
             errno = EEXIST;
@@ -7551,6 +7565,7 @@ int redisFork(int purpose) {
                               NULL);
     }
     return childpid;
+#endif
 }
 
 void sendChildCowInfo(childInfoType info_type, char *pname) {
@@ -8117,6 +8132,12 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed(hashseed);
 
     char *exec_name = strrchr(argv[0], '/');
+#ifdef _WIN32
+    {
+        char *bs = strrchr(argv[0], '\\');
+        if (bs && (!exec_name || bs > exec_name)) exec_name = bs;
+    }
+#endif
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
@@ -8309,7 +8330,7 @@ int main(int argc, char **argv) {
     serverLog(LL_NOTICE,
         "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
             REDIS_VERSION,
-            (sizeof(long) == 8) ? 64 : 32,
+            (sizeof(void *) == 8) ? 64 : 32,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             (int)getpid());

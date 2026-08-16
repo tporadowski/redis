@@ -41,4 +41,12 @@ typedef long        _off_t;
 #define _OFF_T_DEFINED
 #endif
 
+#ifndef SSIZE_MAX
+#ifdef _WIN64
+#define SSIZE_MAX 9223372036854775807i64
+#else
+#define SSIZE_MAX 2147483647L
+#endif
+#endif
+
 #endif

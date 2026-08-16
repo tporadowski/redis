@@ -318,17 +318,50 @@ int fdapi_inet_pton(int af, const char *src, void *dst) {
 }
 
 int pipe(int pipefd[2]) {
-    int crt[2];
-    if (crt_pipe(crt, 4096, _O_BINARY) != 0)
-        return -1;
-    pipefd[0] = RFDMap::getInstance().addCrtFD(crt[0]);
-    pipefd[1] = RFDMap::getInstance().addCrtFD(crt[1]);
-    if (pipefd[0] < 0 || pipefd[1] < 0) {
-        crt_close(crt[0]);
-        crt_close(crt[1]);
-        errno = EMFILE;
+    /* Socket pair so the pipe can be armed on IOCP (module/eventnotifier). */
+    int ls, cs, as;
+    struct sockaddr_in addr;
+    socklen_t alen = sizeof(addr);
+    u_long nb = 1;
+    SOCKET s;
+
+    FDAPI_Init();
+    ls = fdapi_socket(AF_INET, SOCK_STREAM, 0);
+    cs = fdapi_socket(AF_INET, SOCK_STREAM, 0);
+    if (ls < 0 || cs < 0) {
+        if (ls >= 0) fdapi_close(ls);
+        if (cs >= 0) fdapi_close(cs);
         return -1;
     }
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(0x7f000001);
+    addr.sin_port = 0;
+    if (fdapi_bind(ls, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
+        fdapi_listen(ls, 1) != 0) {
+        fdapi_close(ls);
+        fdapi_close(cs);
+        return -1;
+    }
+    alen = sizeof(addr);
+    if (fdapi_getsockname(ls, (struct sockaddr *)&addr, &alen) != 0 ||
+        fdapi_connect(cs, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        fdapi_close(ls);
+        fdapi_close(cs);
+        return -1;
+    }
+    as = fdapi_accept(ls, NULL, NULL);
+    fdapi_close(ls);
+    if (as < 0) {
+        fdapi_close(cs);
+        return -1;
+    }
+    s = sock_of(as);
+    if (s != INVALID_SOCKET) ioctlsocket(s, FIONBIO, &nb);
+    s = sock_of(cs);
+    if (s != INVALID_SOCKET) ioctlsocket(s, FIONBIO, &nb);
+    pipefd[0] = as;
+    pipefd[1] = cs;
     return 0;
 }
 

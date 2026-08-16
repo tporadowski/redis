@@ -17,6 +17,11 @@
 #define SHA256_BLOCK_SIZE 32            // SHA256 outputs a 32 byte digest
 
 /**************************** DATA TYPES ****************************/
+#ifdef _WIN32
+/* Windows headers already typedef WORD/BYTE. Redirect our names. */
+#define BYTE SHA256_BYTE
+#define WORD SHA256_WORD
+#endif
 typedef uint8_t BYTE;   // 8-bit byte
 typedef uint32_t WORD;  // 32-bit word
 

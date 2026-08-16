@@ -2,13 +2,20 @@
 #include "win32_pre.h"
 #include "Win32_Time.h"
 #include "Win32_FDAPI.h"
+#include "posix/sys/utsname.h"
+#include "posix/sys/uio.h"
+#include "posix/dirent.h"
+#include "posix/dlfcn.h"
+#include "posix/sys/time.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <io.h>
 #include <process.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <windows.h>
 
@@ -83,5 +90,294 @@ int gethostname(char *name, size_t len) {
         errno = EINVAL;
         return -1;
     }
+    return 0;
+}
+
+pid_t fork(void) {
+    errno = ENOSYS;
+    return -1;
+}
+
+pid_t win32_getppid(void) {
+    return 0;
+}
+
+long sysconf(int name) {
+    if (name == _SC_PAGESIZE || name == _SC_PAGE_SIZE)
+        return 4096;
+    if (name == _SC_NPROCESSORS_ONLN) {
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        return (long)si.dwNumberOfProcessors;
+    }
+    if (name == _SC_CLK_TCK)
+        return 1000;
+    errno = EINVAL;
+    return -1;
+}
+
+int unsetenv(const char *name) {
+    return _putenv_s(name, "") == 0 ? 0 : -1;
+}
+
+int setenv(const char *name, const char *value, int overwrite) {
+    if (!overwrite && getenv(name))
+        return 0;
+    return _putenv_s(name, value ? value : "") == 0 ? 0 : -1;
+}
+
+struct tm *localtime_r(const time_t *timep, struct tm *result) {
+    if (localtime_s(result, timep) != 0)
+        return NULL;
+    return result;
+}
+
+struct tm *gmtime_r(const time_t *timep, struct tm *result) {
+    if (gmtime_s(result, timep) != 0)
+        return NULL;
+    return result;
+}
+
+int kill(pid_t pid, int sig) {
+    UNUSED(pid);
+    UNUSED(sig);
+    errno = ENOSYS;
+    return -1;
+}
+
+int flock(int fd, int operation) {
+    UNUSED(fd);
+    UNUSED(operation);
+    return 0;
+}
+
+int uname(struct utsname *buf) {
+    if (!buf) {
+        errno = EFAULT;
+        return -1;
+    }
+    memset(buf, 0, sizeof(*buf));
+    strncpy(buf->sysname, "Windows", sizeof(buf->sysname) - 1);
+    strncpy(buf->release, "10", sizeof(buf->release) - 1);
+    strncpy(buf->version, "10.0", sizeof(buf->version) - 1);
+#if defined(_M_X64) || defined(__x86_64__)
+    strncpy(buf->machine, "x86_64", sizeof(buf->machine) - 1);
+#else
+    strncpy(buf->machine, "unknown", sizeof(buf->machine) - 1);
+#endif
+    {
+        DWORD n = (DWORD)sizeof(buf->nodename);
+        GetComputerNameA(buf->nodename, &n);
+    }
+    return 0;
+}
+
+int writev(int fd, const struct iovec *iov, int iovcnt) {
+    int i;
+    ssize_t total = 0;
+    if (!iov || iovcnt < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    for (i = 0; i < iovcnt; i++) {
+        ssize_t n = fdapi_write(fd, iov[i].iov_base, iov[i].iov_len);
+        if (n < 0)
+            return total > 0 ? (int)total : -1;
+        total += n;
+        if ((size_t)n < iov[i].iov_len)
+            break;
+    }
+    return (int)total;
+}
+
+int sigemptyset(sigset_t *set) {
+    if (set) *set = 0;
+    return 0;
+}
+
+int sigfillset(sigset_t *set) {
+    if (set) *set = (sigset_t)-1;
+    return 0;
+}
+
+int sigaddset(sigset_t *set, int signo) {
+    if (!set) return -1;
+    *set |= (sigset_t)1 << (signo & 31);
+    return 0;
+}
+
+int sigdelset(sigset_t *set, int signo) {
+    if (!set) return -1;
+    *set &= ~((sigset_t)1 << (signo & 31));
+    return 0;
+}
+
+int sigismember(const sigset_t *set, int signo) {
+    if (!set) return 0;
+    return (*set & ((sigset_t)1 << (signo & 31))) != 0;
+}
+
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {
+    void (*prev)(int) = SIG_DFL;
+    if (oldact)
+        memset(oldact, 0, sizeof(*oldact));
+    if (!act)
+        return 0;
+    if (sig == SIGINT || sig == SIGTERM || sig == SIGABRT) {
+        prev = signal(sig, act->sa_handler);
+        if (prev == SIG_ERR)
+            return -1;
+        if (oldact) oldact->sa_handler = prev;
+        return 0;
+    }
+    /* SIGHUP/SIGPIPE/SIGUSR1/… are no-ops on Windows. */
+    return 0;
+}
+
+void *dlopen(const char *filename, int flags) {
+    UNUSED(filename);
+    UNUSED(flags);
+    errno = ENOSYS;
+    return NULL;
+}
+
+void *dlsym(void *handle, const char *symbol) {
+    UNUSED(handle);
+    UNUSED(symbol);
+    return NULL;
+}
+
+int dlclose(void *handle) {
+    UNUSED(handle);
+    return 0;
+}
+
+char *dlerror(void) {
+    return "dlopen is not available until M6";
+}
+
+int dladdr(const void *addr, Dl_info *info) {
+    UNUSED(addr);
+    if (info) memset(info, 0, sizeof(*info));
+    return 0;
+}
+
+int fchmod(int fd, int mode) {
+    UNUSED(fd);
+    UNUSED(mode);
+    return 0;
+}
+
+int link(const char *oldpath, const char *newpath) {
+    if (CreateHardLinkA(newpath, oldpath, NULL))
+        return 0;
+    if (CopyFileA(oldpath, newpath, TRUE))
+        return 0;
+    errno = EEXIST;
+    return -1;
+}
+
+int truncate(const char *path, off_t length) {
+    int fd = _open(path, _O_RDWR | _O_BINARY);
+    int rc;
+    if (fd < 0) return -1;
+    rc = _chsize_s(fd, length);
+    _close(fd);
+    return rc;
+}
+
+int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value) {
+    UNUSED(which);
+    if (old_value) memset(old_value, 0, sizeof(*old_value));
+    UNUSED(new_value);
+    return 0;
+}
+
+int nanosleep(const struct timespec *req, struct timespec *rem) {
+    DWORD ms;
+    if (!req) {
+        errno = EFAULT;
+        return -1;
+    }
+    ms = (DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000);
+    if (ms == 0 && (req->tv_sec || req->tv_nsec)) ms = 1;
+    Sleep(ms);
+    if (rem) {
+        rem->tv_sec = 0;
+        rem->tv_nsec = 0;
+    }
+    return 0;
+}
+
+typedef struct DIR {
+    HANDLE handle;
+    WIN32_FIND_DATAA ffd;
+    int stored;
+    int done;
+    struct dirent cur;
+} DIR;
+
+DIR *opendir(const char *name) {
+    DIR *d;
+    char pattern[MAX_PATH];
+    if (!name) {
+        errno = EINVAL;
+        return NULL;
+    }
+    d = (DIR *)calloc(1, sizeof(*d));
+    if (!d) return NULL;
+    snprintf(pattern, sizeof(pattern), "%s\\*", name);
+    d->handle = FindFirstFileA(pattern, &d->ffd);
+    if (d->handle == INVALID_HANDLE_VALUE) {
+        free(d);
+        errno = ENOENT;
+        return NULL;
+    }
+    d->stored = 1;
+    return d;
+}
+
+struct dirent *readdir(DIR *dirp) {
+    if (!dirp || dirp->done) return NULL;
+    if (!dirp->stored) {
+        if (!FindNextFileA(dirp->handle, &dirp->ffd)) {
+            dirp->done = 1;
+            return NULL;
+        }
+    }
+    dirp->stored = 0;
+    memset(&dirp->cur, 0, sizeof(dirp->cur));
+    strncpy(dirp->cur.d_name, dirp->ffd.cFileName, sizeof(dirp->cur.d_name) - 1);
+    dirp->cur.d_type = (dirp->ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? DT_DIR : DT_REG;
+    return &dirp->cur;
+}
+
+char *basename(char *path) {
+    char *p, *slash = path;
+    if (!path || !*path) return ".";
+    for (p = path; *p; p++) {
+        if (*p == '/' || *p == '\\')
+            slash = p + 1;
+    }
+    return *slash ? slash : path;
+}
+
+char *dirname(char *path) {
+    char *p;
+    if (!path || !*path) return ".";
+    for (p = path + strlen(path) - 1; p > path; p--) {
+        if (*p == '/' || *p == '\\') {
+            *p = '\0';
+            return path;
+        }
+    }
+    return ".";
+}
+
+int closedir(DIR *dirp) {
+    if (!dirp) return -1;
+    if (dirp->handle && dirp->handle != INVALID_HANDLE_VALUE)
+        FindClose(dirp->handle);
+    free(dirp);
     return 0;
 }

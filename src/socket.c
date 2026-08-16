@@ -9,6 +9,9 @@
 
 #include "server.h"
 #include "connhelpers.h"
+#ifdef _WIN32
+#include "Win32_Interop/win32_wsiocp.h"
+#endif
 
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
@@ -175,6 +178,11 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
         if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
+#ifdef _WIN32
+    /* Zero-byte WSARecv is readiness-only; re-arm after a consumed read. */
+    if (ret > 0 || (ret < 0 && errno == EAGAIN))
+        WSIOCP_QueueNextRead(conn->fd);
+#endif
 
     return ret;
 }

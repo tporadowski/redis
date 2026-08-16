@@ -9,4 +9,11 @@ struct iovec {
     void *iov_base;
     size_t iov_len;
 };
+#ifdef __cplusplus
+extern "C" {
+#endif
+int writev(int fd, const struct iovec *iov, int iovcnt);
+#ifdef __cplusplus
+}
+#endif
 #endif
