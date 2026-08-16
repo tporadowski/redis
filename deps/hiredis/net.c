@@ -605,7 +605,12 @@ int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
 }
 
 int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout) {
-#ifndef _WIN32
+#if defined(_WIN32) && !defined(AF_UNIX)
+    /* Older SDKs without afunix.h. */
+    (void)c; (void)path; (void)timeout;
+    errno = EPROTONOSUPPORT;
+    return REDIS_ERR;
+#else
     int blocking = (c->flags & REDIS_BLOCK);
     struct sockaddr_un *sa;
     long timeout_msec = -1;
@@ -660,12 +665,7 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
 
     c->flags |= REDIS_CONNECTED;
     return REDIS_OK;
-#else
-    /* We currently do not support Unix sockets for Windows. */
-    /* TODO(m): https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/ */
-    errno = EPROTONOSUPPORT;
-    return REDIS_ERR;
-#endif /* _WIN32 */
+#endif /* AF_UNIX available */
 oom:
     __redisSetError(c, REDIS_ERR_OOM, "Out of memory");
     return REDIS_ERR;

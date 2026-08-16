@@ -68,6 +68,27 @@ typedef struct iocpSockState {
 
 static char zreadchar[1];
 static int close_hook_set;
+#define UNIX_LISTEN_MAX 16
+static int unix_listen_rfds[UNIX_LISTEN_MAX];
+static int unix_listen_n;
+
+static void unix_listen_add(int rfd) {
+    int i;
+    for (i = 0; i < unix_listen_n; i++)
+        if (unix_listen_rfds[i] == rfd) return;
+    if (unix_listen_n < UNIX_LISTEN_MAX)
+        unix_listen_rfds[unix_listen_n++] = rfd;
+}
+
+static void unix_listen_del(int rfd) {
+    int i;
+    for (i = 0; i < unix_listen_n; i++) {
+        if (unix_listen_rfds[i] == rfd) {
+            unix_listen_rfds[i] = unix_listen_rfds[--unix_listen_n];
+            return;
+        }
+    }
+}
 
 static void *walloc(size_t n) { return calloc(1, n); }
 static void wfree(void *p) { free(p); }
@@ -113,6 +134,7 @@ static int WSIOCP_CloseSocketState(iocpSockState *ss) {
 }
 
 int WSIOCP_CloseSocketStateRFD(int rfd) {
+    unix_listen_del(rfd);
     return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
 }
 
@@ -252,6 +274,13 @@ int WSIOCP_QueueAccept(int listenfd) {
     if (fdapi_getsockname(listenfd, (struct sockaddr *)&name, &namelen) == 0)
         family = name.ss_family;
 
+    if (family == AF_UNIX) {
+        /* AcceptEx is not implemented for AF_UNIX; poll + accept(). */
+        lss->masks |= LISTEN_SOCK | UNIX_LISTEN;
+        unix_listen_add(listenfd);
+        return 0;
+    }
+
     acceptfd = fdapi_socket(family, SOCK_STREAM, 0);
     if (acceptfd < 0) return -1;
 
@@ -304,6 +333,12 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     if (!ss) {
         errno = EINVAL;
         return -1;
+    }
+    if (ss->masks & UNIX_LISTEN) {
+        int afd = fdapi_accept(fd, sa, len);
+        if (afd < 0 && errno == EAGAIN)
+            errno = EWOULDBLOCK;
+        return afd;
     }
     areq = ss->reqs;
     if (!areq) {
@@ -502,8 +537,8 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, entries,
                                      MAX_COMPLETE_PER_POLL, &numComplete,
                                      mswait, FALSE);
-    if (!rc || numComplete == 0)
-        return 0;
+    if (!rc)
+        numComplete = 0;
 
     for (j = 0; j < numComplete && numevents < state->setsize; j++) {
         int rfd = (int)(intptr_t)entries[j].lpCompletionKey;
@@ -593,6 +628,21 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 if (WSIOCP_CloseSocketState(ss))
                     FDAPI_ClearSocketInfo(rfd);
             }
+        }
+    }
+
+    /* AF_UNIX listen sockets cannot use AcceptEx; poll for FD_ACCEPT. */
+    {
+        int i;
+        for (i = 0; i < unix_listen_n && numevents < state->setsize; i++) {
+            int rfd = unix_listen_rfds[i];
+            iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+            if (!ss || (ss->masks & AE_READABLE) == 0) continue;
+            /* AcceptEx is unsupported on AF_UNIX. Wake the accept
+             * handler each tick; accept() returns EWOULDBLOCK if idle. */
+            el->fired[numevents].fd = rfd;
+            el->fired[numevents].mask = AE_READABLE;
+            numevents++;
         }
     }
     return numevents;

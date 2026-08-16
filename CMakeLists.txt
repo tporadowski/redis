@@ -497,4 +497,12 @@ add_custom_target(smoke_tls
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M8 smoke: tls-port handshake + GET/SET")
 
+add_custom_target(smoke_unix
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_unix.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M9 smoke: AF_UNIX listen + PING")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

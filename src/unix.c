@@ -60,7 +60,16 @@ static int connUnixListen(connListener *listener) {
     for (int j = 0; j < listener->bindaddr_count; j++) {
         char *addr = listener->bindaddr[j];
 
+#ifdef _WIN32
+        /* Stale AF_UNIX reparse point blocks bind. DeleteFile, not chmod. */
+        if (!DeleteFileA(addr)) {
+            DWORD gle = GetLastError();
+            if (gle != ERROR_FILE_NOT_FOUND && gle != ERROR_PATH_NOT_FOUND)
+                serverLog(LL_VERBOSE, "DeleteFile %s: gle=%lu", addr, (unsigned long)gle);
+        }
+#else
         unlink(addr); /* don't care if this fails */
+#endif
         fd = anetUnixServer(server.neterr, addr, *perm, server.tcp_backlog);
         if (fd == ANET_ERR) {
             serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
