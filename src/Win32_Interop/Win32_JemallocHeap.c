@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
 /*
- * jemalloc page-hook fallbacks (3.1). VirtualAlloc until 3.2 installs the
- * QFork mapped heap. AllocHeapBlock is NULL-safe.
+ * VirtualAlloc fallbacks for jemalloc_smoke (no QFork heap in that exe).
+ * redis-server uses Win32_QFork_heap.cpp instead.
  */
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

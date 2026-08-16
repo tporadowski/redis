@@ -215,8 +215,7 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_fdapi_crt.cpp
     src/Win32_Interop/Win32_FDAPI.cpp
     src/Win32_Interop/win32_wsiocp.c
-    src/Win32_Interop/Win32_ThreadControl.c
-    src/Win32_Interop/Win32_JemallocHeap.c)
+    src/Win32_Interop/Win32_ThreadControl.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -235,7 +234,6 @@ set_source_files_properties(
     src/Win32_Interop/Win32_cli.c
     src/Win32_Interop/win32_wsiocp.c
     src/Win32_Interop/Win32_ThreadControl.c
-    src/Win32_Interop/Win32_JemallocHeap.c
     PROPERTIES LANGUAGE C)
 set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
     PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
@@ -271,15 +269,29 @@ add_executable(pthread_smoke tests/windows/pthread_smoke.c)
 redis_win32_src(pthread_smoke)
 target_link_libraries(pthread_smoke PRIVATE win32_interop)
 
-add_executable(jemalloc_smoke tests/windows/jemalloc_smoke.c)
+add_executable(jemalloc_smoke
+    tests/windows/jemalloc_smoke.c
+    src/Win32_Interop/Win32_JemallocHeap.c)
 target_include_directories(jemalloc_smoke PRIVATE
     deps/jemalloc/include
     "${REDIS_INTEROP_INC}")
 target_compile_definitions(jemalloc_smoke PRIVATE JEMALLOC_EXPORT= QFORK_MAIN_IMPL)
+set_source_files_properties(src/Win32_Interop/Win32_JemallocHeap.c PROPERTIES LANGUAGE C)
 target_link_libraries(jemalloc_smoke PRIVATE jemalloc win32_interop)
 
+add_executable(qfork_heap_smoke
+    tests/windows/qfork_heap_smoke.c
+    src/Win32_Interop/Win32_QFork_heap.cpp)
+target_include_directories(qfork_heap_smoke PRIVATE "${REDIS_INTEROP_INC}")
+target_compile_definitions(qfork_heap_smoke PRIVATE QFORK_MAIN_IMPL)
+if(MSVC)
+    target_compile_options(qfork_heap_smoke PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
+endif()
+target_link_libraries(qfork_heap_smoke PRIVATE win32_interop)
+
 # ---------------------------------------------------------------------------
-# redis-server (M3: hooked jemalloc, QFork heap still fallback VirtualAlloc)
+# redis-server (M3: hooked jemalloc + QFork pagefile heap; fork is 3.3)
 # ---------------------------------------------------------------------------
 set(REDIS_SERVER_SRC
     src/threads_mngr.c src/memory_prefetch.c src/adlist.c src/quicklist.c
@@ -306,7 +318,8 @@ set(REDIS_SERVER_SRC
     src/function_lua.c src/commands.c src/strl.c src/connection.c src/unix.c
     src/logreqres.c src/keymeta.c src/chk.c src/hotkeys.c src/gcra.c
     src/vector.c src/fast_float_strtod.c src/client_comp.c
-    src/Win32_Interop/Win32_QFork.cpp)
+    src/Win32_Interop/Win32_QFork.cpp
+    src/Win32_Interop/Win32_QFork_heap.cpp)
 
 add_executable(redis-server ${REDIS_SERVER_SRC})
 add_dependencies(redis-server redis_release_h)
@@ -320,5 +333,11 @@ target_compile_definitions(redis-server PRIVATE
     USE_JEMALLOC JEMALLOC_EXPORT=)
 target_link_libraries(redis-server PRIVATE
     lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc)
+if(MSVC)
+    target_compile_options(redis-server PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
+    # Child must map the QFork heap at the same VA.
+    target_link_options(redis-server PRIVATE /DYNAMICBASE:NO)
+endif()
 
-message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc) + smokes")
+message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork heap) + smokes")
