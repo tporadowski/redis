@@ -9,6 +9,8 @@
 #include "Win32_FDAPI.h"
 #include "Win32_ThreadControl.h"
 #include "Win32_ProcessTable.h"
+#include "Win32_Service.h"
+#include "Win32_EventLog.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -196,12 +198,17 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     HANDLE parent = OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, FALSE,
                                 parent_pid);
     if (!parent) {
-        fprintf(stderr, "QForkChildMain: OpenProcess(%lu) gle=%lu\n",
-                parent_pid, GetLastError());
+        char ev[256];
+        snprintf(ev, sizeof(ev),
+                 "QFork child init failed: OpenProcess(%lu) gle=%lu",
+                 parent_pid, GetLastError());
+        fprintf(stderr, "%s\n", ev);
+        WriteEventLogError(ev);
         return 1;
     }
 
     if (!QForkChildAttach(parent, control_handle)) {
+        WriteEventLogError("QFork child init failed: QForkChildAttach");
         CloseHandle(parent);
         return 1;
     }
@@ -261,6 +268,36 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     return rc;
 }
 
+int RedisWindowsParentMain(int argc, char **argv) {
+    g_PersistenceDisabled = QForkPreparsePersistence(argc, argv);
+
+    int skip_heap = is_check_tool(argv[0]) ||
+                    checkForSentinelMode(argc, argv, argv[0]) ||
+                    g_PersistenceDisabled;
+    if (skip_heap) {
+        g_BypassMemoryMapOnAlloc = 1;
+        return redis_main(argc, argv);
+    }
+
+    if (!QForkParentInit(0)) {
+        WriteEventLogError("QForkParentInit failed: see stderr gle");
+        return 1;
+    }
+
+    /*
+     * jemalloc 5.3 + LG_PAGE=22 still OOMs ("16 bytes") during aeApiCreate
+     * when those pages come from the mapped heap (narenas:1 did not help).
+     * Keep VirtualAlloc so PING works. Real QFork COW needs bypass=0; until
+     * that is fixed, win32RedisFork writes the RDB in the parent and reaps a
+     * dummy --QForkExit child so checkChildrenDone still runs.
+     */
+    g_BypassMemoryMapOnAlloc = 1;
+
+    int rc = redis_main(argc, argv);
+    QForkShutdown();
+    return rc;
+}
+
 int main(int argc, char **argv) {
     InitTimeFunctions();
     InitThreadControl();
@@ -283,29 +320,9 @@ int main(int argc, char **argv) {
         return QForkChildMain(control, payload, ppid);
     }
 
-    g_PersistenceDisabled = QForkPreparsePersistence(argc, argv);
+    /* Service CLI before QFork heap (install/start/stop do not need it). */
+    if (HandleServiceCommands(argc, argv))
+        return 0;
 
-    int skip_heap = is_check_tool(argv[0]) ||
-                    checkForSentinelMode(argc, argv, argv[0]) ||
-                    g_PersistenceDisabled;
-    if (skip_heap) {
-        g_BypassMemoryMapOnAlloc = 1;
-        return redis_main(argc, argv);
-    }
-
-    if (!QForkParentInit(0))
-        return 1;
-
-    /*
-     * jemalloc 5.3 + LG_PAGE=22 still OOMs ("16 bytes") during aeApiCreate
-     * when those pages come from the mapped heap (narenas:1 did not help).
-     * Keep VirtualAlloc so PING works. Real QFork COW needs bypass=0; until
-     * that is fixed, win32RedisFork writes the RDB in the parent and reaps a
-     * dummy --QForkExit child so checkChildrenDone still runs.
-     */
-    g_BypassMemoryMapOnAlloc = 1;
-
-    int rc = redis_main(argc, argv);
-    QForkShutdown();
-    return rc;
+    return RedisWindowsParentMain(argc, argv);
 }

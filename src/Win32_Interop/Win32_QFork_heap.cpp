@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "Win32_QFork.h"
+#include "Win32_EventLog.h"
 
 /* Must match jemalloc LG_PAGE=22. */
 #define QFORK_LG_PAGE 22
@@ -60,8 +61,12 @@ static HANDLE CreateBlockMap(int blockIndex) {
     HANDLE map = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
                                     0, (DWORD)QFORK_BLOCK_SIZE, NULL);
     if (!map) {
-        fprintf(stderr, "CreateBlockMap: CreateFileMapping failed gle=%lu\n",
-                GetLastError());
+        DWORD gle = GetLastError();
+        char ev[256];
+        snprintf(ev, sizeof(ev),
+                 "CreateFileMapping/pagefile: CreateBlockMap gle=%lu", gle);
+        fprintf(stderr, "%s\n", ev);
+        WriteEventLogError(ev);
         return NULL;
     }
 
@@ -80,15 +85,23 @@ int QForkParentInit(size_t heap_bytes) {
         INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
         0, (DWORD)sizeof(QForkControl), NULL);
     if (!g_hQForkControlFileMap) {
-        fprintf(stderr,
-                "QForkParentInit: CreateFileMapping failed gle=%lu\n",
-                GetLastError());
+        DWORD gle = GetLastError();
+        char ev[256];
+        snprintf(ev, sizeof(ev),
+                 "QForkParentInit failed: CreateFileMapping gle=%lu", gle);
+        fprintf(stderr, "%s\n", ev);
+        WriteEventLogError(ev);
         return 0;
     }
 
     g_pQForkControl = MapViewOfFile(g_hQForkControlFileMap, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (!g_pQForkControl) {
-        fprintf(stderr, "QForkParentInit: MapViewOfFile failed gle=%lu\n", GetLastError());
+        DWORD gle = GetLastError();
+        char ev[256];
+        snprintf(ev, sizeof(ev),
+                 "QForkParentInit failed: MapViewOfFile gle=%lu", gle);
+        fprintf(stderr, "%s\n", ev);
+        WriteEventLogError(ev);
         CloseHandle(g_hQForkControlFileMap);
         g_hQForkControlFileMap = NULL;
         return 0;
@@ -120,8 +133,13 @@ int QForkParentInit(size_t heap_bytes) {
     LPVOID pHigh = VirtualAlloc(NULL, reserve_bytes, MEM_RESERVE | MEM_TOP_DOWN,
                                 PAGE_READWRITE);
     if (!pHigh) {
-        fprintf(stderr, "QForkParentInit: VirtualAlloc reserve failed gle=%lu\n",
-                GetLastError());
+        DWORD gle = GetLastError();
+        char ev[256];
+        snprintf(ev, sizeof(ev),
+                 "CreateFileMapping/pagefile: VirtualAlloc reserve gle=%lu",
+                 gle);
+        fprintf(stderr, "%s\n", ev);
+        WriteEventLogError(ev);
         QForkShutdown();
         return 0;
     }
