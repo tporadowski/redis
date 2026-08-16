@@ -9,6 +9,9 @@
 #include <direct.h>
 #include "../Win32_FDAPI.h"
 
+#ifndef open
+#define open fdapi_open
+#endif
 #ifndef close
 #define close fdapi_close
 #endif

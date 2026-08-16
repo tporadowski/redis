@@ -230,12 +230,16 @@ int QForkChildMain(void *control_handle, void *payload_handle,
 
     crc64_init();
     void *redisData = (char *)hdr + sizeof(QForkPayloadHeader);
-    SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed);
+    SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed,
+                      (int)hdr->purpose);
 
     int rc = 1;
-    if (hdr->purpose == 1 /* CHILD_TYPE_RDB */) {
+    if (hdr->purpose == CHILD_TYPE_RDB) {
         void *rsi = hdr->rsi_valid ? (void *)hdr->rsi : NULL;
         if (do_rdbSave(hdr->rdb_req, hdr->filename, rsi, hdr->rdb_flags) == 0)
+            rc = 0;
+    } else if (hdr->purpose == CHILD_TYPE_AOF) {
+        if (do_aofRewrite(NULL) == 0)
             rc = 0;
     } else {
         fprintf(stderr, "QForkChildMain: unsupported purpose %u\n", hdr->purpose);

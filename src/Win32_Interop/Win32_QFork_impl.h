@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 typedef struct Win32QForkJob {
+    int purpose;
     int rdb_req;
     int rdb_flags;
     int rsi_valid;
@@ -16,8 +17,11 @@ typedef struct Win32QForkJob {
 
 extern Win32QForkJob g_win32_qfork_job;
 
-void SetupRedisGlobals(void *redisData, size_t redisDataSize, unsigned char *dictHashSeed);
+void SetupRedisGlobals(void *redisData, size_t redisDataSize,
+                       unsigned char *dictHashSeed, int purpose);
 int do_rdbSave(int req, char *filename, void *rsi, int rdbflags);
+int do_aofRewrite(const char *filename);
+void win32PrepareAofJob(void);
 void win32ApplyPersistenceAvailable(int available);
 
 #ifdef __cplusplus

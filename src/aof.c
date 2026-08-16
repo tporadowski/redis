@@ -12,6 +12,9 @@
 #include "rio.h"
 #include "functions.h"
 #include "cluster_asm.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 
 #include <signal.h>
 #include <fcntl.h>
@@ -582,6 +585,12 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
         goto cleanup;
     }
 
+#ifdef _WIN32
+    /* NTFS cannot rename an open file, and cannot overwrite dest. */
+    close(fd);
+    fd = -1;
+    unlink(am_filepath);
+#endif
     if (rename(tmp_am_filepath, am_filepath) != 0) {
         serverLog(LL_WARNING,
             "Error trying to rename the temporary manifest file %s into %s: %s",
@@ -3236,6 +3245,10 @@ int rewriteAppendOnlyFileBackground(void) {
 
     server.stat_aof_rewrites++;
 
+#ifdef _WIN32
+    /* No extra locals: child builds temp-rewriteaof-bg-<pid>.aof from getpid(). */
+    win32PrepareAofJob();
+#endif
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
@@ -3901,12 +3914,26 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             sds new_incr_filename = getNewIncrAofName(temp_am, tempIncAofStartReplOffset);
             new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
             latencyStartMonitor(latency);
+#ifdef _WIN32
+            /* NTFS cannot rename a file that still has server.aof_fd open. */
+            if (server.aof_fd != -1) {
+                int oldfd = server.aof_fd;
+                server.aof_fd = -1;
+                close(oldfd);
+            }
+#endif
             if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
                 serverLog(LL_WARNING,
                     "Error trying to rename the temporary AOF incr file %s into %s: %s",
                     temp_incr_filepath,
                     new_incr_filepath,
                     strerror(errno));
+#ifdef _WIN32
+                if (server.aof_fd == -1) {
+                    int reopened = open(temp_incr_filepath, O_WRONLY|O_APPEND, 0644);
+                    if (reopened != -1) server.aof_fd = reopened;
+                }
+#endif
                 bg_unlink(new_base_filepath);
                 sdsfree(new_base_filepath);
                 aofManifestFree(temp_am);
@@ -3921,6 +3948,26 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             latencyAddSampleIfNeeded("aof-rename", latency);
             serverLog(LL_NOTICE,
                 "Successfully renamed the temporary AOF incr file %s into %s", temp_incr_aof_name, new_incr_filename);
+#ifdef _WIN32
+            {
+                int reopened = open(new_incr_filepath, O_WRONLY|O_APPEND, 0644);
+                if (reopened == -1) {
+                    serverLog(LL_WARNING,
+                        "Can't reopen incr AOF %s after rename: %s",
+                        new_incr_filepath, strerror(errno));
+                    bg_unlink(new_base_filepath);
+                    sdsfree(new_base_filepath);
+                    aofManifestFree(temp_am);
+                    sdsfree(temp_incr_filepath);
+                    sdsfree(new_incr_filepath);
+                    sdsfree(temp_incr_aof_name);
+                    server.aof_lastbgrewrite_status = C_ERR;
+                    server.stat_aofrw_consecutive_failures++;
+                    goto cleanup;
+                }
+                server.aof_fd = reopened;
+            }
+#endif
             sdsfree(temp_incr_filepath);
             sdsfree(temp_incr_aof_name);
         }

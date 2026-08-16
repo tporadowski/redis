@@ -366,13 +366,11 @@ int pipe(int pipefd[2]) {
 }
 
 int fsync(int fd) {
-    /* fopen/fileno yields a CRT fd. RFDs (sockets/pipes) map to a CRT fd. */
-    if (crt_commit(fd) == 0)
-        return 0;
     int crt = RFDMap::getInstance().lookupCrtFD(fd);
-    if (crt >= 0 && crt != fd)
+    if (crt >= 0)
         return crt_commit(crt);
-    return -1;
+    /* fopen/fileno CRT descriptors are not RFDs. */
+    return crt_commit(fd);
 }
 
 int fcntl(int fd, int cmd, ...) {
@@ -491,6 +489,20 @@ int fdapi_select(int nfds, redis_fd_set *readfds, redis_fd_set *writefds,
     if (writefds) ws_to_rfdset(&ws, writefds);
     if (exceptfds) ws_to_rfdset(&es, exceptfds);
     return rc;
+}
+
+int fdapi_open(const char *pathname, int flags, ...) {
+    int mode = 0;
+    if (flags & _O_CREAT) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, int);
+        va_end(ap);
+    }
+    int crt = crt_open(pathname, flags | _O_BINARY, mode);
+    if (crt < 0)
+        return -1;
+    return RFDMap::getInstance().addCrtFD(crt);
 }
 
 int ftruncate(int fd, off_t length) {
