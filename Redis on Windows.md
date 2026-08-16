@@ -32,6 +32,13 @@ build\redis-server.exe redis.windows.conf
 build\redis-cli.exe PING
 ```
 
+Release zip (CMake target `pack_zip` / `scripts\pack-win.ps1`):
+`build\Redis-x64-8.10.0-win.1.zip`. It is a folder of that name containing
+`redis-server.exe`, `redis-cli.exe`, `redis-benchmark.exe`,
+`redis-check-rdb.exe`, `redis-check-aof.exe`, `redis-sentinel.exe`,
+OpenSSL DLLs when `BUILD_TLS=ON`, the two Windows conf overlays, and
+`LICENSE.txt` / `NOTICE` / this guide. MSI / Chocolatey are out of scope.
+
 `daemonize yes` is a **no-op** on Windows (a warning is logged). Run in a
 console, or install a Windows Service (`--service-install`). Do not expect
 `fork()` + `setsid()`.

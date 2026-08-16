@@ -275,6 +275,25 @@ endif()
 target_link_libraries(redis-cli PRIVATE
     hiredis linenoise hdr_histogram win32_interop)
 
+# ---------------------------------------------------------------------------
+# redis-benchmark (same objects as upstream Makefile)
+# ---------------------------------------------------------------------------
+set(REDIS_BENCHMARK_SRC
+    src/ae.c src/anet.c src/redis-benchmark.c src/adlist.c src/dict.c
+    src/zmalloc.c src/redisassert.c src/release.c src/crcspeed.c
+    src/crccombine.c src/crc64.c src/siphash.c src/crc16.c src/monotonic.c
+    src/cli_common.c src/mt19937-64.c src/strl.c)
+add_executable(redis-benchmark ${REDIS_BENCHMARK_SRC})
+add_dependencies(redis-benchmark redis_release_h)
+target_include_directories(redis-benchmark PRIVATE
+    deps/hiredis deps/hdr_histogram deps/xxhash deps/lua/src)
+redis_win32_src(redis-benchmark)
+if(BUILD_TLS)
+    target_compile_definitions(redis-benchmark PRIVATE USE_OPENSSL=1)
+    target_link_libraries(redis-benchmark PRIVATE hiredis_ssl OpenSSL::SSL OpenSSL::Crypto)
+endif()
+target_link_libraries(redis-benchmark PRIVATE hiredis hdr_histogram win32_interop)
+
 add_executable(fdapi_smoke tests/windows/fdapi_smoke.c)
 redis_win32_src(fdapi_smoke)
 target_link_libraries(fdapi_smoke PRIVATE win32_interop)
@@ -396,6 +415,9 @@ add_custom_command(TARGET redis-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:redis-server>
         $<TARGET_FILE_DIR:redis-server>/redis-check-rdb.exe
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:redis-server>
+        $<TARGET_FILE_DIR:redis-server>/redis-check-aof.exe
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:redis-server>
         $<TARGET_FILE_DIR:redis-server>/redis-sentinel.exe
@@ -528,5 +550,55 @@ add_custom_target(wintest
     DEPENDS redis-server redis-cli
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "M10: 5.0 RDB load + 5.0-first Tcl suite")
+
+# ---------------------------------------------------------------------------
+# 10.2 zip: Redis-x64-8.10.0-win.1
+# ---------------------------------------------------------------------------
+set(REDIS_WIN_VERSION "${PROJECT_VERSION}")
+set(REDIS_WIN_PORT_REV "1")
+set(REDIS_WIN_ZIP_STEM "Redis-x64-${REDIS_WIN_VERSION}-win.${REDIS_WIN_PORT_REV}")
+
+install(TARGETS redis-server redis-cli redis-benchmark
+    RUNTIME DESTINATION .)
+install(PROGRAMS
+    "${CMAKE_BINARY_DIR}/redis-check-rdb.exe"
+    "${CMAKE_BINARY_DIR}/redis-check-aof.exe"
+    "${CMAKE_BINARY_DIR}/redis-sentinel.exe"
+    DESTINATION .)
+install(FILES
+    "${CMAKE_SOURCE_DIR}/redis.windows.conf"
+    "${CMAKE_SOURCE_DIR}/redis.windows-service.conf"
+    "${CMAKE_SOURCE_DIR}/LICENSE.txt"
+    "${CMAKE_SOURCE_DIR}/REDISCONTRIBUTIONS.txt"
+    "${CMAKE_SOURCE_DIR}/NOTICE"
+    "${CMAKE_SOURCE_DIR}/Redis on Windows.md"
+    "${CMAKE_SOURCE_DIR}/Redis on Windows Release Notes.md"
+    "${CMAKE_SOURCE_DIR}/Windows Service Documentation.md"
+    DESTINATION .)
+if(BUILD_TLS)
+    install(FILES
+        "${CMAKE_BINARY_DIR}/libssl-3-x64.dll"
+        "${CMAKE_BINARY_DIR}/libcrypto-3-x64.dll"
+        DESTINATION .)
+endif()
+
+add_custom_target(pack_zip
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/scripts/pack-win.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+        -SourceDir "${CMAKE_SOURCE_DIR}"
+        -ZipStem "${REDIS_WIN_ZIP_STEM}"
+    DEPENDS redis-server redis-cli redis-benchmark
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "M10: zip ${REDIS_WIN_ZIP_STEM}.zip")
+
+add_custom_target(smoke_zip
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_zip.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+        -ZipStem "${REDIS_WIN_ZIP_STEM}"
+    DEPENDS pack_zip
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "M10: verify zip layout + redis-cli --version")
 
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")
