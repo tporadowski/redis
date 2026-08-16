@@ -31,10 +31,47 @@ typedef size_t _sigset_t;
 #define pthread_t unsigned int
 
 #define pthread_mutex_init(a,b) (InitializeCriticalSectionAndSpinCount((a), 0x80000400),0)
-#define pthread_mutex_destroy(a) DeleteCriticalSection((a))
-#define pthread_mutex_lock EnterCriticalSection
-#define pthread_mutex_unlock LeaveCriticalSection
+#define pthread_mutex_destroy(a) (DeleteCriticalSection((a)),0)
 #define pthread_equal(t1, t2) ((t1) == (t2))
+#define PTHREAD_MUTEX_INITIALIZER {0}
+static __inline void win32_mutex_ensure(pthread_mutex_t *m) {
+    if (m->DebugInfo == NULL)
+        InitializeCriticalSectionAndSpinCount(m, 0x80000400);
+}
+static __inline int pthread_mutex_lock(pthread_mutex_t *m) {
+    win32_mutex_ensure(m);
+    EnterCriticalSection(m);
+    return 0;
+}
+static __inline int pthread_mutex_unlock(pthread_mutex_t *m) {
+    LeaveCriticalSection(m);
+    return 0;
+}
+static __inline int pthread_mutex_trylock(pthread_mutex_t *m) {
+    win32_mutex_ensure(m);
+    return TryEnterCriticalSection(m) ? 0 : EBUSY;
+}
+
+typedef int pthread_mutexattr_t;
+#ifndef PTHREAD_MUTEX_NORMAL
+#define PTHREAD_MUTEX_NORMAL 0
+#define PTHREAD_MUTEX_RECURSIVE 1
+#define PTHREAD_MUTEX_ERRORCHECK 2
+#define PTHREAD_MUTEX_ADAPTIVE_NP 3
+#endif
+static __inline int pthread_mutexattr_init(pthread_mutexattr_t *a) {
+    if (a) *a = 0;
+    return 0;
+}
+static __inline int pthread_mutexattr_settype(pthread_mutexattr_t *a, int t) {
+    (void)a;
+    (void)t;
+    return 0;
+}
+static __inline int pthread_mutexattr_destroy(pthread_mutexattr_t *a) {
+    (void)a;
+    return 0;
+}
 
 #define pthread_attr_init(x) (*(x) = 0, 0)
 #define pthread_attr_destroy(x) (0)
@@ -62,6 +99,15 @@ int pthread_cond_destroy(pthread_cond_t *cond);
 int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
 int pthread_cond_signal(pthread_cond_t *cond);
 int pthread_cond_broadcast(pthread_cond_t *cond);
+
+#ifndef PTHREAD_CANCEL_ENABLE
+#define PTHREAD_CANCEL_ENABLE 0
+#define PTHREAD_CANCEL_DISABLE 1
+#define PTHREAD_CANCEL_DEFERRED 0
+#define PTHREAD_CANCEL_ASYNCHRONOUS 1
+#endif
+int pthread_setcancelstate(int state, int *oldstate);
+int pthread_setcanceltype(int type, int *oldtype);
 
 #ifdef __cplusplus
 }

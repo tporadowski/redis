@@ -29,6 +29,9 @@
 #include "anet.h"
 #include "config.h"
 #include "util.h"
+#ifdef _WIN32
+#include "Win32_Interop/win32_wsiocp.h"
+#endif
 
 #define UNUSED(x) (void)(x)
 
@@ -607,6 +610,8 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
          * set a socket as non-blocking. */
 #ifdef HAVE_ACCEPT4
         fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
+#elif defined(_WIN32)
+        fd = WSIOCP_Accept(s, sa, len);
 #else
         fd = accept(s,sa,len);
 #endif

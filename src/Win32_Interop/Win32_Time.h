@@ -46,6 +46,9 @@ struct timezone {
 
 #define gettimeofday gettimeofday_highres
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 void     InitTimeFunctions();
 uint64_t GetHighResRelativeTime(double scale);
 time_t   gettimeofdaysecs(unsigned int *usec);
@@ -63,5 +66,9 @@ char*    ctime_r(const time_t *clock, char *buf);
 #endif
 typedef int clockid_t;
 int clock_gettime(clockid_t clk_id, struct timespec *tp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

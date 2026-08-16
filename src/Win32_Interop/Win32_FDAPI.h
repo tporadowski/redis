@@ -54,6 +54,9 @@ typedef unsigned short sa_family_t;
 #ifndef SO_ERROR
 #define SO_ERROR 0x1007
 #endif
+#ifndef SO_ACCEPTCONN
+#define SO_ACCEPTCONN 0x0002
+#endif
 #ifndef SO_SNDBUF
 #define SO_SNDBUF 0x1001
 #endif

@@ -15,6 +15,12 @@
 #ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00 /* Windows 10 */
@@ -82,8 +88,34 @@
 #ifndef SIGCHLD
 #define SIGCHLD 17
 #endif
+#ifndef SIGSTOP
+#define SIGSTOP 19
+#endif
+#ifndef SIGCONT
+#define SIGCONT 18
+#endif
+#ifndef SIGTSTP
+#define SIGTSTP 20
+#endif
+#ifndef ESOCKTNOSUPPORT
+#define ESOCKTNOSUPPORT 10044
+#endif
+#ifndef EPFNOSUPPORT
+#define EPFNOSUPPORT 10046
+#endif
+#ifndef ENOTSUP
+#define ENOTSUP 129
+#endif
+#ifndef _SC_PAGESIZE
+#define _SC_PAGESIZE 30
+#define _SC_PAGE_SIZE _SC_PAGESIZE
+#define _SC_NPROCESSORS_ONLN 84
+#define _SC_CLK_TCK 2
+#define _SC_GETPW_R_SIZE_MAX 70
+#endif
 
 #include "Win32_Time.h"
+#include "Win32_Signal.h"
 
 #ifndef strcasecmp
 #define strcasecmp _stricmp
@@ -101,6 +133,15 @@
 #endif
 #ifndef S_ISFIFO
 #define S_ISFIFO(m) (((m) & _S_IFMT) == _S_IFIFO)
+#endif
+#ifndef S_IXUSR
+#define S_IXUSR _S_IEXEC
+#define S_IXGRP _S_IEXEC
+#define S_IXOTH _S_IEXEC
+#define S_IRUSR _S_IREAD
+#define S_IWUSR _S_IWRITE
+#define S_IRGRP _S_IREAD
+#define S_IROTH _S_IREAD
 #endif
 
 #endif /* _WIN32 */

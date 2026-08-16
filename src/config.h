@@ -348,7 +348,7 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_FADVISE
 #endif
 
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+#if !defined(_WIN32) && defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
     #if defined(__has_attribute) && __has_attribute(target)
         #define HAVE_POPCNT
         #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
@@ -359,8 +359,9 @@ void setcpuaffinity(const char *cpulist);
     #define ATTRIBUTE_TARGET_POPCNT
 #endif
 
-/* Check if we can compile AVX2 code */
-#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+/* Check if we can compile AVX2 code.
+ * clang-cl on Windows does not provide __cpu_model from compiler-rt. */
+#if !defined(_WIN32) && defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
 #if defined(__has_attribute) && __has_attribute(target)
 #define HAVE_AVX2
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2")))
@@ -369,7 +370,7 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 /* Check if we can compile AVX512 code */
-#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if !defined(_WIN32) && defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
 #if defined(__has_attribute) && __has_attribute(target)
 #define HAVE_AVX512
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f")))

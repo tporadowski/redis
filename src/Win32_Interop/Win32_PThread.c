@@ -141,6 +141,18 @@ int pthread_cancel(pthread_t thread) {
     return -1;
 }
 
+int pthread_setcancelstate(int state, int *oldstate) {
+    if (oldstate) *oldstate = PTHREAD_CANCEL_DISABLE;
+    UNUSED(state);
+    return 0;
+}
+
+int pthread_setcanceltype(int type, int *oldtype) {
+    if (oldtype) *oldtype = PTHREAD_CANCEL_DEFERRED;
+    UNUSED(type);
+    return 0;
+}
+
 int pthread_cond_init(pthread_cond_t *cond, const void *unused) {
     UNUSED(unused);
     cond->waiters = 0;

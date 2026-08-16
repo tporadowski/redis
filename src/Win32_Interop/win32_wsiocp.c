@@ -381,6 +381,14 @@ int WSIOCP_AddEvent(aeEventLoop *el, int fd, int mask) {
     if (assoc < 0) return -1;
     /* assoc == 1: already on another IOCP; 9.2 forwarding. For 1.2, still arm. */
 
+    if ((ss->masks & LISTEN_SOCK) == 0) {
+        int acceptconn = 0;
+        socklen_t olen = sizeof(acceptconn);
+        if (fdapi_getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN,
+                             &acceptconn, &olen) == 0 && acceptconn)
+            ss->masks |= LISTEN_SOCK;
+    }
+
     if (mask & AE_READABLE) {
         ss->masks |= AE_READABLE;
         if ((ss->masks & CONNECT_PENDING) == 0) {

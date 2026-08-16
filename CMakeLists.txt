@@ -180,4 +180,44 @@ add_executable(wsiocp_smoke
 redis_win32_src(wsiocp_smoke)
 target_link_libraries(wsiocp_smoke PRIVATE win32_interop)
 
-message(STATUS "win-8.10 CMake: redis-cli + fdapi_smoke + deps")
+# ---------------------------------------------------------------------------
+# redis-server (M1: CRT allocator, no jemalloc, no QFork heap)
+# ---------------------------------------------------------------------------
+set(REDIS_SERVER_SRC
+    src/threads_mngr.c src/memory_prefetch.c src/adlist.c src/quicklist.c
+    src/ae.c src/anet.c src/dict.c src/ebuckets.c src/eventnotifier.c
+    src/iothread.c src/mstr.c src/entry.c src/kvstore.c src/fwtree.c
+    src/estore.c src/server.c src/sds.c src/zmalloc.c src/lzf_c.c src/lzf_d.c
+    src/pqsort.c src/zipmap.c src/sha1.c src/ziplist.c src/release.c
+    src/networking.c src/util.c src/object.c src/db.c src/replication.c
+    src/rdb.c src/t_string.c src/t_list.c src/t_set.c src/t_zset.c
+    src/t_hash.c src/t_array.c src/sparsearray.c src/config.c src/aof.c
+    src/pubsub.c src/multi.c src/debug.c src/sort.c src/intset.c src/syncio.c
+    src/cluster.c src/cluster_asm.c src/cluster_legacy.c src/cluster_slot_stats.c
+    src/crc16.c src/endianconv.c src/slowlog.c src/eval.c src/bio.c src/rio.c
+    src/rand.c src/memtest.c src/syscheck.c src/crcspeed.c src/crccombine.c
+    src/crc64.c src/bitops.c src/sentinel.c src/notify.c src/blocked.c
+    src/hyperloglog.c src/latency.c src/sparkline.c src/redis-check-rdb.c
+    src/redis-check-aof.c src/geo.c src/lazyfree.c src/module.c src/evict.c
+    src/expire.c src/geohash.c src/geohash_helper.c src/childinfo.c
+    src/defrag.c src/siphash.c src/rax.c src/t_stream.c src/listpack.c
+    src/localtime.c src/lolwut.c src/lolwut5.c src/lolwut6.c src/lolwut8.c
+    src/acl.c src/tracking.c src/socket.c src/tls.c src/sha256.c src/timeout.c
+    src/setcpuaffinity.c src/monotonic.c src/mt19937-64.c src/resp_parser.c
+    src/call_reply.c src/script_lua.c src/script.c src/functions.c
+    src/function_lua.c src/commands.c src/strl.c src/connection.c src/unix.c
+    src/logreqres.c src/keymeta.c src/chk.c src/hotkeys.c src/gcra.c
+    src/vector.c src/fast_float_strtod.c src/client_comp.c
+    src/Win32_Interop/Win32_QFork.cpp)
+
+add_executable(redis-server ${REDIS_SERVER_SRC})
+add_dependencies(redis-server redis_release_h)
+target_include_directories(redis-server PRIVATE
+    deps/hiredis deps/lua/src deps/hdr_histogram
+    deps/xxhash deps/fpconv deps/tre/local_includes)
+redis_win32_src(redis-server)
+target_compile_definitions(redis-server PRIVATE USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H)
+target_link_libraries(redis-server PRIVATE
+    lua hdr_histogram hiredis fpconv xxhash tre win32_interop)
+
+message(STATUS "win-8.10 CMake: redis-cli + redis-server + smokes")

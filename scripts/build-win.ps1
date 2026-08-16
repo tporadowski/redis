@@ -49,4 +49,4 @@ $cmd = "`"$vcvars`" && cmake $cmakeArgStr && cmake --build `"$buildPath`" --conf
 Write-Host $cmd
 cmd.exe /c $cmd
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Write-Host "Built $(Join-Path $Root $BuildDir)\redis-cli.exe"
+Write-Host "Built $(Join-Path $Root $BuildDir)\redis-cli.exe and redis-server.exe"
