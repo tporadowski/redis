@@ -215,7 +215,8 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_fdapi_crt.cpp
     src/Win32_Interop/Win32_FDAPI.cpp
     src/Win32_Interop/win32_wsiocp.c
-    src/Win32_Interop/Win32_ThreadControl.c)
+    src/Win32_Interop/Win32_ThreadControl.c
+    src/Win32_Interop/Win32_ProcessTable.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -234,6 +235,7 @@ set_source_files_properties(
     src/Win32_Interop/Win32_cli.c
     src/Win32_Interop/win32_wsiocp.c
     src/Win32_Interop/Win32_ThreadControl.c
+    src/Win32_Interop/Win32_ProcessTable.c
     PROPERTIES LANGUAGE C)
 set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
     PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
@@ -291,7 +293,7 @@ endif()
 target_link_libraries(qfork_heap_smoke PRIVATE win32_interop)
 
 # ---------------------------------------------------------------------------
-# redis-server (M3: hooked jemalloc + QFork pagefile heap; fork is 3.3)
+# redis-server (M3: jemalloc + QFork heap + parent-only redisFork)
 # ---------------------------------------------------------------------------
 set(REDIS_SERVER_SRC
     src/threads_mngr.c src/memory_prefetch.c src/adlist.c src/quicklist.c
@@ -319,7 +321,9 @@ set(REDIS_SERVER_SRC
     src/logreqres.c src/keymeta.c src/chk.c src/hotkeys.c src/gcra.c
     src/vector.c src/fast_float_strtod.c src/client_comp.c
     src/Win32_Interop/Win32_QFork.cpp
-    src/Win32_Interop/Win32_QFork_heap.cpp)
+    src/Win32_Interop/Win32_QFork_heap.cpp
+    src/Win32_Interop/Win32_QFork_impl.c)
+set_source_files_properties(src/Win32_Interop/Win32_QFork_impl.c PROPERTIES LANGUAGE C)
 
 add_executable(redis-server ${REDIS_SERVER_SRC})
 add_dependencies(redis-server redis_release_h)
@@ -340,4 +344,4 @@ if(MSVC)
     target_link_options(redis-server PRIVATE /DYNAMICBASE:NO)
 endif()
 
-message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork heap) + smokes")
+message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork + BGSAVE) + smokes")

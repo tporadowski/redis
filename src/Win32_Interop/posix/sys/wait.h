@@ -9,9 +9,11 @@
 #define WIFSIGNALED(s) (((s) & 0x7f) != 0 && ((s) & 0x7f) != 0x7f)
 #define WTERMSIG(s)    ((s) & 0x7f)
 #define WIFSTOPPED(s)  (((s) & 0xff) == 0x7f)
-static inline pid_t waitpid(pid_t pid, int *status, int options) {
-    (void)pid; (void)options;
-    if (status) *status = 0;
-    return -1;
+#ifdef __cplusplus
+extern "C" {
+#endif
+pid_t waitpid(pid_t pid, int *status, int options);
+#ifdef __cplusplus
 }
+#endif
 #endif

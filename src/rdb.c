@@ -23,6 +23,9 @@
 #include "bio.h"
 #include "cluster_asm.h"
 #include "keymeta.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 
 #include <math.h>
 #include <fcntl.h>
@@ -2229,6 +2232,9 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
 
+#ifdef _WIN32
+    win32PrepareRdbDiskJob(req, filename, rsi, rdbflags);
+#endif
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
 
