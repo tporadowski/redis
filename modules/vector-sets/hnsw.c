@@ -50,7 +50,7 @@
 /* Check if we can compile SIMD code with function attributes.
  * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
  * supports the target() attribute for runtime CPU feature dispatch. */
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__x86_64__) && !defined(_WIN32) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
     #if defined(__has_attribute) && __has_attribute(target)
         #define HAVE_AVX2
         #define HAVE_AVX512

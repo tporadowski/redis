@@ -995,7 +995,9 @@ typedef int (*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, voi
 #endif
 
 #ifndef REDISMODULE_ATTR_COMMON
-#    if defined(__GNUC__) && !(defined(__clang__) && defined(__cplusplus))
+#    if defined(_WIN32)
+#        define REDISMODULE_ATTR_COMMON
+#    elif defined(__GNUC__) && !(defined(__clang__) && defined(__cplusplus))
 #        define REDISMODULE_ATTR_COMMON __attribute__((__common__))
 #    else
 #        define REDISMODULE_ATTR_COMMON
@@ -1123,7 +1125,12 @@ typedef struct RedisModuleKeyMetaClassConfig {
 
 /* Default API declaration prefix (not 'extern' for backwards compatibility) */
 #ifndef REDISMODULE_API
+#ifdef _WIN32
+/* Prefix: COFF has no ELF common; merge RedisModule_* pointers across TUs. */
+#define REDISMODULE_API __declspec(selectany)
+#else
 #define REDISMODULE_API
+#endif
 #endif
 
 /* Default API declaration suffix (compiler attributes) */

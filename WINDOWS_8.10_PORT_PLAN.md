@@ -1057,7 +1057,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 5.1 | M5 | Done | `win-8.10` | `--service-install/uninstall/start/stop/name/run`; Event Log IDs 0x0–0x3 unchanged. `HandleServiceCommands` before `QForkParentInit`. SCM worker runs `RedisWindowsParentMain`. `syslog()` → Event Log. `ServiceStopIssued` stops `ae`. Self-elevation kept. Console PING still works; `--service-run` outside SCM exits 1063 |
 | 5.2 | M5 | Done | `win-8.10` | `redis.windows.conf` + `redis.windows-service.conf` (overlay, not a redis.conf fork). `Redis on Windows.md` (QFork/pagefile/ASLR/`maxmemory`; no 8.10 `maxheap` key). Service + release-notes docs. Console PING with the overlay |
 | 6.1 | M6 | Done | `win-8.10` | `dlopen`/`dlsym`/`dlclose` via `LoadLibrary`/`GetProcAddress`. Skip Windows execute-bit check (CRT `_stat` has no +x on `.dll`). `helloworld.dll` exports `RedisModule_OnLoad`. Module API pointer casts use `uintptr_t` (LLP64). `loadmodule` + `HELLO.SIMPLE` |
-| 6.2 | M6 | Not started | | `INCLUDE_VEC_SETS` |
+| 6.2 | M6 | Done | `win-8.10` | CMake `INCLUDE_VEC_SETS=ON` (default) compiles `hnsw.c`/`vset.c`/`vset_config.c` into `redis-server`. `pthread_rwlock` via SRWLOCK. `REDISMODULE_API` is `__declspec(selectany)` (COFF has no ELF common). HNSW AVX/`__builtin_cpu_supports` off (no `__cpu_model` in clang-cl). `VADD`/`VCARD`/`VSIM` |
 | 6.3 | M6 | Not started | | `RedisModule_Fork` returns error; stretch `SetForkChildFn` |
 | 7.1 | M7 | Not started | | Sentinel + `CreateProcessA` + `winpid_register` |
 | 7.2 | M7 | Not started | | Cluster meet / failover smoke |
