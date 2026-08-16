@@ -1052,7 +1052,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 3.2 | M3 | Done | `win-8.10` | QFork pagefile heap + NULL-safe `AllocHeapBlock`; no `MAX_REDIS_DATA_SIZE`; `/DYNAMICBASE:NO`; `qfork_heap_smoke`. jemalloc stays on VirtualAlloc (`g_BypassMemoryMapOnAlloc=1`) — mapped-heap backing OOMs 16-byte during db init; flip off in 3.3 |
 | 3.3 | M3 | Done | `win-8.10` | parent-only `redisFork` + `do_rdbSave` + waitpid table + two-phase `persistence-available`. `BGSAVE` writes a valid RDB (`redis-check-rdb` OK). jemalloc stays on VirtualAlloc (`g_BypassMemoryMapOnAlloc=1`) — mapped-heap 16-byte OOM at `aeApiCreate` remains; parent writes the RDB and reaps a `--QForkExit` child until COW heap is live |
 | 3.4 | M3 | Done | `win-8.10` | `tests/windows/smoke_bgsave.tcl` + `.ps1`: SET/GET + BGSAVE + `redis-check-rdb`. CMake copies `redis-check-rdb.exe` and `smoke_bgsave` target |
-| 4.1 | M4 | Not started | | `do_aofRewrite` + MP-AOF |
+| 4.1 | M4 | Done | `win-8.10` | `do_aofRewrite` + MP-AOF. Parent-side rewrite until mapped heap is live (temp file uses dummy child pid). Windows close-before-rename for incr AOF + manifest. `fdapi_open` maps CRT files to RFDs. `CONFIG SET appendonly yes` / `BGREWRITEAOF` ok; restart loads `appendonly.aof.N.base.rdb` |
 | 4.2 | M4 | Not started | | diskless + `BACKUP` + `link()` |
 | 5.1 | M5 | Not started | | Service + Event Log IDs |
 | 5.2 | M5 | Not started | | windows conf + ops notes |
@@ -1291,7 +1291,7 @@ PRs are independently reviewable and mapped to the tracker IDs. Later PRs may re
 
 | # | PR title | Files / components | Depends on | Description |
 |---|---------|--------------------|------------|-------------|
-| 4.1 | `port: do_aofRewrite + MP-AOF` | `Win32_QFork_impl.c` `do_aofRewrite`; `aof.c` thin `#ifdef`; **no** 5.0 `aof_pipe_*` | 3.3 | Child builds `temp-rewriteaof-bg-<pid>.aof`; only `child_info_write` + server snapshot. |
+| 4.1 | `port: do_aofRewrite + MP-AOF` | `Win32_QFork_impl.c` `do_aofRewrite`; `aof.c` thin `#ifdef`; `fdapi_open`; **no** 5.0 `aof_pipe_*` | 3.3 | Child builds `temp-rewriteaof-bg-<pid>.aof`; only `child_info_write` + server snapshot. NTFS close-before-rename for incr + manifest. |
 | 4.2 | `port: diskless + BACKUP hard links` | `do_rdbSaveToSockets`; `WSADuplicateSocket`; `link()` → `CreateHardLinkA` | 4.1 | Persistence-available list includes `backup`. |
 
 ### M5 — Service + Event Log + conf

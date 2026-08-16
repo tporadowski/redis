@@ -282,6 +282,7 @@ int ftruncate(int fd, off_t length);
 #define select fdapi_select
 #endif
 
+int fdapi_open(const char *pathname, int flags, ...);
 int fdapi_close(int fd);
 ssize_t fdapi_read(int fd, void *buf, size_t count);
 ssize_t fdapi_write(int fd, const void *buf, size_t count);

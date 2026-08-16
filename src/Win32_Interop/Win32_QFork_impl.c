@@ -17,8 +17,11 @@
 
 Win32QForkJob g_win32_qfork_job;
 
+int rewriteAppendOnlyFile(char *filename);
+
 void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags) {
     memset(&g_win32_qfork_job, 0, sizeof(g_win32_qfork_job));
+    g_win32_qfork_job.purpose = CHILD_TYPE_RDB;
     g_win32_qfork_job.rdb_req = req;
     g_win32_qfork_job.rdb_flags = rdbflags;
     if (filename)
@@ -29,7 +32,13 @@ void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int 
     }
 }
 
-void SetupRedisGlobals(void *redisData, size_t redisDataSize, unsigned char *dictHashSeed) {
+void win32PrepareAofJob(void) {
+    memset(&g_win32_qfork_job, 0, sizeof(g_win32_qfork_job));
+    g_win32_qfork_job.purpose = CHILD_TYPE_AOF;
+}
+
+void SetupRedisGlobals(void *redisData, size_t redisDataSize,
+                       unsigned char *dictHashSeed, int purpose) {
     if (redisData && redisDataSize == sizeof(server))
         memcpy(&server, redisData, redisDataSize);
     if (dictHashSeed)
@@ -39,7 +48,7 @@ void SetupRedisGlobals(void *redisData, size_t redisDataSize, unsigned char *dic
     server.main_thread_id = pthread_self();
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
-    server.in_fork_child = CHILD_TYPE_RDB;
+    server.in_fork_child = purpose;
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
     server.module_pipe[0] = -1;
@@ -53,6 +62,22 @@ int do_rdbSave(int req, char *filename, void *rsi, int rdbflags) {
         return C_ERR;
     }
     sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
+    return C_OK;
+}
+
+int do_aofRewrite(const char *filename) {
+    char tmpfile[256];
+    if (!filename) {
+        snprintf(tmpfile, sizeof(tmpfile), "temp-rewriteaof-bg-%d.aof",
+                 (int)getpid());
+        filename = tmpfile;
+    }
+    if (rewriteAppendOnlyFile((char *)filename) != C_OK) {
+        serverLog(LL_WARNING, "rewriteAppendOnlyFile failed in qfork: %s",
+                  strerror(errno));
+        return C_ERR;
+    }
+    sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
     return C_OK;
 }
 
@@ -73,45 +98,88 @@ void win32ApplyPersistenceAvailable(int available) {
     }
 }
 
-int win32RedisFork(int purpose) {
-    if (purpose != CHILD_TYPE_RDB) {
-        errno = ENOSYS;
-        return -1;
+static int spawn_qfork_exit(int exit_code, DWORD flags, DWORD *pid,
+                            HANDLE *proc, HANDLE *thread) {
+    char fileName[MAX_PATH];
+    if (!GetModuleFileNameA(NULL, fileName, MAX_PATH))
+        return 0;
+    char arguments[MAX_PATH * 2];
+    _snprintf_s(arguments, sizeof(arguments), _TRUNCATE,
+                "\"%s\" --QForkExit %d", fileName, exit_code);
+    STARTUPINFOA si;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi;
+    memset(&pi, 0, sizeof(pi));
+    if (!CreateProcessA(fileName, arguments, NULL, NULL, FALSE, flags, NULL,
+                        NULL, &si, &pi)) {
+        serverLog(LL_WARNING, "QFork: dummy child CreateProcess gle=%lu",
+                  GetLastError());
+        return 0;
     }
-    if (!g_HasMemoryMappedHeap || g_BypassMemoryMapOnAlloc) {
-        /* Parent-side RDB until jemalloc can live in the mapped heap. */
-        serverLog(LL_NOTICE,
-                  "QFork: mapped heap not live (bypass=%d); saving RDB in parent",
-                  g_BypassMemoryMapOnAlloc);
-        void *rsi = g_win32_qfork_job.rsi_valid ? (void *)g_win32_qfork_job.rsi
-                                                : NULL;
-        int rc = do_rdbSave(g_win32_qfork_job.rdb_req,
-                            g_win32_qfork_job.filename, rsi,
-                            g_win32_qfork_job.rdb_flags);
-        char fileName[MAX_PATH];
-        if (!GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
-            errno = EIO;
-            return -1;
-        }
-        char arguments[MAX_PATH * 2];
-        _snprintf_s(arguments, sizeof(arguments), _TRUNCATE,
-                    "\"%s\" --QForkExit %d", fileName, rc == C_OK ? 0 : 1);
-        STARTUPINFOA si;
-        memset(&si, 0, sizeof(si));
-        si.cb = sizeof(si);
-        PROCESS_INFORMATION pi;
-        memset(&pi, 0, sizeof(pi));
-        if (!CreateProcessA(fileName, arguments, NULL, NULL, FALSE, 0, NULL,
-                            NULL, &si, &pi)) {
-            serverLog(LL_WARNING, "QFork: dummy child CreateProcess gle=%lu",
-                      GetLastError());
+    *pid = pi.dwProcessId;
+    *proc = pi.hProcess;
+    if (thread)
+        *thread = pi.hThread;
+    else
+        CloseHandle(pi.hThread);
+    return 1;
+}
+
+static int win32ParentSideFork(int purpose) {
+    serverLog(LL_NOTICE,
+              "QFork: mapped heap not live (bypass=%d); %s in parent",
+              g_BypassMemoryMapOnAlloc,
+              purpose == CHILD_TYPE_AOF ? "rewriting AOF" : "saving RDB");
+
+    if (purpose == CHILD_TYPE_AOF) {
+        /* Parent later looks for temp-rewriteaof-bg-<child_pid>.aof.
+         * Spawn suspended so we know the pid before writing. */
+        DWORD pid = 0;
+        HANDLE proc = NULL, thr = NULL;
+        if (!spawn_qfork_exit(0, CREATE_SUSPENDED, &pid, &proc, &thr)) {
             errno = EAGAIN;
             return -1;
         }
-        CloseHandle(pi.hThread);
-        winpid_register((pid_t)pi.dwProcessId, pi.hProcess, WP_QFORK, NULL);
-        return (int)pi.dwProcessId;
+        char tmpfile[256];
+        snprintf(tmpfile, sizeof(tmpfile), "temp-rewriteaof-bg-%d.aof",
+                 (int)pid);
+        int rc = do_aofRewrite(tmpfile);
+        if (rc != C_OK) {
+            TerminateProcess(proc, 1);
+            CloseHandle(thr);
+            CloseHandle(proc);
+            errno = EIO;
+            return -1;
+        }
+        ResumeThread(thr);
+        CloseHandle(thr);
+        winpid_register((pid_t)pid, proc, WP_QFORK, NULL);
+        return (int)pid;
     }
+
+    void *rsi = g_win32_qfork_job.rsi_valid ? (void *)g_win32_qfork_job.rsi
+                                            : NULL;
+    int rc = do_rdbSave(g_win32_qfork_job.rdb_req,
+                        g_win32_qfork_job.filename, rsi,
+                        g_win32_qfork_job.rdb_flags);
+    DWORD pid = 0;
+    HANDLE proc = NULL;
+    if (!spawn_qfork_exit(rc == C_OK ? 0 : 1, 0, &pid, &proc, NULL)) {
+        errno = EAGAIN;
+        return -1;
+    }
+    winpid_register((pid_t)pid, proc, WP_QFORK, NULL);
+    return (int)pid;
+}
+
+int win32RedisFork(int purpose) {
+    if (purpose != CHILD_TYPE_RDB && purpose != CHILD_TYPE_AOF) {
+        errno = ENOSYS;
+        return -1;
+    }
+    if (!g_HasMemoryMappedHeap || g_BypassMemoryMapOnAlloc)
+        return win32ParentSideFork(purpose);
 
     size_t payload_size = sizeof(QForkPayloadHeader) + sizeof(server);
     HANDLE hPayload = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,

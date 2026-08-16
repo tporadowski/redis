@@ -38,6 +38,11 @@ extern int g_PersistenceDisabled;
 
 #define QFORK_MAGIC 0x51463130u /* 'QF10' */
 
+#ifndef CHILD_TYPE_RDB
+#define CHILD_TYPE_RDB 1
+#define CHILD_TYPE_AOF 2
+#endif
+
 typedef struct QForkPayloadHeader {
     uint32_t magic;
     uint32_t purpose;
@@ -53,6 +58,7 @@ typedef struct QForkPayloadHeader {
 } QForkPayloadHeader;
 
 void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags);
+void win32PrepareAofJob(void);
 int win32RedisFork(int purpose);
 void win32ApplyPersistenceAvailable(int available);
 int QForkChildMain(void *control_handle, void *payload_handle, unsigned long parent_pid);
