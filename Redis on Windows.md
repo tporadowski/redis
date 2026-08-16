@@ -176,6 +176,12 @@ an `openssl.exe` to mint a self-signed cert). `tls-auth-clients no` and
 `redis-cli --tls --insecure` are enough for that smoke. Combined with
 `io-threads 4`: `tests/windows/smoke_tls_iothreads.ps1`.
 
+## LLP64
+
+Windows x64 `long` is 32-bit. This port keeps upstream `long` (no `PORT_LONG`).
+`arch_bits` is `sizeof(void *)`. CMake target `lint_llp64` /
+`tests/windows/lint-llp64.ps1` is the regression net (`llp64-allow.txt`).
+
 ## Tests (10.1)
 
 `tests/windows/runtest-win.ps1` (CMake target `wintest`):

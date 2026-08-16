@@ -601,4 +601,12 @@ add_custom_target(smoke_zip
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "M10: verify zip layout + redis-cli --version")
 
+add_custom_target(lint_llp64
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/lint-llp64.ps1"
+        -SourceDir "${CMAKE_SOURCE_DIR}"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "M10: LLP64 sizeof(long)/clzl/PORT_LONG lint + arch_bits:64")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

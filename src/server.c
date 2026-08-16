@@ -1064,7 +1064,8 @@ int clientsCronTrackExpansiveClients(client *c) {
  * For more details see CLIENT_MEM_USAGE_BUCKETS documentation in server.h. */
 static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     int size_in_bits = 8*(int)sizeof(mem);
-    int clz = mem > 0 ? __builtin_clzl(mem) : size_in_bits;
+    /* clzl is 32-bit on LLP64; mem is size_t (64-bit on this port). */
+    int clz = mem > 0 ? (int)__builtin_clzll((unsigned long long)mem) : size_in_bits;
     int bucket_idx = size_in_bits - clz;
     if (bucket_idx > CLIENT_MEM_USAGE_BUCKET_MAX_LOG)
         bucket_idx = CLIENT_MEM_USAGE_BUCKET_MAX_LOG;

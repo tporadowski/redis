@@ -1070,7 +1070,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 10.1 | M10 | Done | `win-8.10` | 5.0-first Tcl harness (`wintest.tcl` / `runtest-win.ps1`): `unit/printver` + `unit/type/incr`. `fopen` RDB/AOF is `rb`/`wb` (text mode was EOF on `0x1A`). 5.0 `encodings.rdb` loads. Skip-list: replica PSYNC, hiredis protocol-error close, Linux fork/`/proc` |
 | 10.2 | M10 | Done | `win-8.10` | CMake `install` + `pack_zip` writes `Redis-x64-8.10.0-win.1.zip` (server/cli/benchmark/check-rdb/check-aof/sentinel, TLS DLLs, conf, LICENSE/NOTICE, Windows docs). `smoke_zip` checks names + `redis-cli --version`. No MSI |
 | 10.3 | M10 | Done | `win-8.10` | README is the Windows landing page: unofficial 8.10 + BSD 5.0 still on `win-5.0`. No Redis Ltd logos/codecov. Service + operator docs point at both lines |
-| 10.4 | M10 | Not started | | LLP64 lint (regression) |
+| 10.4 | M10 | Done | `win-8.10` | `lint-llp64.ps1` + `llp64-allow.txt`. Forbids `arch_bits=sizeof(long)`, `#define long`, unallowed `sizeof(long)`/`clzl`/`PORT_LONG`. `INFO arch_bits:64`. Client mem-bucket uses `clzll`; crash stack dump uses `uintptr_t` |
 
 ---
 
