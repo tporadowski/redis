@@ -7,9 +7,11 @@
 #include "Win32_QFork.h"
 #include "Win32_Time.h"
 #include "Win32_FDAPI.h"
+#include "Win32_ThreadControl.h"
 
 int main(int argc, char **argv) {
     InitTimeFunctions();
+    InitThreadControl();
     FDAPI_Init();
     return redis_main(argc, argv);
 }

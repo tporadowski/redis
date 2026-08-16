@@ -131,7 +131,8 @@ add_library(win32_interop STATIC
     src/Win32_Interop/win32_rfdmap.cpp
     src/Win32_Interop/Win32_fdapi_crt.cpp
     src/Win32_Interop/Win32_FDAPI.cpp
-    src/Win32_Interop/win32_wsiocp.c)
+    src/Win32_Interop/win32_wsiocp.c
+    src/Win32_Interop/Win32_ThreadControl.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -149,6 +150,7 @@ set_source_files_properties(
     src/Win32_Interop/Win32_ANSI.c
     src/Win32_Interop/Win32_cli.c
     src/Win32_Interop/win32_wsiocp.c
+    src/Win32_Interop/Win32_ThreadControl.c
     PROPERTIES LANGUAGE C)
 set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
     PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
@@ -179,6 +181,10 @@ add_executable(wsiocp_smoke
     src/ae.c src/zmalloc.c src/monotonic.c src/redisassert.c)
 redis_win32_src(wsiocp_smoke)
 target_link_libraries(wsiocp_smoke PRIVATE win32_interop)
+
+add_executable(pthread_smoke tests/windows/pthread_smoke.c)
+redis_win32_src(pthread_smoke)
+target_link_libraries(pthread_smoke PRIVATE win32_interop)
 
 # ---------------------------------------------------------------------------
 # redis-server (M1: CRT allocator, no jemalloc, no QFork heap)
