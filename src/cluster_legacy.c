@@ -682,6 +682,8 @@ fmterr:
  * a single write to write the whole file. If the pre-existing file was
  * bigger we pad our payload with newlines that are anyway ignored and truncate
  * the file afterward. */
+int clusterLockConfig(char *filename);
+
 int clusterSaveConfig(int do_fsync) {
     sds ci,tmpfilename;
     size_t content_size,offset = 0;
@@ -726,10 +728,32 @@ int clusterSaveConfig(int do_fsync) {
         }
     }
 
+#ifdef _WIN32
+    /* NTFS cannot rename over dest, and clusterLockConfig holds dest open. */
+    if (fd != -1) {
+        close(fd);
+        fd = -1;
+    }
+    if (server.cluster_config_file_lock_fd != -1) {
+        close(server.cluster_config_file_lock_fd);
+        server.cluster_config_file_lock_fd = -1;
+    }
+    unlink(server.cluster_configfile);
+#endif
     if (rename(tmpfilename, server.cluster_configfile) == -1) {
         serverLog(LL_WARNING,"Could not rename tmp cluster config file: %s",strerror(errno));
+#ifdef _WIN32
+        clusterLockConfig(server.cluster_configfile);
+#endif
         goto cleanup;
     }
+#ifdef _WIN32
+    if (clusterLockConfig(server.cluster_configfile) == C_ERR) {
+        serverLog(LL_WARNING,"Could not re-lock cluster config file: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+#endif
 
     if (do_fsync) {
         if (fsyncFileDir(server.cluster_configfile) == -1) {

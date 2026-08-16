@@ -49,6 +49,12 @@ int anetGetError(int fd) {
     int sockerr = 0;
     socklen_t errlen = sizeof(sockerr);
 
+#ifdef _WIN32
+    {
+        int ce = WSIOCP_TakeConnectError(fd);
+        if (ce) return ce;
+    }
+#endif
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
         sockerr = errno;
     return sockerr;
@@ -461,6 +467,76 @@ end:
         return s;
     }
 }
+
+#ifdef _WIN32
+/* Socket ready for ConnectEx: associated with an IOCP by the caller first. */
+int anetTcpNonBlockPrepare(char *err, const char *addr, int port,
+                           const char *source_addr, void *dest, int *dest_len)
+{
+    int s = ANET_ERR, rv;
+    char portstr[6];
+    struct addrinfo hints, *servinfo, *bservinfo, *p, *b;
+    struct sockaddr_storage *ss = dest;
+
+    if (!ss || !dest_len) {
+        errno = EINVAL;
+        return ANET_ERR;
+    }
+
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if ((rv = getaddrinfo(addr, portstr, &hints, &servinfo)) != 0) {
+        anetSetError(err, "%s", gai_strerror(rv));
+        return ANET_ERR;
+    }
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+            continue;
+        if (anetSetReuseAddr(err, s) == ANET_ERR) goto prep_error;
+        if (anetNonBlock(err, s) != ANET_OK) goto prep_error;
+        if (source_addr) {
+            int bound = 0;
+            if ((rv = getaddrinfo(source_addr, NULL, &hints, &bservinfo)) != 0) {
+                anetSetError(err, "%s", gai_strerror(rv));
+                goto prep_error;
+            }
+            for (b = bservinfo; b != NULL; b = b->ai_next) {
+                if (bind(s, b->ai_addr, b->ai_addrlen) != -1) {
+                    bound = 1;
+                    break;
+                }
+            }
+            freeaddrinfo(bservinfo);
+            if (!bound) {
+                anetSetError(err, "bind: %s", strerror(errno));
+                goto prep_error;
+            }
+        }
+        if ((size_t)*dest_len < p->ai_addrlen) {
+            anetSetError(err, "destination address too large");
+            goto prep_error;
+        }
+        memcpy(ss, p->ai_addr, p->ai_addrlen);
+        *dest_len = (int)p->ai_addrlen;
+        freeaddrinfo(servinfo);
+        return s;
+    }
+    anetSetError(err, "creating socket: %s", strerror(errno));
+
+prep_error:
+    if (s != ANET_ERR) {
+        close(s);
+        s = ANET_ERR;
+    }
+    freeaddrinfo(servinfo);
+    if (s == ANET_ERR && source_addr)
+        return anetTcpNonBlockPrepare(err, addr, port, NULL, dest, dest_len);
+    return s;
+}
+#endif
 
 int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {

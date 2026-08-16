@@ -70,6 +70,8 @@ int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
 int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop,
                       void *client, void *data, void *proc);
 int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len);
+/* Non-zero WSA/errno from a completed ConnectEx; cleared on read. */
+int WSIOCP_TakeConnectError(int rfd);
 int WSIOCP_CloseSocketStateRFD(int rfd);
 
 #ifdef __cplusplus

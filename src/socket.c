@@ -87,6 +87,45 @@ static connection *connCreateAcceptedSocket(struct aeEventLoop *el, int fd, void
 
 static int connSocketConnect(connection *conn, const char *addr, int port, const char *src_addr,
         ConnectionCallbackFunc connect_handler) {
+#ifdef _WIN32
+    /* Per-loop IOCP: associate, then ConnectEx. Regular connect() is not
+     * completion-ported; AE_WRITABLE would fire before the handshake. */
+    struct sockaddr_storage ss;
+    int sslen = (int)sizeof(ss);
+    int fd = anetTcpNonBlockPrepare(NULL, addr, port, src_addr, &ss, &sslen);
+    if (fd == -1) {
+        conn->state = CONN_STATE_ERROR;
+        conn->last_errno = errno;
+        return C_ERR;
+    }
+    conn->fd = fd;
+    conn->state = CONN_STATE_CONNECTING;
+    conn->conn_handler = connect_handler;
+    if (WSIOCP_Associate(fd, WSIOCP_GetLoopIocp(conn->el)) < 0) {
+        close(fd);
+        conn->fd = -1;
+        conn->state = CONN_STATE_ERROR;
+        conn->last_errno = errno;
+        return C_ERR;
+    }
+    if (WSIOCP_SocketConnect(fd, (struct sockaddr *)&ss, (socklen_t)sslen) < 0 &&
+        errno != EINPROGRESS) {
+        close(fd);
+        conn->fd = -1;
+        conn->state = CONN_STATE_ERROR;
+        conn->last_errno = errno;
+        return C_ERR;
+    }
+    if (aeCreateFileEvent(conn->el, conn->fd, AE_WRITABLE,
+            conn->type->ae_handler, conn) == AE_ERR) {
+        close(fd);
+        conn->fd = -1;
+        conn->state = CONN_STATE_ERROR;
+        conn->last_errno = errno;
+        return C_ERR;
+    }
+    return C_OK;
+#else
     int fd = anetTcpNonBlockBestEffortBindConnect(NULL,addr,port,src_addr);
     if (fd == -1) {
         conn->state = CONN_STATE_ERROR;
@@ -102,6 +141,7 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
             conn->type->ae_handler, conn);
 
     return C_OK;
+#endif
 }
 
 /* ------ Pure socket connections ------- */

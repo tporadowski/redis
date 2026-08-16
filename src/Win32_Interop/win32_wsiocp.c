@@ -24,6 +24,7 @@
 #define FDAPI_IMPLEMENTATION
 #include "win32_winsock.h"
 #include "win32_wsiocp.h"
+#include "Win32_Error.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -62,6 +63,7 @@ typedef struct iocpSockState {
     OVERLAPPED ov_read;
     asendreq *wreqlist;
     int unknownComplete;
+    int connect_err;
 } iocpSockState;
 
 static char zreadchar[1];
@@ -326,6 +328,19 @@ int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
     return -1;
 }
 
+static void wsiocp_update_connect_context(int rfd) {
+    fdapi_setsockopt(rfd, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+}
+
+int WSIOCP_TakeConnectError(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    int err;
+    if (!ss || !ss->connect_err) return 0;
+    err = ss->connect_err;
+    ss->connect_err = 0;
+    return err;
+}
+
 int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len) {
     iocpSockState *ss = WSIOCP_GetSocketState(rfd);
     int rc;
@@ -341,7 +356,9 @@ int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len) {
     if (WSIOCP_Associate(rfd, ss->iocp) < 0)
         return -1;
 
+    ss->connect_err = 0;
     memset(&ss->ov_read, 0, sizeof(ss->ov_read));
+    /* ConnectEx requires a bind. Ignore if the caller already bound source. */
     if (addr->sa_family == AF_INET) {
         struct sockaddr_in any;
         memset(&any, 0, sizeof(any));
@@ -355,7 +372,10 @@ int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len) {
     }
 
     rc = FDAPI_ConnectEx(rfd, addr, (int)len, NULL, 0, NULL, &ss->ov_read);
-    if (rc) return 0;
+    if (rc) {
+        wsiocp_update_connect_context(rfd);
+        return 0;
+    }
     rc = FDAPI_WSAGetLastError();
     if (rc == ERROR_IO_PENDING) {
         errno = EINPROGRESS;
@@ -462,7 +482,16 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 }
             } else if (ss->masks & CONNECT_PENDING) {
                 if (ov == &ss->ov_read) {
+                    unsigned long xfer = 0, flags = 0;
                     ss->masks &= ~CONNECT_PENDING;
+                    if (FDAPI_WSAGetOverlappedResult(rfd, &ss->ov_read,
+                                                     &xfer, 0, &flags)) {
+                        wsiocp_update_connect_context(rfd);
+                    } else {
+                        int w = FDAPI_WSAGetLastError();
+                        int e = translate_sys_error(w);
+                        ss->connect_err = (e == -9999 || e == 0) ? EIO : e;
+                    }
                     WSIOCP_AddEvent(el, rfd, ss->masks);
                 }
             } else {
