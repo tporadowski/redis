@@ -1045,6 +1045,10 @@ struct RedisModule {
     int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
     int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
     size_t num_acl_categories_added; /* Number of acl categories added by this module. */
+#ifdef _WIN32
+    char *win_fork_child_name;   /* Exported child symbol for SetForkChildFn. */
+    void *win_fork_child_user_data;
+#endif
 };
 typedef struct RedisModule RedisModule;
 

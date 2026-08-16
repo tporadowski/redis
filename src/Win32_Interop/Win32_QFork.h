@@ -43,6 +43,8 @@ extern int g_PersistenceDisabled;
 #ifndef CHILD_TYPE_RDB
 #define CHILD_TYPE_RDB 1
 #define CHILD_TYPE_AOF 2
+#define CHILD_TYPE_LDB 3
+#define CHILD_TYPE_MODULE 4
 #endif
 
 #define QFORK_RDB_DISK         0
@@ -68,6 +70,9 @@ typedef struct QForkPayloadHeader {
     int      rdb_channel;
     int      slots_req;
     int      numconns;
+    /* CHILD_TYPE_MODULE: exported symbol + user_data (pointer, COW if live). */
+    char     module_symbol[64];
+    uint64_t module_user_data;
 } QForkPayloadHeader;
 
 void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags);
@@ -75,6 +80,7 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
                               int slots_req, void **conns, int numconns,
                               int rdb_pipe_write, int safe_to_exit_pipe);
 void win32PrepareAofJob(void);
+void win32PrepareModuleJob(const char *path, const char *symbol, void *user_data);
 int win32RedisFork(int purpose);
 void win32ApplyPersistenceAvailable(int available);
 int QForkChildMain(void *control_handle, void *payload_handle, unsigned long parent_pid);

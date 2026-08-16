@@ -37,6 +37,9 @@
  * -------------------------------------------------------------------------- */
 
 #include "server.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 #include "cluster.h"
 #include "cluster_asm.h"
 #include "slowlog.h"
@@ -406,6 +409,11 @@ static struct RedisModuleForkInfo {
     RedisModuleForkDoneHandler done_handler;
     void* done_handler_user_data;
 } moduleForkInfo = {0};
+
+#ifdef _WIN32
+/* Last module that called SetForkChildFn. RM_Fork has no ctx. */
+static RedisModule *moduleForkOwner = NULL;
+#endif
 
 typedef struct RedisModuleServerInfoData {
     rax *rax;                       /* parsed info data. */
@@ -2389,6 +2397,10 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->num_commands_with_acl_categories = 0;
     module->onload = 1;
     module->num_acl_categories_added = 0;
+#ifdef _WIN32
+    module->win_fork_child_name = NULL;
+    module->win_fork_child_user_data = NULL;
+#endif
     ctx->module = module;
 }
 
@@ -12496,8 +12508,40 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
  * Return: -1 on failure, on success the parent process will get a positive PID
  * of the child, and the child process will get 0.
  */
+#ifdef _WIN32
+/* Register an exported child symbol. A raw parent function pointer is not
+ * valid in the QFork child (the .dll may reload at a different base). */
+int RM_SetForkChildFn(RedisModuleCtx *ctx, const char *exported_name, void *user_data) {
+    if (!ctx || !ctx->module || !exported_name || exported_name[0] == '\0')
+        return REDISMODULE_ERR;
+    sdsfree(ctx->module->win_fork_child_name);
+    ctx->module->win_fork_child_name = sdsnew(exported_name);
+    ctx->module->win_fork_child_user_data = user_data;
+    moduleForkOwner = ctx->module;
+    return REDISMODULE_OK;
+}
+#endif
+
 int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
     pid_t childpid;
+
+#ifdef _WIN32
+    /* CreateProcess cannot return 0 into the module. Without a registered
+     * exported child symbol, refuse. */
+    if (!moduleForkOwner || !moduleForkOwner->win_fork_child_name) {
+        errno = ENOSYS;
+        serverLog(LL_WARNING,
+            "RedisModule_Fork is not supported on Windows without RedisModule_SetForkChildFn");
+        return -1;
+    }
+    {
+        const char *path = NULL;
+        if (moduleForkOwner->loadmod)
+            path = moduleForkOwner->loadmod->path;
+        win32PrepareModuleJob(path, moduleForkOwner->win_fork_child_name,
+                              moduleForkOwner->win_fork_child_user_data);
+    }
+#endif
 
     if ((childpid = redisFork(CHILD_TYPE_MODULE)) == 0) {
         /* Child */
@@ -13504,6 +13548,11 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->using);
     listRelease(module->module_configs);
     sdsfree(module->name);
+#ifdef _WIN32
+    if (moduleForkOwner == module)
+        moduleForkOwner = NULL;
+    sdsfree(module->win_fork_child_name);
+#endif
     moduleLoadQueueEntryFree(module->loadmod);
     zfree(module);
 }
@@ -15979,6 +16028,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(CommandFilterGetClientId);
     REGISTER_API(Fork);
+#ifdef _WIN32
+    REGISTER_API(SetForkChildFn);
+#endif
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);
     REGISTER_API(KillForkChild);

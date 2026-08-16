@@ -258,6 +258,10 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     } else if (hdr->purpose == CHILD_TYPE_AOF) {
         if (do_aofRewrite(NULL) == 0)
             rc = 0;
+    } else if (hdr->purpose == CHILD_TYPE_MODULE) {
+        if (do_moduleFork(hdr->filename, hdr->module_symbol,
+                          (void *)(uintptr_t)hdr->module_user_data) == 0)
+            rc = 0;
     } else {
         fprintf(stderr, "QForkChildMain: unsupported purpose %u\n", hdr->purpose);
     }

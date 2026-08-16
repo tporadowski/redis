@@ -20,6 +20,8 @@ typedef struct Win32QForkJob {
     void **conns; /* parent connection*[]; valid in parent only */
     int rdb_pipe_write;
     int safe_to_exit_pipe;
+    char module_symbol[64];
+    void *module_user_data;
 } Win32QForkJob;
 
 extern Win32QForkJob g_win32_qfork_job;
@@ -31,6 +33,7 @@ int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
                         int use_conns, int rdb_pipe_write, int safe_to_exit);
 int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob);
 int do_aofRewrite(const char *filename);
+int do_moduleFork(const char *path, const char *symbol, void *user_data);
 void win32PrepareAofJob(void);
 void win32ApplyPersistenceAvailable(int available);
 
