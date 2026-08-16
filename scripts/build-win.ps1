@@ -2,7 +2,8 @@
 # Configure and build win-8.10 with clang-cl + Ninja (VS 2022+ SDK).
 param(
     [string]$BuildDir = "build",
-    [string]$Config = "Release"
+    [string]$Config = "Release",
+    [switch]$NoTls
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +44,31 @@ $cmakeArgs = @(
 if ($clang) {
     $cmakeArgs += "-DCMAKE_C_COMPILER=$clang"
     $cmakeArgs += "-DCMAKE_CXX_COMPILER=$clang"
+}
+
+# OpenSSL 3 via vcpkg x64-windows (MSVC ABI). clang-cl links that ABI.
+if (-not $NoTls) {
+    $vcpkgRoot = $env:VCPKG_ROOT
+    if (-not $vcpkgRoot) { $vcpkgRoot = "D:\xAI\vcpkg" }
+    $vcpkgExe = Join-Path $vcpkgRoot "vcpkg.exe"
+    $toolchain = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+    if (-not (Test-Path $vcpkgExe)) {
+        if (-not (Test-Path (Join-Path $vcpkgRoot ".git"))) {
+            Write-Host "Cloning vcpkg into $vcpkgRoot"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkgRoot
+            if ($LASTEXITCODE -ne 0) { throw "git clone vcpkg failed" }
+        }
+        Write-Host "Bootstrapping vcpkg"
+        & (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -disableMetrics
+        if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg failed" }
+    }
+    if (-not (Test-Path $toolchain)) { throw "missing vcpkg toolchain: $toolchain" }
+    $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$toolchain"
+    $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-windows"
+    $cmakeArgs += "-DVCPKG_INSTALLED_DIR=$buildPath/vcpkg_installed"
+    $cmakeArgs += "-DBUILD_TLS=ON"
+} else {
+    $cmakeArgs += "-DBUILD_TLS=OFF"
 }
 $cmakeArgStr = ($cmakeArgs | ForEach-Object { & $quoted $_ }) -join ' '
 $cmd = "`"$vcvars`" && cmake $cmakeArgStr && cmake --build `"$buildPath`" --config $Config"

@@ -135,8 +135,14 @@ today. Minimum OS for AF_UNIX is Windows 10 1803 / Server 2019.
 
 ## TLS
 
-Default `win-8.10` is built with `USE_OPENSSL=0`. TLS (`tls-port`, …) is
-**M8**. Use TCP + ACL (and a tunnel) until then.
+Default `win-8.10` is `BUILD_TLS=ON`: OpenSSL 3 via **vcpkg `x64-windows`**
+(MSVC ABI; clang-cl links it). `scripts\build-win.ps1` clones/bootstraps
+vcpkg at `D:\xAI\vcpkg` (or `$env:VCPKG_ROOT`) and passes the vcpkg
+toolchain. `libssl` / `libcrypto` DLLs are copied next to the exes.
+`BUILD_TLS=OFF` / `-NoTls` still produces a TCP-only server.
+
+Handshake + `tls-port` GET/SET is **8.2/8.3** (cancel outstanding
+`WSARecv` before `SSL_set_fd`). Until then do not rely on TLS I/O.
 
 ## Modules
 

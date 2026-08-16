@@ -288,7 +288,7 @@ redisSSLContext *redisCreateSSLContextWithOptions(redisSSLOptions *options, redi
     if (capath || cacert_filename) {
 #ifdef _WIN32
         if (0 == strcmp(cacert_filename, "wincert")) {
-            win_store = CertOpenSystemStore(NULL, "Root");
+            win_store = CertOpenSystemStore((HCRYPTPROV_LEGACY)0, "Root");
             if (!win_store) {
                 if (error) *error = REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED;
                 goto error;

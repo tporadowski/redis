@@ -138,7 +138,10 @@ typedef unsigned short sa_family_t;
 
 struct timeval;
 
-#ifndef FDAPI_IMPLEMENTATION
+#if !defined(FDAPI_IMPLEMENTATION) && !defined(_WINSOCK2API_)
+/* Stubs only when Winsock is not already in this TU. win32_pre.h includes
+ * winsock2 first so openssl/ssl.h (e_ostime.h) does not rewrite under
+ * #define connect. */
 struct sockaddr {
     sa_family_t sa_family;
     char sa_data[14];
@@ -179,7 +182,7 @@ struct addrinfo {
     struct sockaddr *ai_addr;
     struct addrinfo *ai_next;
 };
-#endif /* !FDAPI_IMPLEMENTATION */
+#endif /* !FDAPI_IMPLEMENTATION && !_WINSOCK2API_ */
 
 struct redis_pollfd {
     int fd;
@@ -207,6 +210,15 @@ int fdapi_fd_isset(int fd, const redis_fd_set *set);
 #ifndef FDAPI_IMPLEMENTATION
 #ifndef FD_SETSIZE
 #define FD_SETSIZE REDIS_FD_SETSIZE
+#endif
+#ifdef FD_ZERO
+#undef FD_ZERO
+#undef FD_ISSET
+#undef FD_SET
+#undef FD_CLR
+#endif
+#ifdef gai_strerror
+#undef gai_strerror
 #endif
 #define fd_set redis_fd_set
 #define FD_ZERO(s) do { (s)->fd_count = 0; } while (0)

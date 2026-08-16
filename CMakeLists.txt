@@ -12,6 +12,7 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 option(INCLUDE_VEC_SETS "Compile in-tree vector-sets into redis-server" ON)
+option(BUILD_TLS "Link OpenSSL 3 and compile tls.c (USE_OPENSSL=1)" ON)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -118,6 +119,15 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(DISABLE_TESTS ON CACHE BOOL "" FORCE)
 set(ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+if(BUILD_TLS)
+    # hiredis_ssl + tls.c. OpenSSL 3.x via vcpkg x64-windows (MSVC ABI).
+    find_package(OpenSSL REQUIRED)
+    if(OPENSSL_VERSION VERSION_LESS "3.0.0")
+        message(WARNING "win-8.10 wants OpenSSL 3.x; found ${OPENSSL_VERSION}")
+    endif()
+    set(ENABLE_SSL ON CACHE BOOL "Build hiredis_ssl" FORCE)
+    message(STATUS "BUILD_TLS=ON OpenSSL ${OPENSSL_VERSION} (${OPENSSL_INCLUDE_DIR})")
+endif()
 add_subdirectory(deps/hiredis EXCLUDE_FROM_ALL)
 
 # ---------------------------------------------------------------------------
@@ -258,6 +268,10 @@ target_include_directories(redis-cli PRIVATE
     deps/hiredis deps/linenoise deps/hdr_histogram deps/lua/src
     deps/xxhash deps/fpconv deps/tre/local_includes)
 redis_win32_src(redis-cli)
+if(BUILD_TLS)
+    target_compile_definitions(redis-cli PRIVATE USE_OPENSSL=1)
+    target_link_libraries(redis-cli PRIVATE hiredis_ssl OpenSSL::SSL OpenSSL::Crypto)
+endif()
 target_link_libraries(redis-cli PRIVATE
     hiredis linenoise hdr_histogram win32_interop)
 
@@ -352,9 +366,16 @@ target_include_directories(redis-server PRIVATE
     deps/xxhash deps/fpconv deps/tre/local_includes
     deps/jemalloc/include)
 redis_win32_src(redis-server)
-target_compile_definitions(redis-server PRIVATE
-    USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
-    USE_JEMALLOC JEMALLOC_EXPORT=)
+if(BUILD_TLS)
+    target_compile_definitions(redis-server PRIVATE
+        USE_OPENSSL=1 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
+        USE_JEMALLOC JEMALLOC_EXPORT=)
+    target_link_libraries(redis-server PRIVATE hiredis_ssl OpenSSL::SSL OpenSSL::Crypto)
+else()
+    target_compile_definitions(redis-server PRIVATE
+        USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
+        USE_JEMALLOC JEMALLOC_EXPORT=)
+endif()
 if(INCLUDE_VEC_SETS)
     target_compile_definitions(redis-server PRIVATE INCLUDE_VEC_SETS=1)
     target_include_directories(redis-server PRIVATE
@@ -383,6 +404,7 @@ add_custom_command(TARGET redis-server POST_BUILD
         "${CMAKE_SOURCE_DIR}/redis.windows-service.conf"
         $<TARGET_FILE_DIR:redis-server>
     COMMENT "Copy redis-check-rdb.exe, redis-sentinel.exe, Windows conf")
+# vcpkg applocal copies libssl/libcrypto next to the exes.
 
 add_custom_target(smoke_bgsave
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
