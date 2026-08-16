@@ -246,6 +246,10 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 static int connSocketRebindEventLoop(connection *conn, aeEventLoop *el) {
     serverAssert(!conn->el && !conn->read_handler && !conn->write_handler);
     conn->el = el;
+#ifdef _WIN32
+    if (conn->fd >= 0)
+        WSIOCP_SetDestLoop(conn->fd, el);
+#endif
     return C_OK;
 }
 

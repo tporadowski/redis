@@ -49,6 +49,14 @@ typedef struct WSIOCP_Request {
 typedef struct aeApiState {
     void *iocp;
     int setsize;
+    struct aeEventLoop *el;
+    void *fwd_cs; /* CRITICAL_SECTION* */
+    int fwd_rfd;
+    int fwd_wfd;
+    int *fwd_fds;
+    int *fwd_masks;
+    int fwd_n;
+    int fwd_cap;
 } aeApiState;
 
 void *WSIOCP_CreateIocp(void);
@@ -59,6 +67,12 @@ void *WSIOCP_GetAssociatedIocp(int fd);
 
 /* 0 = associated (or already on this IOCP), 1 = already on another IOCP, -1 = error. */
 int WSIOCP_Associate(int fd, void *iocp);
+/* Delay-associate to el's IOCP, or mark dest_el for forwarding if already attached. */
+int WSIOCP_SetDestLoop(int fd, struct aeEventLoop *el);
+int WSIOCP_InitLoopExtras(struct aeEventLoop *el);
+void WSIOCP_FreeLoopExtras(struct aeEventLoop *el);
+/* Post a no-op completion so a thread blocked in GQCS enters beforeSleep. */
+void WSIOCP_WakeLoop(struct aeEventLoop *el);
 
 int WSIOCP_AddEvent(aeEventLoop *el, int fd, int mask);
 void WSIOCP_DelEvent(aeEventLoop *el, int fd, int mask);

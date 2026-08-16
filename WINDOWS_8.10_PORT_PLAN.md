@@ -1065,7 +1065,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 8.2 | M8 | Done | `win-8.10` | Cancel+drain zero-byte WSARecv before SSL_*; SSL_set_fd uses native SOCKET not RFD. VLA already heap (8.1). Single-loop TLS readiness |
 | 8.3 | M8 | Done | `win-8.10` | `tests/windows/smoke_tls.ps1`: self-signed cert, `tls-port` PING + SET/GET |
 | 9.1 | M9 | Done | `win-8.10` | AF_UNIX listen: skip SO_REUSEADDR, DeleteFile stale path, poll+accept (no AcceptEx). hiredis `redis-cli -s` connect. `unixsocket` PING/SET/GET |
-| 9.2 | M9 | Not started | | IO threads + delay-associate + QFork freeze |
+| 9.2 | M9 | Done | `win-8.10` | `WSIOCP_SetDestLoop` delay-associate + forward if already on another IOCP. Parent-side and mapped-heap fork freeze IO+BIO; tcache flush. `io-threads 4` + BGSAVE + unix PING |
 | 9.3 | M9 | Not started | | **Gate:** IOCP vs wepoll |
 | 10.1 | M10 | Not started | | `wintest.tcl` first + skip-list |
 | 10.2 | M10 | Not started | | zip layout |

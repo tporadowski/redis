@@ -277,6 +277,9 @@ void *bioProcessBackgroundJobs(void *arg) {
     redisSetCpuAffinity(server.bio_cpulist);
 
     makeThreadKillable();
+#ifdef _WIN32
+    IncrementWorkerThreadCount();
+#endif
 
     pthread_mutex_lock(&bio_mutex[worker]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -295,6 +298,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 #ifdef _WIN32
         if (bio_stop) {
             pthread_mutex_unlock(&bio_mutex[worker]);
+            DecrementWorkerThreadCount();
             return NULL;
         }
 #endif
@@ -309,6 +313,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             pthread_mutex_lock(&bio_mutex[worker]);
             if (bio_stop) {
                 pthread_mutex_unlock(&bio_mutex[worker]);
+                DecrementWorkerThreadCount();
                 return NULL;
             }
 #endif

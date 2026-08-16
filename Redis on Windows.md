@@ -123,9 +123,14 @@ the SCM ImagePath.
 
 ## IO threads
 
-Leave `io-threads` at **1** (upstream default). Values `> 1` are not
-recommended until the M9 freeze + delay-associate work is proven. You can
-still set it; it is not rejected.
+Default is still **1** (upstream). `io-threads 4` is supported: each thread
+has its own IOCP; accepted sockets associate on the destination loop
+(delay-associate). If a socket is rebound after it is already attached,
+completions are forwarded to the destination loop’s notifier pipe.
+
+QFork / parent-side `BGSAVE` pauses IO threads, requests BIO suspension,
+then resumes immediately after the snapshot/`CreateProcess` (not for the
+whole save). Smoke: `tests/windows/smoke_iothreads.ps1`.
 
 ## AF_UNIX
 
