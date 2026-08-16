@@ -355,7 +355,11 @@ add_custom_command(TARGET redis-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:redis-server>
         $<TARGET_FILE_DIR:redis-server>/redis-check-rdb.exe
-    COMMENT "Copy redis-check-rdb.exe")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/redis.windows.conf"
+        "${CMAKE_SOURCE_DIR}/redis.windows-service.conf"
+        $<TARGET_FILE_DIR:redis-server>
+    COMMENT "Copy redis-check-rdb.exe and Windows conf overlays")
 
 add_custom_target(smoke_bgsave
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
