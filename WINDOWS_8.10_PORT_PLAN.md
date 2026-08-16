@@ -1072,6 +1072,8 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 10.3 | M10 | Done | `win-8.10` | README is the Windows landing page: unofficial 8.10 + BSD 5.0 still on `win-5.0`. No Redis Ltd logos/codecov. Service + operator docs point at both lines |
 | 10.4 | M10 | Done | `win-8.10` | `lint-llp64.ps1` + `llp64-allow.txt`. Forbids `arch_bits=sizeof(long)`, `#define long`, unallowed `sizeof(long)`/`clzl`/`PORT_LONG`. `INFO arch_bits:64`. Client mem-bucket uses `clzll`; crash stack dump uses `uintptr_t` |
 
+After M10 the work queue is **[WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md)** (11.x QFork COW, 12.x PSYNC, 13.x tests, 14.x small contracts).
+
 ---
 
 ## Open Questions

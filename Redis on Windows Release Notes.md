@@ -12,11 +12,9 @@ Unofficial native port of Redis Open Source 8.10.0. Tri-licensed
 - First GA tag (when cut): `v8.10.0-win.1`. Default GitHub branch switches
   to `win-8.10` at that GA. README tells both 8.10 and 5.0 stories.
 
-Known gaps on current `win-8.10` (see the port plan tracker): jemalloc still
-uses `VirtualAlloc` (mapped-heap OOM); replica diskless PSYNC is not
-end-to-end re-verified. IOCP is the production backend (9.3: stay; no
-wepoll cut-over). 10.1 runs a 5.0-first Tcl subset + 5.0 RDB load. Zip
-layout is `Redis-x64-8.10.0-win.1.zip` (`pack_zip`).
+Known gaps and next work: [WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md)
+(mapped-heap QFork COW, replica PSYNC, wider tests). IOCP is the production
+backend (9.3: stay). Zip layout is `Redis-x64-8.10.0-win.1.zip` (`pack_zip`).
 
 ## 5.0 and earlier
 

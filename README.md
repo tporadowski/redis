@@ -45,9 +45,9 @@ Redis Cloud, and not the official Linux Docker image.
 Bundled Rust modules (Search / JSON / Time Series / Bloom) are **out of
 scope**. In-tree vector-sets compile into `redis-server` (`INCLUDE_VEC_SETS`).
 
-Known gaps (see the [port plan tracker](WINDOWS_8.10_PORT_PLAN.md)): jemalloc
-still uses `VirtualAlloc` (mapped-heap OOM); replica diskless PSYNC is not
-end-to-end re-verified.
+Known gaps and the next work queue:
+[WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md) (mapped-heap QFork
+COW, replica PSYNC, wider tests).
 
 ## Redis 5.0.14.1 for Windows (`win-5.0`)
 
