@@ -1060,7 +1060,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 6.2 | M6 | Done | `win-8.10` | CMake `INCLUDE_VEC_SETS=ON` (default) compiles `hnsw.c`/`vset.c`/`vset_config.c` into `redis-server`. `pthread_rwlock` via SRWLOCK. `REDISMODULE_API` is `__declspec(selectany)` (COFF has no ELF common). HNSW AVX/`__builtin_cpu_supports` off (no `__cpu_model` in clang-cl). `VADD`/`VCARD`/`VSIM` |
 | 6.3 | M6 | Done | `win-8.10` | `RedisModule_Fork` returns -1 unless `SetForkChildFn` registered an exported name. Child `LoadLibrary`+`GetProcAddress`. `forkcheck.dll` OnLoad sees -1 |
 | 7.1 | M7 | Done | `win-8.10` | Sentinel scripts `CreateProcessA` + `winpid_register(WP_SENTINEL_SCRIPT)`. `waitpid(-1)` already script-only. `checkForSentinelMode` already 3-arg. `getAbsolutePath` accepts `C:\`. `mkstemp` returns an RFD; Sentinel `CONFIG REWRITE` close+unlink-before-rename. notification-script ran + PING |
-| 7.2 | M7 | Not started | | Cluster meet / failover smoke |
+| 7.2 | M7 | Done | `win-8.10` | Cluster bus on IOCP: `connSocketConnect` is associate+ConnectEx (not WSA `connect`). `nodes.conf` close+unlock+unlink+rename+re-lock. 3-node MEET + slots + replica failover |
 | 8.1 | M8 | Not started | | OpenSSL / `BUILD_TLS` |
 | 8.2 | M8 | Not started | | TLS readiness + VLA fix + cancel-before-SSL |
 | 8.3 | M8 | Not started | | **Smoke:** `tls-port` GET/SET |

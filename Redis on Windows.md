@@ -183,6 +183,17 @@ script uses `TerminateProcess`.
 returns an RFD so `CONFIG REWRITE` can write; Windows `rename` unlinks the
 dest first (NTFS).
 
+## Cluster
+
+The cluster bus is ordinary TCP (`port + 10000`, or `cluster-port`) on the
+same per-loop IOCP as clients. Outgoing bus links use `ConnectEx` after the
+socket is associated with that loop (plain `connect()` is not completion-
+ported). `nodes.conf` is rewritten via a temp file; Windows drops the flock
+fd, unlinks dest, renames, then re-locks (NTFS cannot rename over an open
+name). `flock` itself is a no-op — give each node its own `cluster-config-file`.
+
+Bind a real address (`bind 127.0.0.1` is enough). Cluster requires it.
+
 ## What this port does not do
 
 - 32-bit

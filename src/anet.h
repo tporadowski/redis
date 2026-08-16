@@ -33,6 +33,11 @@
 
 int anetTcpNonBlockConnect(char *err, const char *addr, int port);
 int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port, const char *source_addr);
+#ifdef _WIN32
+/* Create + optional bind, no connect. dest is struct sockaddr_storage. */
+int anetTcpNonBlockPrepare(char *err, const char *addr, int port,
+                           const char *source_addr, void *dest, int *dest_len);
+#endif
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len, int flags);
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog);
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog);
