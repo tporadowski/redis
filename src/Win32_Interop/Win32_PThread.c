@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
 /*
  * Win32 pthread subset for the Redis 8.10 Windows port.
- * Based on MSOpenTech / tporadowski 5.0.14, with pthread_join and
- * pthread_cond_broadcast implemented (Decision 11). No QFork thread
- * accounting — that arrives with M3.
+ * Join keeps the _beginthreadex HANDLE. Broadcast wakes every waiter.
+ * pthread_cancel does not TerminateThread (Decision 11).
  */
 
 #include "Win32_PThread.h"
+#include "Win32_ThreadControl.h"
 #include <process.h>
 #include <stdlib.h>
 
@@ -75,8 +75,10 @@ static HANDLE take_thread_handle(pthread_t id) {
 
 static unsigned __stdcall win32_proxy_threadproc(void *arg) {
     thread_params *p = (thread_params *)arg;
+    IncrementWorkerThreadCount();
     p->func(p->arg);
     free(p);
+    DecrementWorkerThreadCount();
     _endthreadex(0);
     return 0;
 }
