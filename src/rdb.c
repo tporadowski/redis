@@ -5347,6 +5347,11 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     }
 
     /* Create the child process. */
+#ifdef _WIN32
+    win32PrepareRdbSocketJob(req, rsi, rdb_channel, slots_req,
+                             (void **)conns, numconns,
+                             rdb_pipe_write, safe_to_exit_pipe);
+#endif
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval, dummy;

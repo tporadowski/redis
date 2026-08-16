@@ -268,7 +268,17 @@ int link(const char *oldpath, const char *newpath) {
         return 0;
     if (CopyFileA(oldpath, newpath, TRUE))
         return 0;
-    errno = EEXIST;
+    {
+        DWORD e = GetLastError();
+        if (e == ERROR_ALREADY_EXISTS)
+            errno = EEXIST;
+        else if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
+            errno = ENOENT;
+        else if (e == ERROR_ACCESS_DENIED)
+            errno = EACCES;
+        else
+            errno = EIO;
+    }
     return -1;
 }
 

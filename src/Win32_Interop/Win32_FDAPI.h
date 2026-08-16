@@ -292,6 +292,8 @@ off_t fdapi_lseek(int fd, off_t offset, int whence);
 typedef int (*fnWSIOCP_CloseSocketStateRFD)(int rfd);
 void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD func);
 int FDAPI_WSAGetLastError(void);
+int FDAPI_WSADuplicateSocket(int rfd, unsigned long pid, void *proto_info);
+int FDAPI_WSASocketFromInfo(void *proto_info);
 int FDAPI_SocketAttachIOCP(int rfd, void *iocph);
 int FDAPI_WSASend(int rfd, void *buffers, unsigned long count,
                   unsigned long *sent, unsigned long flags,
