@@ -344,4 +344,19 @@ if(MSVC)
     target_link_options(redis-server PRIVATE /DYNAMICBASE:NO)
 endif()
 
+# redis-check-rdb is the same image; dispatch is by argv0.
+add_custom_command(TARGET redis-server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:redis-server>
+        $<TARGET_FILE_DIR:redis-server>/redis-check-rdb.exe
+    COMMENT "Copy redis-check-rdb.exe")
+
+add_custom_target(smoke_bgsave
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_bgsave.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M3 smoke: SET/GET + BGSAVE + redis-check-rdb")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork + BGSAVE) + smokes")

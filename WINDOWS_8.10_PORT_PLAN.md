@@ -1051,7 +1051,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 3.1 | M3 | Done | `win-8.10` | Vendored 5.3 `pages.c`/`pages.h` hooks; `CommitHeapBlock` for `os_pages_commit`; `JEMALLOC_RETAIN` undefined; `LG_PAGE=22`; CMake `jemalloc`; `INFO mem_allocator:jemalloc-5.3.0`; `jemalloc_smoke` |
 | 3.2 | M3 | Done | `win-8.10` | QFork pagefile heap + NULL-safe `AllocHeapBlock`; no `MAX_REDIS_DATA_SIZE`; `/DYNAMICBASE:NO`; `qfork_heap_smoke`. jemalloc stays on VirtualAlloc (`g_BypassMemoryMapOnAlloc=1`) — mapped-heap backing OOMs 16-byte during db init; flip off in 3.3 |
 | 3.3 | M3 | Done | `win-8.10` | parent-only `redisFork` + `do_rdbSave` + waitpid table + two-phase `persistence-available`. `BGSAVE` writes a valid RDB (`redis-check-rdb` OK). jemalloc stays on VirtualAlloc (`g_BypassMemoryMapOnAlloc=1`) — mapped-heap 16-byte OOM at `aeApiCreate` remains; parent writes the RDB and reaps a `--QForkExit` child until COW heap is live |
-| 3.4 | M3 | Not started | | **Smoke:** `BGSAVE` + `redis-check-rdb` |
+| 3.4 | M3 | Done | `win-8.10` | `tests/windows/smoke_bgsave.tcl` + `.ps1`: SET/GET + BGSAVE + `redis-check-rdb`. CMake copies `redis-check-rdb.exe` and `smoke_bgsave` target |
 | 4.1 | M4 | Not started | | `do_aofRewrite` + MP-AOF |
 | 4.2 | M4 | Not started | | diskless + `BACKUP` + `link()` |
 | 5.1 | M5 | Not started | | Service + Event Log IDs |
@@ -1285,7 +1285,7 @@ PRs are independently reviewable and mapped to the tracker IDs. Later PRs may re
 | 3.1 | `build: jemalloc 5.3 Windows page hooks` | rebase 5.2.1 hooks onto vendored 5.3 `pages.c`/`pages.h`; retain OFF; map vs `CommitHeapBlock` | 2.2 | First paragraph of the PR: rebase plan for tporadowski/jemalloc. |
 | 3.2 | `port: QFork heap + NULL-safe AllocHeapBlock` | `Win32_QFork.cpp/h`; drop `MAX_REDIS_DATA_SIZE`; ASLR off | 3.1 | No `je_malloc` before `QForkStartup`. |
 | 3.3 | `port: parent-only redisFork + do_rdbSave + waitpid table` | `server.c` `redisFork`; `rdb.c` thin `#ifdef`; `Win32_QFork_impl.c`; `Win32_ProcessTable.c`; argv+conf pre-parse; `createBoolConfig("persistence-available")` seeded from `g_PersistenceDisabled` | 3.2 | Two-phase persistence-available. `waitpid(server.child_pid)`. `BGSAVE` writes a valid RDB. Freeze BIO (resume after CreateProcess). Mapped-heap jemalloc still OOMs 16-byte; parent-save + `--QForkExit` until bypass=0. |
-| 3.4 | `test: M3 smoke BGSAVE` | `tests/windows/smoke_bgsave.tcl` or `wintest` subset | 3.3 | `BGSAVE` + `redis-check-rdb`. |
+| 3.4 | `test: M3 smoke BGSAVE` | `tests/windows/smoke_bgsave.tcl` + `smoke_bgsave.ps1`; CMake `redis-check-rdb.exe` copy + `smoke_bgsave` target | 3.3 | `SET`/`GET` + `BGSAVE` + `redis-check-rdb`. |
 
 ### M4 — Persistence parity
 
