@@ -1113,13 +1113,19 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
      * which is worth doing more memory copies in exchange for fewer system calls, 
      * so concatenate these scattered buffers into a contiguous piece of memory 
      * and send it away by one call to connTLSWrite(). */
-    char buf[iov_bytes_len];
+    /* Heap, not a VLA: clang-cl (MSVC C) rejects VLAs. 8.2 still owns
+     * cancel-before-SSL. */
+    char *buf = zmalloc(iov_bytes_len);
     size_t offset = 0;
+    ssize_t nwritten;
+    if (buf == NULL) return -1;
     for (int i = 0; i < iovcnt; i++) {
         memcpy(buf + offset, iov[i].iov_base, iov[i].iov_len);
         offset += iov[i].iov_len;
     }
-    return connTLSWrite(conn_, buf, iov_bytes_len);
+    nwritten = connTLSWrite(conn_, buf, iov_bytes_len);
+    zfree(buf);
+    return nwritten;
 }
 
 static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {

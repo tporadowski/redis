@@ -115,6 +115,10 @@
 #endif
 
 #include "Win32_Time.h"
+/* Winsock before OpenSSL/e_ostime.h (and before FDAPI remaps). openssl/ssl.h
+ * includes winsock2.h; if that is the first include, #define connect etc.
+ * rewrite the SDK prototypes. */
+#include "win32_winsock.h"
 #include "Win32_Signal.h"
 
 #ifndef strcasecmp

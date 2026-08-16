@@ -1,0 +1,8 @@
+{
+  "name": "redis-windows",
+  "version-string": "8.10.0",
+  "description": "Native Redis Open Source 8.10 for Windows x64 (win-8.10)",
+  "dependencies": [
+    "openssl"
+  ]
+}

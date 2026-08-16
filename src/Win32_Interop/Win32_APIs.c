@@ -84,6 +84,7 @@ int geteuid(void) {
     return 0;
 }
 
+#ifndef _WINSOCKAPI_
 int gethostname(char *name, size_t len) {
     DWORD n = (DWORD)len;
     FDAPI_Init();
@@ -93,6 +94,7 @@ int gethostname(char *name, size_t len) {
     }
     return 0;
 }
+#endif
 
 pid_t fork(void) {
     errno = ENOSYS;
