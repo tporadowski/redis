@@ -489,4 +489,12 @@ add_custom_target(smoke_sentinel
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M7 smoke: Sentinel + notification-script reap")
 
+add_custom_target(smoke_tls
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_tls.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M8 smoke: tls-port handshake + GET/SET")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")
