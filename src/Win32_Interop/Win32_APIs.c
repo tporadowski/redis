@@ -229,32 +229,108 @@ int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {
     return 0;
 }
 
+static char g_dlerror[512];
+static int g_dlerror_pending;
+
+static void dl_set_error(const char *what) {
+    DWORD gle = GetLastError();
+    char winmsg[384];
+    DWORD n = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
+                                 FORMAT_MESSAGE_IGNORE_INSERTS,
+                             NULL, gle, 0, winmsg, sizeof(winmsg), NULL);
+    while (n && (winmsg[n - 1] == '\r' || winmsg[n - 1] == '\n'))
+        winmsg[--n] = '\0';
+    snprintf(g_dlerror, sizeof(g_dlerror), "%s: %s (gle=%lu)",
+             what ? what : "dlfcn", n ? winmsg : "unknown", gle);
+    g_dlerror_pending = 1;
+}
+
 void *dlopen(const char *filename, int flags) {
-    UNUSED(filename);
+    HMODULE h;
+    char path[MAX_PATH];
+    size_t i;
+    int abs_path = 0;
+
     UNUSED(flags);
-    errno = ENOSYS;
-    return NULL;
+    g_dlerror_pending = 0;
+
+    if (!filename)
+        return (void *)GetModuleHandleA(NULL);
+
+    for (i = 0; i < MAX_PATH - 1 && filename[i]; i++) {
+        char c = filename[i];
+        if (c == '/')
+            c = '\\';
+        if (c == '\\' || c == ':')
+            abs_path = 1;
+        path[i] = c;
+    }
+    path[i] = '\0';
+
+    /* LOAD_WITH_ALTERED_SEARCH_PATH requires a path component. */
+    if (abs_path)
+        h = LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    else
+        h = LoadLibraryA(path);
+    if (!h) {
+        dl_set_error(path);
+        return NULL;
+    }
+    return (void *)h;
 }
 
 void *dlsym(void *handle, const char *symbol) {
-    UNUSED(handle);
-    UNUSED(symbol);
-    return NULL;
+    FARPROC p;
+
+    g_dlerror_pending = 0;
+    if (!handle)
+        handle = (void *)GetModuleHandleA(NULL);
+    p = GetProcAddress((HMODULE)handle, symbol);
+    if (!p) {
+        dl_set_error(symbol);
+        return NULL;
+    }
+    return (void *)p;
 }
 
 int dlclose(void *handle) {
-    UNUSED(handle);
-    return 0;
+    g_dlerror_pending = 0;
+    if (!handle)
+        return 0;
+    if (FreeLibrary((HMODULE)handle))
+        return 0;
+    dl_set_error("dlclose");
+    return -1;
 }
 
 char *dlerror(void) {
-    return "dlopen is not available until M6";
+    if (!g_dlerror_pending)
+        return NULL;
+    g_dlerror_pending = 0;
+    return g_dlerror;
 }
 
 int dladdr(const void *addr, Dl_info *info) {
-    UNUSED(addr);
-    if (info) memset(info, 0, sizeof(*info));
-    return 0;
+    HMODULE h = NULL;
+    static char fname[MAX_PATH];
+
+    if (!info)
+        return 0;
+    memset(info, 0, sizeof(*info));
+    if (!addr)
+        return 0;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR)addr, &h) ||
+        !h)
+        return 0;
+    if (!GetModuleFileNameA(h, fname, MAX_PATH))
+        return 0;
+    info->dli_fname = fname;
+    info->dli_fbase = (void *)h;
+    info->dli_sname = NULL;
+    info->dli_saddr = (void *)addr;
+    return 1;
 }
 
 int fchmod(int fd, int mode) {

@@ -1056,7 +1056,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 4.2 | M4 | Done | `win-8.10` | `do_rdbSaveToSockets` + `WSADuplicateSocket` (CREATE_SUSPENDED child) + parent-side socket write while heap bypassed. `link()` is `CreateHardLinkA` (CopyFile fallback). `BACKUP START`/`SEAL` pins hard links in `backupdir`. Replica PSYNC handshake still stalls after master PING (IOCP); diskless save path is wired |
 | 5.1 | M5 | Done | `win-8.10` | `--service-install/uninstall/start/stop/name/run`; Event Log IDs 0x0–0x3 unchanged. `HandleServiceCommands` before `QForkParentInit`. SCM worker runs `RedisWindowsParentMain`. `syslog()` → Event Log. `ServiceStopIssued` stops `ae`. Self-elevation kept. Console PING still works; `--service-run` outside SCM exits 1063 |
 | 5.2 | M5 | Done | `win-8.10` | `redis.windows.conf` + `redis.windows-service.conf` (overlay, not a redis.conf fork). `Redis on Windows.md` (QFork/pagefile/ASLR/`maxmemory`; no 8.10 `maxheap` key). Service + release-notes docs. Console PING with the overlay |
-| 6.1 | M6 | Not started | | LoadLibrary + hello dll |
+| 6.1 | M6 | Done | `win-8.10` | `dlopen`/`dlsym`/`dlclose` via `LoadLibrary`/`GetProcAddress`. Skip Windows execute-bit check (CRT `_stat` has no +x on `.dll`). `helloworld.dll` exports `RedisModule_OnLoad`. Module API pointer casts use `uintptr_t` (LLP64). `loadmodule` + `HELLO.SIMPLE` |
 | 6.2 | M6 | Not started | | `INCLUDE_VEC_SETS` |
 | 6.3 | M6 | Not started | | `RedisModule_Fork` returns error; stretch `SetForkChildFn` |
 | 7.1 | M7 | Not started | | Sentinel + `CreateProcessA` + `winpid_register` |

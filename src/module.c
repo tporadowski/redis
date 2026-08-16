@@ -942,7 +942,11 @@ void moduleCallCommandUnblockedHandler(client *c) {
  * (only the main thread uses propagatePendingCommands) */
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags) {
     memset(out_ctx, 0 ,sizeof(RedisModuleCtx));
+#ifdef _WIN32
+    out_ctx->getapifuncptr = (void*)(uintptr_t)&RM_GetApi;
+#else
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
+#endif
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
     if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
@@ -13314,8 +13318,13 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
     return dictAdd(server.moduleapi, (char*)funcname, funcptr);
 }
 
+#ifdef _WIN32
+#define REGISTER_API(name) \
+    moduleRegisterApi("RedisModule_" #name, (void *)(uintptr_t)RM_ ## name)
+#else
 #define REGISTER_API(name) \
     moduleRegisterApi("RedisModule_" #name, (void *)(unsigned long)RM_ ## name)
+#endif
 
 /* Global initialization at Redis startup. */
 void moduleRegisterCoreAPI(void);
@@ -13657,6 +13666,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     int (*onload)(void *, void **, int);
     void *handle;
 
+#ifndef _WIN32
     struct stat st;
     if (stat(path, &st) == 0) {
         /* This check is best effort */
@@ -13665,13 +13675,18 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             return C_ERR;
         }
     }
+#endif
 
     handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
     if (handle == NULL) {
         serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
         return C_ERR;
     }
+#ifdef _WIN32
+    onload = (int (*)(void *, void **, int))(uintptr_t) dlsym(handle,"RedisModule_OnLoad");
+#else
     onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
+#endif
     if (onload == NULL) {
         dlclose(handle);
         serverLog(LL_WARNING,
@@ -13783,7 +13798,11 @@ int moduleUnload(sds name, const char **errmsg, int forced_unload) {
 
     /* Give module a chance to clean up. */
     int (*onunload)(void *);
+#ifdef _WIN32
+    onunload = (int (*)(void *))(uintptr_t) dlsym(module->handle, "RedisModule_OnUnload");
+#else
     onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
+#endif
     if (onunload) {
         RedisModuleCtx ctx;
         moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
