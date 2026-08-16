@@ -119,6 +119,89 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory(deps/hiredis EXCLUDE_FROM_ALL)
 
 # ---------------------------------------------------------------------------
+# jemalloc 5.3 (page hooks; retain OFF; LG_PAGE=22). No jemalloc_cpp.cpp.
+# ---------------------------------------------------------------------------
+set(JEMALLOC_SRC
+    deps/jemalloc/src/jemalloc.c
+    deps/jemalloc/src/arena.c
+    deps/jemalloc/src/background_thread.c
+    deps/jemalloc/src/base.c
+    deps/jemalloc/src/bin.c
+    deps/jemalloc/src/bin_info.c
+    deps/jemalloc/src/bitmap.c
+    deps/jemalloc/src/buf_writer.c
+    deps/jemalloc/src/cache_bin.c
+    deps/jemalloc/src/ckh.c
+    deps/jemalloc/src/counter.c
+    deps/jemalloc/src/ctl.c
+    deps/jemalloc/src/decay.c
+    deps/jemalloc/src/div.c
+    deps/jemalloc/src/ecache.c
+    deps/jemalloc/src/edata.c
+    deps/jemalloc/src/edata_cache.c
+    deps/jemalloc/src/ehooks.c
+    deps/jemalloc/src/emap.c
+    deps/jemalloc/src/eset.c
+    deps/jemalloc/src/exp_grow.c
+    deps/jemalloc/src/extent.c
+    deps/jemalloc/src/extent_dss.c
+    deps/jemalloc/src/extent_mmap.c
+    deps/jemalloc/src/fxp.c
+    deps/jemalloc/src/san.c
+    deps/jemalloc/src/san_bump.c
+    deps/jemalloc/src/hook.c
+    deps/jemalloc/src/hpa.c
+    deps/jemalloc/src/hpa_hooks.c
+    deps/jemalloc/src/hpdata.c
+    deps/jemalloc/src/inspect.c
+    deps/jemalloc/src/large.c
+    deps/jemalloc/src/log.c
+    deps/jemalloc/src/malloc_io.c
+    deps/jemalloc/src/mutex.c
+    deps/jemalloc/src/nstime.c
+    deps/jemalloc/src/pa.c
+    deps/jemalloc/src/pa_extra.c
+    deps/jemalloc/src/pai.c
+    deps/jemalloc/src/pac.c
+    deps/jemalloc/src/pages.c
+    deps/jemalloc/src/peak_event.c
+    deps/jemalloc/src/prof.c
+    deps/jemalloc/src/prof_data.c
+    deps/jemalloc/src/prof_log.c
+    deps/jemalloc/src/prof_recent.c
+    deps/jemalloc/src/prof_stats.c
+    deps/jemalloc/src/prof_sys.c
+    deps/jemalloc/src/psset.c
+    deps/jemalloc/src/rtree.c
+    deps/jemalloc/src/safety_check.c
+    deps/jemalloc/src/sc.c
+    deps/jemalloc/src/sec.c
+    deps/jemalloc/src/stats.c
+    deps/jemalloc/src/sz.c
+    deps/jemalloc/src/tcache.c
+    deps/jemalloc/src/test_hooks.c
+    deps/jemalloc/src/thread_event.c
+    deps/jemalloc/src/ticker.c
+    deps/jemalloc/src/tsd.c
+    deps/jemalloc/src/witness.c)
+add_library(jemalloc STATIC ${JEMALLOC_SRC})
+target_include_directories(jemalloc PUBLIC
+    deps/jemalloc/include
+    deps/jemalloc/include/msvc_compat)
+# Do not apply Redis /FI win32_pre.h — jemalloc has its own Windows compat.
+target_compile_definitions(jemalloc PRIVATE
+    JEMALLOC_NO_PRIVATE_NAMESPACE
+    JEMALLOC_EXPORT=
+    _REENTRANT
+    USE_WIN32_EXTERNAL_HEAP_ALLOC)
+if(MSVC)
+    target_compile_options(jemalloc PRIVATE
+        /wd4146 /wd4334 /wd4090
+        "/clang:-Wno-incompatible-pointer-types"
+        "/clang:-Wno-unused-function")
+endif()
+
+# ---------------------------------------------------------------------------
 # win32_interop
 # ---------------------------------------------------------------------------
 add_library(win32_interop STATIC
@@ -132,7 +215,8 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_fdapi_crt.cpp
     src/Win32_Interop/Win32_FDAPI.cpp
     src/Win32_Interop/win32_wsiocp.c
-    src/Win32_Interop/Win32_ThreadControl.c)
+    src/Win32_Interop/Win32_ThreadControl.c
+    src/Win32_Interop/Win32_JemallocHeap.c)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
@@ -151,6 +235,7 @@ set_source_files_properties(
     src/Win32_Interop/Win32_cli.c
     src/Win32_Interop/win32_wsiocp.c
     src/Win32_Interop/Win32_ThreadControl.c
+    src/Win32_Interop/Win32_JemallocHeap.c
     PROPERTIES LANGUAGE C)
 set_source_files_properties(src/Win32_Interop/Win32_ANSI.c
     PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
@@ -186,8 +271,15 @@ add_executable(pthread_smoke tests/windows/pthread_smoke.c)
 redis_win32_src(pthread_smoke)
 target_link_libraries(pthread_smoke PRIVATE win32_interop)
 
+add_executable(jemalloc_smoke tests/windows/jemalloc_smoke.c)
+target_include_directories(jemalloc_smoke PRIVATE
+    deps/jemalloc/include
+    "${REDIS_INTEROP_INC}")
+target_compile_definitions(jemalloc_smoke PRIVATE JEMALLOC_EXPORT= QFORK_MAIN_IMPL)
+target_link_libraries(jemalloc_smoke PRIVATE jemalloc win32_interop)
+
 # ---------------------------------------------------------------------------
-# redis-server (M1: CRT allocator, no jemalloc, no QFork heap)
+# redis-server (M3: hooked jemalloc, QFork heap still fallback VirtualAlloc)
 # ---------------------------------------------------------------------------
 set(REDIS_SERVER_SRC
     src/threads_mngr.c src/memory_prefetch.c src/adlist.c src/quicklist.c
@@ -220,10 +312,13 @@ add_executable(redis-server ${REDIS_SERVER_SRC})
 add_dependencies(redis-server redis_release_h)
 target_include_directories(redis-server PRIVATE
     deps/hiredis deps/lua/src deps/hdr_histogram
-    deps/xxhash deps/fpconv deps/tre/local_includes)
+    deps/xxhash deps/fpconv deps/tre/local_includes
+    deps/jemalloc/include)
 redis_win32_src(redis-server)
-target_compile_definitions(redis-server PRIVATE USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H)
+target_compile_definitions(redis-server PRIVATE
+    USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
+    USE_JEMALLOC JEMALLOC_EXPORT=)
 target_link_libraries(redis-server PRIVATE
-    lua hdr_histogram hiredis fpconv xxhash tre win32_interop)
+    lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc)
 
-message(STATUS "win-8.10 CMake: redis-cli + redis-server + smokes")
+message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc) + smokes")

@@ -1,0 +1,24 @@
+/* Windows CMake-generated (win-8.10). */
+/* #undef JEMALLOC_HAVE_ATTR */
+/* #undef JEMALLOC_HAVE_ATTR_ALLOC_SIZE */
+/* #undef JEMALLOC_HAVE_ATTR_FORMAT_ARG */
+/* #undef JEMALLOC_HAVE_ATTR_FORMAT_GNU_PRINTF */
+/* #undef JEMALLOC_HAVE_ATTR_FORMAT_PRINTF */
+/* #undef JEMALLOC_HAVE_ATTR_FALLTHROUGH */
+/* #undef JEMALLOC_HAVE_ATTR_COLD */
+/* #undef JEMALLOC_OVERRIDE_MEMALIGN */
+/* #undef JEMALLOC_OVERRIDE_VALLOC */
+
+#define JEMALLOC_USABLE_SIZE_CONST const
+
+/* #undef JEMALLOC_USE_CXX_THROW */
+
+#ifdef _MSC_VER
+#  ifdef _WIN64
+#    define LG_SIZEOF_PTR_WIN 3
+#  else
+#    define LG_SIZEOF_PTR_WIN 2
+#  endif
+#endif
+
+#define LG_SIZEOF_PTR LG_SIZEOF_PTR_WIN
