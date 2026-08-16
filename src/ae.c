@@ -30,6 +30,7 @@
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef _WIN32
+#include "Win32_Service.h"
 #include "ae_wsiocp.c"
 #else
 #ifdef HAVE_EVPORT
@@ -369,6 +370,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
+
+#ifdef _WIN32
+    if (ServiceStopIssued())
+        aeStop(eventLoop);
+#endif
 
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;

@@ -40,13 +40,15 @@
 
 #define LOG_MASK(pri) (1 << (pri))
 
-static inline void openlog(const char *ident, int option, int facility) {
-    (void)ident; (void)option; (void)facility;
+#ifdef __cplusplus
+extern "C" {
+#endif
+void openlog(const char *ident, int option, int facility);
+void closelog(void);
+void syslog(int priority, const char *format, ...);
+int setlogmask(int mask);
+#ifdef __cplusplus
 }
-static inline void closelog(void) {}
-static inline void syslog(int priority, const char *format, ...) {
-    (void)priority; (void)format;
-}
-static inline int setlogmask(int mask) { return mask; }
+#endif
 
 #endif

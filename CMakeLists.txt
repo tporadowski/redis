@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
 # Windows port build (win-8.10). clang-cl + CMake, x64 only.
 cmake_minimum_required(VERSION 3.20)
-project(redis-windows VERSION 8.10.0 LANGUAGES C CXX)
+project(redis-windows VERSION 8.10.0 LANGUAGES C CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This CMake build is the native Windows port (branch win-8.10).")
@@ -216,11 +216,13 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_FDAPI.cpp
     src/Win32_Interop/win32_wsiocp.c
     src/Win32_Interop/Win32_ThreadControl.c
-    src/Win32_Interop/Win32_ProcessTable.c)
+    src/Win32_Interop/Win32_ProcessTable.c
+    src/Win32_Interop/Win32_EventLog.cpp
+    src/Win32_Interop/Win32_service.cpp)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
-target_link_libraries(win32_interop PUBLIC ws2_32 mswsock)
+target_link_libraries(win32_interop PUBLIC ws2_32 mswsock advapi32 shell32)
 if(MSVC)
     target_compile_options(win32_interop PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/FI${REDIS_PRE_HEADER}>
@@ -322,8 +324,11 @@ set(REDIS_SERVER_SRC
     src/vector.c src/fast_float_strtod.c src/client_comp.c
     src/Win32_Interop/Win32_QFork.cpp
     src/Win32_Interop/Win32_QFork_heap.cpp
-    src/Win32_Interop/Win32_QFork_impl.c)
+    src/Win32_Interop/Win32_QFork_impl.c
+    src/Win32_Interop/resources/EventLog.rc)
 set_source_files_properties(src/Win32_Interop/Win32_QFork_impl.c PROPERTIES LANGUAGE C)
+set_source_files_properties(src/Win32_Interop/resources/EventLog.rc PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/src/Win32_Interop/resources")
 
 add_executable(redis-server ${REDIS_SERVER_SRC})
 add_dependencies(redis-server redis_release_h)
@@ -336,7 +341,8 @@ target_compile_definitions(redis-server PRIVATE
     USE_OPENSSL=0 BUILD_TLS_MODULE=0 USE_LOCAL_TRE_H
     USE_JEMALLOC JEMALLOC_EXPORT=)
 target_link_libraries(redis-server PRIVATE
-    lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc)
+    lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc
+    advapi32 shell32)
 if(MSVC)
     target_compile_options(redis-server PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
@@ -359,4 +365,12 @@ add_custom_target(smoke_bgsave
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M3 smoke: SET/GET + BGSAVE + redis-check-rdb")
 
-message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork + BGSAVE) + smokes")
+add_custom_target(smoke_service
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_service.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M5 smoke: console PING + --service-run (no SCM)")
+
+message(STATUS "win-8.10 CMake: redis-cli + redis-server (jemalloc + QFork + service) + smokes")

@@ -35,6 +35,8 @@
 #include "fast_float_strtod.h"
 #ifdef _WIN32
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/Win32_Service.h"
+#include "Win32_Interop/Win32_EventLog.h"
 #endif
 
 #include <time.h>
@@ -8380,6 +8382,16 @@ int main(int argc, char **argv) {
 #endif /* __arm64__ */
 #endif /* __linux__ */
 
+#ifdef _WIN32
+    if (RunningAsService()) {
+        server.syslog_enabled = 1;
+        if (server.syslog_ident == NULL || server.syslog_ident[0] == '\0') {
+            zfree(server.syslog_ident);
+            server.syslog_ident = zstrdup(GetServiceName());
+        }
+    }
+#endif
+
     /* Daemonize if needed */
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
@@ -8448,6 +8460,14 @@ int main(int argc, char **argv) {
 
             serverLog(LL_NOTICE,"Ready to accept connections %s", listener->ct->get_type(NULL));
         }
+#ifdef _WIN32
+        if (RunningAsService()) {
+            char ev[512];
+            snprintf(ev, sizeof(ev), "redis-server started as service '%s'",
+                     GetServiceName());
+            WriteEventLogSuccess(ev);
+        }
+#endif
 
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {

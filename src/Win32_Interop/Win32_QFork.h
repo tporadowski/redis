@@ -12,6 +12,8 @@ extern "C" {
 #endif
 
 int redis_main(int argc, char **argv);
+/* Parent console/service path: QFork heap then redis_main. */
+int RedisWindowsParentMain(int argc, char **argv);
 
 /*
  * jemalloc page hooks. AllocHeapBlock is NULL-safe: if g_pQForkControl is
