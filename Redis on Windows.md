@@ -160,10 +160,16 @@ not a separate `.dll`. HNSW uses the scalar distance path on Windows
 
 Bundled Rust modules (Search, JSON, Time Series, Bloom) are out of scope.
 
-`RedisModule_Fork`: Windows cannot return 0 into the caller the way POSIX
-`fork` does. The GA contract is **return an error** unless a child function
-is registered by **exported name** (a raw parent function pointer is invalid
-in the child; ASLR is off only on `redis-server.exe`). That contract is M6.3.
+`RedisModule_Fork` cannot return 0 into the caller (`CreateProcess` is not
+POSIX `fork`). Without a registration it returns **-1** and logs
+`RedisModule_Fork is not supported on Windows without RedisModule_SetForkChildFn`.
+
+`RedisModule_SetForkChildFn(ctx, exported_name, user_data)` (Windows only)
+registers an **exported symbol name**. The QFork child `LoadLibrary`s the
+module and `GetProcAddress`s that name. A raw parent function pointer is
+invalid in the child (the `.dll` may load at a different base; ASLR is off
+only on `redis-server.exe`). `user_data` is only meaningful if it lives on
+the COW heap.
 
 ## What this port does not do
 

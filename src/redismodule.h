@@ -1462,6 +1462,12 @@ REDISMODULE_API int (*RedisModule_CommandFilterArgReplace)(RedisModuleCommandFil
 REDISMODULE_API int (*RedisModule_CommandFilterArgDelete)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_CommandFilterGetClientId)(RedisModuleCommandFilterCtx *fctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Fork)(RedisModuleForkDoneHandler cb, void *user_data) REDISMODULE_ATTR;
+#ifdef _WIN32
+/* Windows only: register an exported child symbol. RedisModule_Fork cannot
+ * return 0 into the caller (CreateProcess). The child LoadLibrarys the
+ * module and GetProcAddresss this name. A raw parent fn pointer is invalid. */
+REDISMODULE_API int (*RedisModule_SetForkChildFn)(RedisModuleCtx *ctx, const char *exported_name, void *user_data) REDISMODULE_ATTR;
+#endif
 REDISMODULE_API void (*RedisModule_SendChildHeartbeat)(double progress) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExitFromChild)(int retcode) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KillForkChild)(int child_pid) REDISMODULE_ATTR;
@@ -1873,6 +1879,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CommandFilterArgDelete);
     REDISMODULE_GET_API(CommandFilterGetClientId);
     REDISMODULE_GET_API(Fork);
+#ifdef _WIN32
+    REDISMODULE_GET_API(SetForkChildFn);
+#endif
     REDISMODULE_GET_API(SendChildHeartbeat);
     REDISMODULE_GET_API(ExitFromChild);
     REDISMODULE_GET_API(KillForkChild);

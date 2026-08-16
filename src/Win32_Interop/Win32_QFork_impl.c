@@ -41,6 +41,46 @@ void win32PrepareAofJob(void) {
     g_win32_qfork_job.purpose = CHILD_TYPE_AOF;
 }
 
+void win32PrepareModuleJob(const char *path, const char *symbol, void *user_data) {
+    memset(&g_win32_qfork_job, 0, sizeof(g_win32_qfork_job));
+    g_win32_qfork_job.purpose = CHILD_TYPE_MODULE;
+    if (path)
+        strncpy(g_win32_qfork_job.filename, path, sizeof(g_win32_qfork_job.filename) - 1);
+    if (symbol)
+        strncpy(g_win32_qfork_job.module_symbol, symbol,
+                sizeof(g_win32_qfork_job.module_symbol) - 1);
+    g_win32_qfork_job.module_user_data = user_data;
+}
+
+int do_moduleFork(const char *path, const char *symbol, void *user_data) {
+    HMODULE h;
+    void (*fn)(void *);
+
+    if (!symbol || !symbol[0])
+        return C_ERR;
+    if (path && path[0])
+        h = LoadLibraryA(path);
+    else
+        h = GetModuleHandleA(NULL);
+    if (!h) {
+        fprintf(stderr, "do_moduleFork: LoadLibrary(%s) gle=%lu\n",
+                path && path[0] ? path : "(exe)", GetLastError());
+        return C_ERR;
+    }
+    fn = (void (*)(void *))(uintptr_t)GetProcAddress(h, symbol);
+    if (!fn) {
+        fprintf(stderr, "do_moduleFork: GetProcAddress(%s) gle=%lu\n",
+                symbol, GetLastError());
+        if (path && path[0])
+            FreeLibrary(h);
+        return C_ERR;
+    }
+    fn(user_data);
+    if (path && path[0])
+        FreeLibrary(h);
+    return C_OK;
+}
+
 void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
                               int slots_req, void **conns, int numconns,
                               int rdb_pipe_write, int safe_to_exit_pipe) {
@@ -296,12 +336,19 @@ static int win32ParentSideFork(int purpose) {
 }
 
 int win32RedisFork(int purpose) {
-    if (purpose != CHILD_TYPE_RDB && purpose != CHILD_TYPE_AOF) {
+    if (purpose == CHILD_TYPE_MODULE) {
+        /* Always spawn a --QFork child; never return 0 in this process. */
+        if (g_win32_qfork_job.purpose != CHILD_TYPE_MODULE) {
+            errno = EINVAL;
+            return -1;
+        }
+        /* Fall through to payload + CreateProcess below. */
+    } else if (purpose != CHILD_TYPE_RDB && purpose != CHILD_TYPE_AOF) {
         errno = ENOSYS;
         return -1;
-    }
-    if (!g_HasMemoryMappedHeap || g_BypassMemoryMapOnAlloc)
+    } else if (!g_HasMemoryMappedHeap || g_BypassMemoryMapOnAlloc) {
         return win32ParentSideFork(purpose);
+    }
 
     int nconns = g_win32_qfork_job.numconns;
     if (nconns < 0) nconns = 0;
@@ -345,6 +392,9 @@ int win32RedisFork(int purpose) {
     hdr->rdb_channel = g_win32_qfork_job.rdb_channel;
     hdr->slots_req = g_win32_qfork_job.slots_req;
     hdr->numconns = nconns;
+    memcpy(hdr->module_symbol, g_win32_qfork_job.module_symbol,
+           sizeof(hdr->module_symbol));
+    hdr->module_user_data = (uint64_t)(uintptr_t)g_win32_qfork_job.module_user_data;
     memcpy(hdr + 1, &server, sizeof(server));
 
     HANDLE abort_ev = CreateEvent(NULL, TRUE, FALSE, NULL);

@@ -416,6 +416,22 @@ if(MSVC)
     target_link_options(helloworld PRIVATE /EXPORT:RedisModule_OnLoad)
 endif()
 
+add_library(forkcheck SHARED src/modules/forkcheck.c)
+set_source_files_properties(src/modules/forkcheck.c PROPERTIES LANGUAGE C)
+target_include_directories(forkcheck PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${REDIS_POSIX_INC}"
+    "${REDIS_INTEROP_INC}")
+set_target_properties(forkcheck PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME forkcheck
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+if(MSVC)
+    target_compile_options(forkcheck PRIVATE "/FI${REDIS_PRE_HEADER}")
+    target_link_options(forkcheck PRIVATE /EXPORT:RedisModule_OnLoad)
+endif()
+
 add_custom_target(smoke_module
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_module.ps1"
@@ -431,5 +447,13 @@ add_custom_target(smoke_vecset
     DEPENDS redis-server redis-cli
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M6 smoke: in-tree VADD/VCARD/VSIM")
+
+add_custom_target(smoke_fork
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_fork.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli forkcheck
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M6 smoke: RedisModule_Fork without SetForkChildFn is -1")
 
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")
