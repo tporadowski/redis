@@ -2,6 +2,15 @@
 #ifndef WIN32_POSIX_SYS_UN_H
 #define WIN32_POSIX_SYS_UN_H
 #include "../../win32_pre.h"
+#ifdef _WIN32
+#include <afunix.h>
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
+#else
 #ifndef UNIX_PATH_MAX
 #define UNIX_PATH_MAX 108
 #endif
@@ -9,4 +18,5 @@ struct sockaddr_un {
     unsigned short sun_family;
     char sun_path[UNIX_PATH_MAX];
 };
+#endif
 #endif

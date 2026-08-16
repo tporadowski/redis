@@ -5,6 +5,9 @@
 #ifndef AF_UNIX
 #define AF_UNIX 1
 #endif
+#ifndef AF_LOCAL
+#define AF_LOCAL AF_UNIX
+#endif
 #ifndef SOCK_STREAM
 #define SOCK_STREAM 1
 #endif

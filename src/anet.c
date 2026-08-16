@@ -376,6 +376,11 @@ static int anetCreateSocket(char *err, int domain) {
         return ANET_ERR;
     }
 
+#ifdef _WIN32
+    /* SO_REUSEADDR on AF_UNIX fails the later bind (NT reparse point). */
+    if (domain == AF_UNIX)
+        return s;
+#endif
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
     if (anetSetReuseAddr(err,s) == ANET_ERR) {

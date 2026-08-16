@@ -37,6 +37,7 @@ extern "C" {
 #define LISTEN_SOCK     0x001000
 #define CONNECT_PENDING 0x002000
 #define CLOSE_PENDING   0x004000
+#define UNIX_LISTEN     0x008000 /* AF_UNIX listen: accept(), not AcceptEx */
 
 typedef struct WSIOCP_Request {
     void *client;

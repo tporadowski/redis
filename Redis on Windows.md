@@ -129,9 +129,17 @@ still set it; it is not rejected.
 
 ## AF_UNIX
 
-`unixsocket` is compiled and the connection type is registered. Listening
-on an NTFS reparse point is **M9** (not ready). TCP is the supported path
-today. Minimum OS for AF_UNIX is Windows 10 1803 / Server 2019.
+`unixsocket path\to\redis.sock` listens on a pathname socket (`AF_UNIX`,
+`SOCK_STREAM` only). Minimum OS is Windows 10 1803 / Server 2019
+(`afunix.sys`). No Linux abstract namespace (`\0name`).
+
+`SO_REUSEADDR` is skipped (it fails the bind). A leftover socket file
+from a crash is `DeleteFile`d before bind. `unixsocketperm` is
+best-effort `_chmod`; the real ACL is the process token’s default NTFS
+DACL (typically the creating user and Administrators). Do not treat
+`unixsocketperm 700` as Linux-equivalent.
+
+`redis-cli -s path\to\redis.sock PING`. Smoke: `tests/windows/smoke_unix.ps1`.
 
 ## TLS
 

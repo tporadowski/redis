@@ -48,6 +48,7 @@
 #define _WIN32_WINNT 0x0600 /* To get WSAPoll etc. */
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <afunix.h>
 #include <stddef.h>
 #include <errno.h>
 #include <mstcpip.h>
