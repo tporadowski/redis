@@ -15,6 +15,12 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     state->setsize = eventLoop->setsize;
     eventLoop->apidata = state;
     WSIOCP_OnLoopCreated();
+    if (WSIOCP_InitLoopExtras(eventLoop) != 0) {
+        WSIOCP_CloseIocp(state->iocp);
+        zfree(state);
+        eventLoop->apidata = NULL;
+        return -1;
+    }
     return 0;
 }
 
@@ -25,6 +31,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 
 static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
+    WSIOCP_FreeLoopExtras(eventLoop);
     WSIOCP_CloseIocp(state->iocp);
     zfree(state);
 }

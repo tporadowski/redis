@@ -69,11 +69,11 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
     memset(eventLoop->privdata, 0, sizeof(eventLoop->privdata));
-    if (aeApiCreate(eventLoop) == -1) goto err;
-    /* Events with mask == AE_NONE are not set. So let's initialize the
-     * vector with it. */
+    /* Events with mask == AE_NONE are not set. Initialize before aeApiCreate
+     * so a backend can register fds (Windows IOCP forward pipe). */
     for (i = 0; i < eventLoop->nevents; i++)
         eventLoop->events[i].mask = AE_NONE;
+    if (aeApiCreate(eventLoop) == -1) goto err;
     return eventLoop;
 
 err:

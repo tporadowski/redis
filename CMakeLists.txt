@@ -505,4 +505,12 @@ add_custom_target(smoke_unix
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "M9 smoke: AF_UNIX listen + PING")
 
+add_custom_target(smoke_iothreads
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_iothreads.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "M9 smoke: io-threads 4 + BGSAVE + unix PING")
+
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

@@ -19,6 +19,33 @@
 
 Win32QForkJob g_win32_qfork_job;
 
+#ifdef USE_JEMALLOC
+extern int je_mallctl(const char *name, void *oldp, size_t *oldlenp,
+                      void *newp, size_t newlen);
+#endif
+
+static void win32FreezeForSnapshot(void) {
+    DWORD t0 = GetTickCount();
+    pauseAllIOThreads();
+    RequestSuspension();
+    {
+        /* Sleep(1) is ~15.6ms on Windows; count iterations would wait 16s. */
+        DWORD deadline = GetTickCount() + 1000;
+        while (!SuspensionCompleted() &&
+               (int)(deadline - GetTickCount()) > 0)
+            Sleep(1);
+    }
+#ifdef USE_JEMALLOC
+    (void)je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+#endif
+    serverLog(LL_NOTICE, "QFork: freeze %lu ms", GetTickCount() - t0);
+}
+
+static void win32ThawAfterSnapshot(void) {
+    ResumeFromSuspension();
+    resumeAllIOThreads();
+}
+
 int rewriteAppendOnlyFile(char *filename);
 int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi);
 int slotSnapshotSaveRio(int req, rio *rdb, int *error);
@@ -269,6 +296,8 @@ static int win32ParentSideFork(int purpose) {
               "QFork: mapped heap not live (bypass=%d); %s in parent",
               g_BypassMemoryMapOnAlloc, what);
 
+    win32FreezeForSnapshot();
+
     if (purpose == CHILD_TYPE_RDB &&
         g_win32_qfork_job.rdb_subtype != QFORK_RDB_DISK) {
         int i;
@@ -284,6 +313,7 @@ static int win32ParentSideFork(int purpose) {
                                      g_win32_qfork_job.conns,
                                      g_win32_qfork_job.numconns,
                                      1, -1, -1);
+        win32ThawAfterSnapshot();
         DWORD pid = 0;
         HANDLE proc = NULL;
         if (!spawn_qfork_exit(rc == C_OK ? 0 : 1, 0, &pid, &proc, NULL)) {
@@ -300,6 +330,7 @@ static int win32ParentSideFork(int purpose) {
         DWORD pid = 0;
         HANDLE proc = NULL, thr = NULL;
         if (!spawn_qfork_exit(0, CREATE_SUSPENDED, &pid, &proc, &thr)) {
+            win32ThawAfterSnapshot();
             errno = EAGAIN;
             return -1;
         }
@@ -307,6 +338,7 @@ static int win32ParentSideFork(int purpose) {
         snprintf(tmpfile, sizeof(tmpfile), "temp-rewriteaof-bg-%d.aof",
                  (int)pid);
         int rc = do_aofRewrite(tmpfile);
+        win32ThawAfterSnapshot();
         if (rc != C_OK) {
             TerminateProcess(proc, 1);
             CloseHandle(thr);
@@ -325,6 +357,7 @@ static int win32ParentSideFork(int purpose) {
     int rc = do_rdbSave(g_win32_qfork_job.rdb_req,
                         g_win32_qfork_job.filename, rsi,
                         g_win32_qfork_job.rdb_flags);
+    win32ThawAfterSnapshot();
     DWORD pid = 0;
     HANDLE proc = NULL;
     if (!spawn_qfork_exit(rc == C_OK ? 0 : 1, 0, &pid, &proc, NULL)) {
@@ -399,19 +432,12 @@ int win32RedisFork(int purpose) {
 
     HANDLE abort_ev = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-    pauseAllIOThreads();
-    RequestSuspension();
-    DWORD waited = 0;
-    while (!SuspensionCompleted() && waited < 1000) {
-        Sleep(1);
-        waited++;
-    }
+    win32FreezeForSnapshot();
 
     if (!QForkProtectForFork()) {
         serverLog(LL_WARNING, "QFork: PAGE_WRITECOPY failed gle=%lu",
                   GetLastError());
-        ResumeFromSuspension();
-        resumeAllIOThreads();
+        win32ThawAfterSnapshot();
         UnmapViewOfFile(hdr);
         CloseHandle(hPayload);
         if (abort_ev)
@@ -426,8 +452,7 @@ int win32RedisFork(int purpose) {
     if (!QForkSpawnChild(hPayload, abort_ev, &child_pid, (void **)&hProcess,
                          socket_job, socket_job ? (void **)&hThread : NULL)) {
         QForkRejoinAfterFork();
-        ResumeFromSuspension();
-        resumeAllIOThreads();
+        win32ThawAfterSnapshot();
         UnmapViewOfFile(hdr);
         CloseHandle(hPayload);
         if (abort_ev)
@@ -448,8 +473,7 @@ int win32RedisFork(int purpose) {
                 CloseHandle(hThread);
                 CloseHandle(hProcess);
                 QForkRejoinAfterFork();
-                ResumeFromSuspension();
-                resumeAllIOThreads();
+                win32ThawAfterSnapshot();
                 UnmapViewOfFile(hdr);
                 CloseHandle(hPayload);
                 if (abort_ev) CloseHandle(abort_ev);
@@ -461,8 +485,7 @@ int win32RedisFork(int purpose) {
         CloseHandle(hThread);
     }
 
-    ResumeFromSuspension();
-    resumeAllIOThreads();
+    win32ThawAfterSnapshot();
 
     if (!QForkRejoinAfterFork()) {
         serverLog(LL_WARNING, "QFork: rejoin after CreateProcess failed");
@@ -482,7 +505,6 @@ int win32RedisFork(int purpose) {
     CloseHandle(hPayload);
 
     winpid_register((pid_t)child_pid, hProcess, WP_QFORK, abort_ev);
-    serverLog(LL_NOTICE, "QFork: child pid %lu created (%lu us freeze+spawn)",
-              child_pid, (unsigned long)waited * 1000);
+    serverLog(LL_NOTICE, "QFork: child pid %lu created", child_pid);
     return (int)child_pid;
 }

@@ -9,6 +9,9 @@
  */
 
 #include "server.h"
+#ifdef _WIN32
+#include "Win32_Interop/win32_wsiocp.h"
+#endif
 
 #define IO_DEFAULT_HZ CONFIG_DEFAULT_HZ
 
@@ -424,6 +427,10 @@ void pauseIOThreadsRange(int start, int end) {
         /* Just notify io thread, no actual job, since io threads check paused
          * status in IOThreadBeforeSleep, so just wake it up if polling wait. */
         triggerEventNotifier(IOThreads[i].pending_clients_notifier);
+#ifdef _WIN32
+        /* Pipe write may not complete a zero-byte WSARecv; kick GQCS. */
+        WSIOCP_WakeLoop(IOThreads[i].el);
+#endif
     }
 
     /* Wait for all io threads paused */

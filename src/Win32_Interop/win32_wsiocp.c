@@ -29,14 +29,20 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifndef EINVAL
 #define EINVAL 22
+#endif
+#ifndef UNUSED
+#define UNUSED(x) ((void)(x))
 #endif
 
 #define MAX_COMPLETE_PER_POLL 100
 #define ACCEPTEX_ADDR_BUF (sizeof(struct sockaddr_storage) + 32)
 #define SUCCEEDED_WITH_IOCP(ok) ((ok) || (GetLastError() == ERROR_IO_PENDING))
+#define WSIOCP_WAKE_KEY ((ULONG_PTR)(INT_PTR)-2)
 
 typedef struct asendreq {
     OVERLAPPED ov;
@@ -58,6 +64,7 @@ typedef struct iocpSockState {
     int masks;
     int fd;
     void *iocp;
+    aeEventLoop *dest_el;
     aacceptreq *reqs;
     int wreqs;
     OVERLAPPED ov_read;
@@ -184,6 +191,155 @@ int WSIOCP_Associate(int fd, void *iocp) {
     ss->masks |= SOCKET_ATTACHED;
     ss->wreqs = 0;
     return 0;
+}
+
+static void wsiocp_fwd_cb(aeEventLoop *el, int fd, void *data, int mask) {
+    aeApiState *st = (aeApiState *)el->apidata;
+    char buf[32];
+    int i, n;
+    int *fds, *masks;
+    UNUSED(fd);
+    UNUSED(data);
+    UNUSED(mask);
+    if (!st || !st->fwd_cs) return;
+    while (read(st->fwd_rfd, buf, sizeof(buf)) > 0) {}
+    EnterCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    n = st->fwd_n;
+    fds = st->fwd_fds;
+    masks = st->fwd_masks;
+    st->fwd_fds = NULL;
+    st->fwd_masks = NULL;
+    st->fwd_n = 0;
+    st->fwd_cap = 0;
+    LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    for (i = 0; i < n; i++) {
+        int rfd = fds[i];
+        int ev = masks[i];
+        aeFileEvent *fe;
+        if (rfd < 0 || rfd > el->maxfd) continue;
+        fe = &el->events[rfd];
+        if ((ev & AE_READABLE) && (fe->mask & AE_READABLE) && fe->rfileProc)
+            fe->rfileProc(el, rfd, fe->clientData, AE_READABLE);
+        if ((ev & AE_WRITABLE) && (fe->mask & AE_WRITABLE) && fe->wfileProc)
+            fe->wfileProc(el, rfd, fe->clientData, AE_WRITABLE);
+    }
+    wfree(fds);
+    wfree(masks);
+}
+
+static void wsiocp_forward(aeEventLoop *dest, int rfd, int mask) {
+    aeApiState *st;
+    char b = 1;
+    if (!dest || !dest->apidata) return;
+    st = (aeApiState *)dest->apidata;
+    if (!st->fwd_cs || st->fwd_wfd < 0) return;
+    EnterCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    if (st->fwd_n >= st->fwd_cap) {
+        int cap = st->fwd_cap ? st->fwd_cap * 2 : 16;
+        int *nf = (int *)realloc(st->fwd_fds, (size_t)cap * sizeof(int));
+        int *nm = (int *)realloc(st->fwd_masks, (size_t)cap * sizeof(int));
+        if (!nf || !nm) {
+            LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+            wfree(nf);
+            wfree(nm);
+            return;
+        }
+        st->fwd_fds = nf;
+        st->fwd_masks = nm;
+        st->fwd_cap = cap;
+    }
+    st->fwd_fds[st->fwd_n] = rfd;
+    st->fwd_masks[st->fwd_n] = mask;
+    st->fwd_n++;
+    LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    (void)write(st->fwd_wfd, &b, 1);
+}
+
+int WSIOCP_InitLoopExtras(aeEventLoop *el) {
+    aeApiState *st = (aeApiState *)el->apidata;
+    int fds[2];
+    CRITICAL_SECTION *cs;
+    if (!st) return -1;
+    st->el = el;
+    st->fwd_rfd = st->fwd_wfd = -1;
+    st->fwd_cs = NULL;
+    st->fwd_fds = st->fwd_masks = NULL;
+    st->fwd_n = st->fwd_cap = 0;
+    if (pipe(fds) != 0) return -1;
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    fcntl(fds[1], F_SETFL, O_NONBLOCK);
+    cs = (CRITICAL_SECTION *)walloc(sizeof(*cs));
+    if (!cs) {
+        close(fds[0]);
+        close(fds[1]);
+        return -1;
+    }
+    InitializeCriticalSection(cs);
+    st->fwd_cs = cs;
+    st->fwd_rfd = fds[0];
+    st->fwd_wfd = fds[1];
+    if (aeCreateFileEvent(el, fds[0], AE_READABLE, wsiocp_fwd_cb, el) != AE_OK) {
+        WSIOCP_FreeLoopExtras(el);
+        return -1;
+    }
+    return 0;
+}
+
+void WSIOCP_FreeLoopExtras(aeEventLoop *el) {
+    aeApiState *st;
+    if (!el || !el->apidata) return;
+    st = (aeApiState *)el->apidata;
+    if (st->fwd_rfd >= 0) {
+        aeDeleteFileEvent(el, st->fwd_rfd, AE_READABLE);
+        close(st->fwd_rfd);
+        st->fwd_rfd = -1;
+    }
+    if (st->fwd_wfd >= 0) {
+        close(st->fwd_wfd);
+        st->fwd_wfd = -1;
+    }
+    if (st->fwd_cs) {
+        DeleteCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+        wfree(st->fwd_cs);
+        st->fwd_cs = NULL;
+    }
+    wfree(st->fwd_fds);
+    wfree(st->fwd_masks);
+    st->fwd_fds = st->fwd_masks = NULL;
+    st->fwd_n = st->fwd_cap = 0;
+}
+
+static int fire_or_forward(aeEventLoop *el, iocpSockState *ss, int rfd,
+                           int mask, int numevents) {
+    if (ss->dest_el && ss->dest_el != el) {
+        wsiocp_forward(ss->dest_el, rfd, mask);
+        return numevents;
+    }
+    el->fired[numevents].fd = rfd;
+    el->fired[numevents].mask = mask;
+    return numevents + 1;
+}
+
+void WSIOCP_WakeLoop(aeEventLoop *el) {
+    aeApiState *st;
+    if (!el || !el->apidata) return;
+    st = (aeApiState *)el->apidata;
+    if (st->iocp)
+        PostQueuedCompletionStatus((HANDLE)st->iocp, 0, WSIOCP_WAKE_KEY, NULL);
+}
+
+int WSIOCP_SetDestLoop(int fd, aeEventLoop *el) {
+    iocpSockState *ss;
+    void *iocp;
+    int assoc;
+    if (fd < 0 || !el) return -1;
+    ss = WSIOCP_GetSocketState(fd);
+    if (!ss) return -1;
+    ss->dest_el = el;
+    iocp = WSIOCP_GetLoopIocp(el);
+    if (!iocp) return -1;
+    assoc = WSIOCP_Associate(fd, iocp);
+    return assoc;
 }
 
 int WSIOCP_QueueNextRead(int fd) {
@@ -342,7 +498,7 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     }
     areq = ss->reqs;
     if (!areq) {
-        errno = EAGAIN;
+        errno = EWOULDBLOCK;
         return -1;
     }
     ss->reqs = areq->next;
@@ -478,6 +634,8 @@ int WSIOCP_AddEvent(aeEventLoop *el, int fd, int mask) {
     assoc = WSIOCP_Associate(fd, state->iocp);
     if (assoc < 0) return -1;
     /* assoc == 1: already on another IOCP; 9.2 forwarding. For 1.2, still arm. */
+    if (!ss->dest_el)
+        ss->dest_el = el;
 
     if ((ss->masks & LISTEN_SOCK) == 0) {
         int acceptconn = 0;
@@ -533,6 +691,9 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     int numevents = 0;
     DWORD mswait = tvp ? (DWORD)(tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : 100;
     BOOL rc;
+    /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
+    if (mswait > 250)
+        mswait = 250;
 
     rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, entries,
                                      MAX_COMPLETE_PER_POLL, &numComplete,
@@ -542,8 +703,12 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
 
     for (j = 0; j < numComplete && numevents < state->setsize; j++) {
         int rfd = (int)(intptr_t)entries[j].lpCompletionKey;
-        iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+        iocpSockState *ss;
         LPOVERLAPPED ov = entries[j].lpOverlapped;
+
+        if (entries[j].lpCompletionKey == WSIOCP_WAKE_KEY)
+            continue;
+        ss = WSIOCP_GetExistingSocketState(rfd);
 
         if (!ss) continue;
 
@@ -554,9 +719,13 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 ss->reqs = areq;
                 ss->masks &= ~ACCEPT_PENDING;
                 if (ss->masks & AE_READABLE) {
-                    el->fired[numevents].fd = rfd;
-                    el->fired[numevents].mask = AE_READABLE;
-                    numevents++;
+                    if (ss->dest_el && ss->dest_el != el)
+                        wsiocp_forward(ss->dest_el, rfd, AE_READABLE);
+                    else {
+                        el->fired[numevents].fd = rfd;
+                        el->fired[numevents].mask = AE_READABLE;
+                        numevents++;
+                    }
                 }
             } else if (ss->masks & CONNECT_PENDING) {
                 if (ov == &ss->ov_read) {
@@ -579,11 +748,13 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                     matched = 1;
                     ss->masks &= ~READ_QUEUED;
                     if ((ss->masks & AE_READABLE) &&
-                        (LONG)entries[j].Internal >= 0) {
-                        el->fired[numevents].fd = rfd;
-                        el->fired[numevents].mask = AE_READABLE;
-                        numevents++;
-                    }
+                        (LONG)entries[j].Internal >= 0)
+                        numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
+                                                    numevents);
+                    /* Zero-byte WSARecv is edge-triggered. Client sockets
+                     * re-arm in connSocketRead; notifier/forward pipes do
+                     * not — re-arm here or the loop never wakes again. */
+                    WSIOCP_RearmRead(rfd);
                 } else if (ss->wreqs > 0 && ov != NULL) {
                     asendreq *areq = (asendreq *)ov;
                     if (unlink_wreq(ss, areq)) {
@@ -597,11 +768,9 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                         }
                         ss->wreqs--;
                         wfree(areq);
-                        if (ss->wreqs == 0 && (ss->masks & AE_WRITABLE)) {
-                            el->fired[numevents].fd = rfd;
-                            el->fired[numevents].mask = AE_WRITABLE;
-                            numevents++;
-                        }
+                        if (ss->wreqs == 0 && (ss->masks & AE_WRITABLE))
+                            numevents = fire_or_forward(el, ss, rfd, AE_WRITABLE,
+                                                        numevents);
                     }
                 }
                 if (!matched && ss->unknownComplete == 0) {

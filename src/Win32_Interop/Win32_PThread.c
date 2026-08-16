@@ -6,7 +6,6 @@
  */
 
 #include "Win32_PThread.h"
-#include "Win32_ThreadControl.h"
 #include <process.h>
 #include <stdlib.h>
 
@@ -75,10 +74,10 @@ static HANDLE take_thread_handle(pthread_t id) {
 
 static unsigned __stdcall win32_proxy_threadproc(void *arg) {
     thread_params *p = (thread_params *)arg;
-    IncrementWorkerThreadCount();
+    /* BIO threads register with ThreadControl themselves. IO threads use
+     * pauseAllIOThreads and must not inflate the BIO worker count. */
     p->func(p->arg);
     free(p);
-    DecrementWorkerThreadCount();
     _endthreadex(0);
     return 0;
 }

@@ -1105,6 +1105,10 @@ static int connTLSRebindEventLoop(connection *conn_, aeEventLoop *el) {
     serverAssert(!conn->c.el && !conn->c.read_handler &&
                  !conn->c.write_handler && !conn->pending_list_node);
     conn->c.el = el;
+#ifdef _WIN32
+    if (conn->c.fd >= 0)
+        WSIOCP_SetDestLoop(conn->c.fd, el);
+#endif
     if (el && SSL_pending(conn->ssl)) tlsPendingAdd(conn);
     /* Add the appropriate events to the new event loop. */
     updateSSLEvent((tls_connection *) conn);
