@@ -15,7 +15,8 @@ Unofficial native port of Redis Open Source 8.10.0. Tri-licensed
 Known gaps on current `win-8.10` (see the port plan tracker): jemalloc still
 uses `VirtualAlloc` (mapped-heap OOM); replica diskless PSYNC is not
 end-to-end re-verified. IOCP is the production backend (9.3: stay; no
-wepoll cut-over). 10.1 runs a 5.0-first Tcl subset + 5.0 RDB load.
+wepoll cut-over). 10.1 runs a 5.0-first Tcl subset + 5.0 RDB load. Zip
+layout is `Redis-x64-8.10.0-win.1.zip` (`pack_zip`).
 
 ## 5.0 and earlier
 

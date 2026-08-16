@@ -1068,7 +1068,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 9.2 | M9 | Done | `win-8.10` | `WSIOCP_SetDestLoop` delay-associate + forward if already on another IOCP. Parent-side and mapped-heap fork freeze IO+BIO; tcache flush. `io-threads 4` + BGSAVE + unix PING |
 | 9.3 | M9 | Done | `win-8.10` | **Stay on IOCP.** `tests/windows/iocp-vs-wepoll.md`. Gate combo `tls-port` + `io-threads 4` PING/SET/GET (`smoke_tls_iothreads.ps1`). No unfixed IOCP+`SSL_set_fd`+N-loop correctness bug; two-week clock does not start |
 | 10.1 | M10 | Done | `win-8.10` | 5.0-first Tcl harness (`wintest.tcl` / `runtest-win.ps1`): `unit/printver` + `unit/type/incr`. `fopen` RDB/AOF is `rb`/`wb` (text mode was EOF on `0x1A`). 5.0 `encodings.rdb` loads. Skip-list: replica PSYNC, hiredis protocol-error close, Linux fork/`/proc` |
-| 10.2 | M10 | Not started | | zip layout |
+| 10.2 | M10 | Done | `win-8.10` | CMake `install` + `pack_zip` writes `Redis-x64-8.10.0-win.1.zip` (server/cli/benchmark/check-rdb/check-aof/sentinel, TLS DLLs, conf, LICENSE/NOTICE, Windows docs). `smoke_zip` checks names + `redis-cli --version`. No MSI |
 | 10.3 | M10 | Not started | | README both-stories |
 | 10.4 | M10 | Not started | | LLP64 lint (regression) |
 
