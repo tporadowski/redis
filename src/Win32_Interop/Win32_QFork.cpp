@@ -147,7 +147,8 @@ static int is_check_tool(const char *argv0) {
 }
 
 int QForkSpawnChild(void *payload_map, void *abort_event,
-                    unsigned long *pid_out, void **process_out) {
+                    unsigned long *pid_out, void **process_out,
+                    int suspended, void **thread_out) {
     (void)abort_event;
     char fileName[MAX_PATH];
     if (!GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
@@ -170,13 +171,17 @@ int QForkSpawnChild(void *payload_map, void *abort_event,
     PROCESS_INFORMATION pi;
     memset(&pi, 0, sizeof(pi));
 
-    if (!CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL,
+    DWORD flags = suspended ? CREATE_SUSPENDED : 0;
+    if (!CreateProcessA(fileName, arguments, NULL, NULL, TRUE, flags, NULL, NULL,
                         &si, &pi)) {
         fprintf(stderr, "QForkSpawnChild: CreateProcess failed gle=%lu\n",
                 GetLastError());
         return 0;
     }
-    CloseHandle(pi.hThread);
+    if (thread_out)
+        *thread_out = (void *)pi.hThread;
+    else
+        CloseHandle(pi.hThread);
     if (pid_out)
         *pid_out = pi.dwProcessId;
     if (process_out)
@@ -236,8 +241,13 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     int rc = 1;
     if (hdr->purpose == CHILD_TYPE_RDB) {
         void *rsi = hdr->rsi_valid ? (void *)hdr->rsi : NULL;
-        if (do_rdbSave(hdr->rdb_req, hdr->filename, rsi, hdr->rdb_flags) == 0)
+        if (hdr->rdb_subtype != QFORK_RDB_DISK) {
+            void *proto = (char *)redisData + hdr->redisDataSize;
+            if (do_rdbSaveToSocketsChild(hdr, proto) == 0)
+                rc = 0;
+        } else if (do_rdbSave(hdr->rdb_req, hdr->filename, rsi, hdr->rdb_flags) == 0) {
             rc = 0;
+        }
     } else if (hdr->purpose == CHILD_TYPE_AOF) {
         if (do_aofRewrite(NULL) == 0)
             rc = 0;

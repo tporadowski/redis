@@ -8,11 +8,18 @@ extern "C" {
 
 typedef struct Win32QForkJob {
     int purpose;
+    int rdb_subtype;
     int rdb_req;
     int rdb_flags;
     int rsi_valid;
     char filename[260];
     unsigned char rsi[80];
+    int rdb_channel;
+    int slots_req;
+    int numconns;
+    void **conns; /* parent connection*[]; valid in parent only */
+    int rdb_pipe_write;
+    int safe_to_exit_pipe;
 } Win32QForkJob;
 
 extern Win32QForkJob g_win32_qfork_job;
@@ -20,6 +27,9 @@ extern Win32QForkJob g_win32_qfork_job;
 void SetupRedisGlobals(void *redisData, size_t redisDataSize,
                        unsigned char *dictHashSeed, int purpose);
 int do_rdbSave(int req, char *filename, void *rsi, int rdbflags);
+int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
+                        int use_conns, int rdb_pipe_write, int safe_to_exit);
+int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob);
 int do_aofRewrite(const char *filename);
 void win32PrepareAofJob(void);
 void win32ApplyPersistenceAvailable(int available);

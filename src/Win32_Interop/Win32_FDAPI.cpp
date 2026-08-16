@@ -603,6 +603,37 @@ void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD func) {
 
 int FDAPI_WSAGetLastError(void) { return WSAGetLastError(); }
 
+int FDAPI_WSADuplicateSocket(int rfd, unsigned long pid, void *proto_info) {
+    SOCKET s = sock_of(rfd);
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return -1;
+    }
+    if (WSADuplicateSocket(s, (DWORD)pid, (LPWSAPROTOCOL_INFO)proto_info) != 0) {
+        set_wsa_errno(0);
+        return -1;
+    }
+    return 0;
+}
+
+int FDAPI_WSASocketFromInfo(void *proto_info) {
+    SOCKET s = WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
+                         FROM_PROTOCOL_INFO, (LPWSAPROTOCOL_INFO)proto_info,
+                         0, WSA_FLAG_OVERLAPPED);
+    RFD rfd;
+    if (s == INVALID_SOCKET) {
+        set_wsa_errno(0);
+        return -1;
+    }
+    rfd = RFDMap::getInstance().addSocket(s);
+    if (rfd == INVALID_FD) {
+        closesocket(s);
+        errno = EMFILE;
+        return -1;
+    }
+    return rfd;
+}
+
 int FDAPI_SocketAttachIOCP(int rfd, void *iocph) {
     SOCKET s = sock_of(rfd);
     u_long nb = 1;

@@ -43,6 +43,12 @@ extern int g_PersistenceDisabled;
 #define CHILD_TYPE_AOF 2
 #endif
 
+#define QFORK_RDB_DISK         0
+#define QFORK_RDB_SOCKET_PIPE  1
+#define QFORK_RDB_CHANNEL      2
+#define QFORK_MAX_SOCKET_CONNS 128
+#define QFORK_PROTO_INFO_SIZE  512 /* >= sizeof(WSAPROTOCOL_INFO) */
+
 typedef struct QForkPayloadHeader {
     uint32_t magic;
     uint32_t purpose;
@@ -55,9 +61,17 @@ typedef struct QForkPayloadHeader {
     int      rsi_valid;
     char     filename[260];
     unsigned char rsi[80];
+    /* RDB socket / rdb-channel (4.2) */
+    int      rdb_subtype;
+    int      rdb_channel;
+    int      slots_req;
+    int      numconns;
 } QForkPayloadHeader;
 
 void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags);
+void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
+                              int slots_req, void **conns, int numconns,
+                              int rdb_pipe_write, int safe_to_exit_pipe);
 void win32PrepareAofJob(void);
 int win32RedisFork(int purpose);
 void win32ApplyPersistenceAvailable(int available);
@@ -66,7 +80,8 @@ int QForkPreparsePersistence(int argc, char **argv);
 
 /* Parent: create the --QFork child. process_out receives an owned HANDLE. */
 int QForkSpawnChild(void *payload_map, void *abort_event,
-                    unsigned long *pid_out, void **process_out);
+                    unsigned long *pid_out, void **process_out,
+                    int suspended, void **thread_out);
 
 void *QForkGetControlMap(void);
 int QForkProtectForFork(void);
