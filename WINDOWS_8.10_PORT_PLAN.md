@@ -1062,7 +1062,7 @@ Live tracker is the **PR-level** table below (also the execution queue). Update 
 | 7.1 | M7 | Done | `win-8.10` | Sentinel scripts `CreateProcessA` + `winpid_register(WP_SENTINEL_SCRIPT)`. `waitpid(-1)` already script-only. `checkForSentinelMode` already 3-arg. `getAbsolutePath` accepts `C:\`. `mkstemp` returns an RFD; Sentinel `CONFIG REWRITE` close+unlink-before-rename. notification-script ran + PING |
 | 7.2 | M7 | Done | `win-8.10` | Cluster bus on IOCP: `connSocketConnect` is associate+ConnectEx (not WSA `connect`). `nodes.conf` close+unlock+unlink+rename+re-lock. 3-node MEET + slots + replica failover |
 | 8.1 | M8 | Done | `win-8.10` | CMake `BUILD_TLS=ON` (default) + vcpkg `openssl` x64-windows. `USE_OPENSSL=1` links `tls.c` + `hiredis_ssl`. VLA in `connTLSWritev` is a heap buffer so clang-cl compiles. `libssl`/`libcrypto` copied next to the exes. `CONFIG SET tls-port` reaches TLS configure (not the stub) |
-| 8.2 | M8 | Not started | | TLS readiness + VLA fix + cancel-before-SSL |
+| 8.2 | M8 | Done | `win-8.10` | Cancel+drain zero-byte WSARecv before SSL_*; SSL_set_fd uses native SOCKET not RFD. VLA already heap (8.1). Single-loop TLS readiness |
 | 8.3 | M8 | Not started | | **Smoke:** `tls-port` GET/SET |
 | 9.1 | M9 | Not started | | AF_UNIX listen |
 | 9.2 | M9 | Not started | | IO threads + delay-associate + QFork freeze |

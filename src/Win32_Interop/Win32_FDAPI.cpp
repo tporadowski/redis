@@ -17,6 +17,7 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <mswsock.h>
+#include <windows.h>
 
 #include "Win32_FDAPI.h"
 #include "win32_rfdmap.h"
@@ -715,6 +716,25 @@ int FDAPI_UpdateAcceptContext(int acceptfd, int listenfd) {
         set_wsa_errno(0);
         return SOCKET_ERROR;
     }
+    return 0;
+}
+
+intptr_t FDAPI_GetSocket(int rfd) {
+    SOCKET s = sock_of(rfd);
+    return (s == INVALID_SOCKET) ? (intptr_t)-1 : (intptr_t)s;
+}
+
+int FDAPI_CancelIoEx(int rfd, void *ov) {
+    SOCKET s = sock_of(rfd);
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return 0;
+    }
+    if (CancelIoEx((HANDLE)s, (LPOVERLAPPED)ov))
+        return 1;
+    if (GetLastError() == ERROR_NOT_FOUND)
+        return 1; /* already completed */
+    set_wsa_errno(0);
     return 0;
 }
 
