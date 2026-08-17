@@ -86,6 +86,9 @@ void setReplCompression(int level) {
  * we want to abort loading. It calls rioAbort() in this case, so next rioRead()
  * from rdbchannel connection will return error to cancel loading safely. */
 static rio *disklessLoadingRio = NULL;
+#ifdef _WIN32
+static sds bulkline = NULL;
+#endif
 
 /* --------------------------- Utility functions ---------------------------- */
 
@@ -239,6 +242,11 @@ char *replicationGetSlaveName(client *c) {
  * the foreground unlink() will only remove the fs name, and deleting the
  * file's storage space will only happen once the last reference is lost. */
 int bg_unlink(const char *filename) {
+#ifdef _WIN32
+    /* NTFS unlink fails while any handle is open (no Linux "unlink name,
+     * last close frees" unless FILE_SHARE_DELETE). Callers close first. */
+    return unlink(filename);
+#endif
     int fd = open(filename,O_RDONLY|O_NONBLOCK);
     if (fd == -1) {
         /* Can't open the file? Fall back to unlinking in the main thread. */
@@ -2105,9 +2113,15 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->replstate = SLAVE_STATE_SEND_BULK;
                 slave->replpreamble = sdscatprintf(sdsempty(),"$%lld\r\n",
                     (unsigned long long) slave->repldbsize);
+                serverLog(LL_NOTICE,
+                    "SYNC: sending %lld bytes RDB to replica %s",
+                    (long long)slave->repldbsize, replicationGetSlaveName(slave));
 
                 connSetWriteHandler(slave->conn,NULL);
                 if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
+                    serverLog(LL_WARNING,
+                        "SYNC failed. Can't install write handler for replica %s",
+                        replicationGetSlaveName(slave));
                     freeClientAsync(slave);
                     continue;
                 }
@@ -2335,21 +2349,58 @@ void readSyncBulkPayload(connection *conn) {
     static char eofmark[CONFIG_RUN_ID_SIZE];
     static char lastbytes[CONFIG_RUN_ID_SIZE];
     static int usemark = 0;
-
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.repl_transfer_size == -1) {
+#ifdef _WIN32
+        char chunk[256];
+        char *nl;
+        size_t linelen;
+        nread = connRead(conn, chunk, sizeof(chunk));
+        if (nread <= 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED)
+                return; /* EAGAIN */
+            serverLog(LL_WARNING,
+                "I/O error reading bulk count from MASTER: %s",
+                nread == -1 ? connGetLastError(conn) : "connection lost");
+            if (bulkline) { sdsfree(bulkline); bulkline = NULL; }
+            goto error;
+        }
+        if (!bulkline) bulkline = sdsempty();
+        bulkline = sdscatlen(bulkline, chunk, nread);
+        nl = strstr(bulkline, "\r\n");
+        if (!nl) {
+            if (sdslen(bulkline) > 1024) {
+                serverLog(LL_WARNING,
+                    "Bad protocol from MASTER, bulk count line too long");
+                sdsfree(bulkline);
+                bulkline = NULL;
+                goto error;
+            }
+            return;
+        }
+        linelen = (size_t)(nl - bulkline);
+        if (linelen >= sizeof(buf)) linelen = sizeof(buf) - 1;
+        memcpy(buf, bulkline, linelen);
+        buf[linelen] = '\0';
+        nread = (ssize_t)linelen;
+        {
+            sds rest = sdsnewlen(nl + 2, sdslen(bulkline) - linelen - 2);
+            sdsfree(bulkline);
+            bulkline = rest;
+        }
+#else
         nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
         if (nread == -1) {
             serverLog(LL_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
                 connGetLastError(conn));
             goto error;
-        } else {
-            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
-             * convert "\r\n" to '\0' so 1 byte is lost. */
-            atomicIncr(server.stat_net_repl_input_bytes, nread+1);
         }
+#endif
+        /* nread from connSyncReadLine() converts "\r\n" to '\0' so 1 byte is
+         * lost; Windows connRead path already counted raw bytes in nread. */
+        atomicIncr(server.stat_net_repl_input_bytes, nread+1);
 
         if (buf[0] == '-') {
             serverLog(LL_WARNING,
@@ -2395,6 +2446,55 @@ void readSyncBulkPayload(connection *conn) {
                 (long long) server.repl_transfer_size,
                 use_diskless_load? "to parser":"to disk");
         }
+#ifdef _WIN32
+        if (bulkline && sdslen(bulkline) && !use_diskless_load &&
+            server.repl_transfer_fd >= 0) {
+            size_t have = sdslen(bulkline);
+            int leftover_eof = 0;
+            if (!usemark && have > (size_t)server.repl_transfer_size)
+                have = (size_t)server.repl_transfer_size;
+            if (write(server.repl_transfer_fd, bulkline, have) != (ssize_t)have) {
+                sdsfree(bulkline);
+                bulkline = NULL;
+                goto error;
+            }
+            server.repl_transfer_read += have;
+            if (usemark) {
+                if (have >= CONFIG_RUN_ID_SIZE) {
+                    memcpy(lastbytes, bulkline + have - CONFIG_RUN_ID_SIZE,
+                           CONFIG_RUN_ID_SIZE);
+                } else {
+                    int rem = CONFIG_RUN_ID_SIZE - (int)have;
+                    memmove(lastbytes, lastbytes + have, rem);
+                    memcpy(lastbytes + rem, bulkline, have);
+                }
+                leftover_eof = memcmp(lastbytes, eofmark, CONFIG_RUN_ID_SIZE) == 0;
+                if (leftover_eof &&
+                    ftruncate(server.repl_transfer_fd,
+                              server.repl_transfer_read - CONFIG_RUN_ID_SIZE) == -1)
+                {
+                    serverLog(LL_WARNING,
+                        "Error truncating the RDB file received from the master "
+                        "for SYNC: %s", strerror(errno));
+                    sdsfree(bulkline);
+                    bulkline = NULL;
+                    goto error;
+                }
+            }
+            sdsrange(bulkline, have, -1);
+            if (bulkline && sdslen(bulkline) == 0) {
+                sdsfree(bulkline);
+                bulkline = NULL;
+            }
+            if (leftover_eof ||
+                (!usemark && server.repl_transfer_size >= 0 &&
+                 server.repl_transfer_read == server.repl_transfer_size))
+                goto payload_complete;
+        } else if (bulkline && sdslen(bulkline) == 0) {
+            sdsfree(bulkline);
+            bulkline = NULL;
+        }
+#endif
         return;
     }
 
@@ -2489,6 +2589,9 @@ void readSyncBulkPayload(connection *conn) {
         if (!eof_reached) return;
     }
 
+#ifdef _WIN32
+payload_complete:
+#endif
     /* We reach this point in one of the following cases:
      *
      * 1. The replica is using diskless replication, that is, it reads data
@@ -2552,6 +2655,15 @@ void readSyncBulkPayload(connection *conn) {
         /* Set disklessLoadingRio before calling emptyData() which may yield
          * back to networking. */
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
+#ifdef _WIN32
+        /* connRead for $len may have consumed RDB bytes after CRLF. */
+        if (bulkline && sdslen(bulkline)) {
+            rdb.io.conn.buf = sdscatlen(rdb.io.conn.buf, bulkline,
+                                        sdslen(bulkline));
+            sdsfree(bulkline);
+            bulkline = NULL;
+        }
+#endif
         disklessLoadingRio = &rdb;
 
         /* Disable checksum verification when diskless on both master and replica.
@@ -2682,8 +2794,18 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        /* Rename rdb like renaming rewrite aof asynchronously. */
+        /* Rename rdb like renaming rewrite aof asynchronously.
+         * Windows cannot replace a dest that is still open, and cannot
+         * rename a source that still has our transfer fd. */
+#ifdef _WIN32
+        if (server.repl_transfer_fd >= 0) {
+            close(server.repl_transfer_fd);
+            server.repl_transfer_fd = -1;
+        }
+        int old_rdb_fd = -1;
+#else
         int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
+#endif
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,
                 "Failed trying to rename the temp DB into %s in "
@@ -2732,7 +2854,8 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
-        close(server.repl_transfer_fd);
+        if (server.repl_transfer_fd != -1)
+            close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
@@ -3575,10 +3698,12 @@ void replicationAbortSyncTransfer(void) {
         server.repl_disconnect_start_time = server.unixtime;
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
+        server.repl_transfer_fd = -1;
+    }
+    if (server.repl_transfer_tmpfile) {
         bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
-        server.repl_transfer_fd = -1;
     }
 }
 
@@ -3591,6 +3716,12 @@ void replicationAbortSyncTransfer(void) {
  *
  * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(int reconnect) {
+#ifdef _WIN32
+    if (bulkline) {
+        sdsfree(bulkline);
+        bulkline = NULL;
+    }
+#endif
     if (rdbChannelAbort() != C_OK)
         return 1;
 
