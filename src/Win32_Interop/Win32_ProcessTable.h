@@ -20,6 +20,9 @@ typedef enum {
 } WinPidKind;
 
 void winpid_register(pid_t pid, HANDLE process, WinPidKind kind, HANDLE abort_event);
+/* retain is closed when the pid is reaped (QFork payload map). */
+void winpid_register_retain(pid_t pid, HANDLE process, WinPidKind kind,
+                            HANDLE abort_event, HANDLE retain);
 void winpid_unregister(pid_t pid);
 
 #ifdef __cplusplus

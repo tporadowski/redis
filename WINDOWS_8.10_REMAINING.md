@@ -16,14 +16,13 @@ Do **not** introduce `PORT_LONG`. Do **not** start Rust modules unless asked. Do
 
 ## What is already at core parity
 
-TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF + `BACKUP` (parent-side save), cluster (MEET / slots / failover smoked), Sentinel + scripts, IO threads (including TLS + `io-threads 4`), Windows Service + Event Log, zip layout, 5.0 RDB load.
+TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF + `BACKUP`, mapped-heap QFork COW (`BGSAVE` / `BGREWRITEAOF`), cluster (MEET / slots / failover smoked), Sentinel + scripts, IO threads (including TLS + `io-threads 4`), Windows Service + Event Log, zip layout, 5.0 RDB load.
 
 ---
 
 ## Priority
 
-1. **Mapped-heap QFork** (11.x) — without this, BGSAVE is not Linux COW.
-2. **Replica PSYNC end-to-end** (12.x) — without this, replication is not proven.
+1. **Replica PSYNC end-to-end** (12.x) — without this, replication is not proven.
 3. **Test suite** (13.x) — widen 10.1 so regressions stay caught.
 4. **Smaller Windows contracts** (14.x) — protocol text, HNSW AVX, `unixsocketperm` docs/tests.
 5. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
@@ -34,9 +33,9 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 | ID | Area | Status | Notes / acceptance |
 |----|------|--------|--------------------|
-| 11.1 | QFork | Not started | Diagnose jemalloc 16-byte OOM at `aeApiCreate` on mapped heap (`g_BypassMemoryMapOnAlloc=0`) |
-| 11.2 | QFork | Not started | Parent stays on mapped heap; `BGSAVE` uses real `CreateProcess --QFork` + COW; `redis-check-rdb` OK; SET during save |
-| 11.3 | QFork | Not started | `BGREWRITEAOF` in the QFork child (not parent-side dummy pid); restart loads MP-AOF |
+| 11.1 | QFork | Done | jemalloc `LG_PAGE=16`; 4 MB maps carved into 64 KB slots; `g_BypassMemoryMapOnAlloc=0` |
+| 11.2 | QFork | Done | Live `--QFork` `BGSAVE`; `redis-check-rdb` OK; SET during save |
+| 11.3 | QFork | Done | QFork-child `BGREWRITEAOF`; restart loads MP-AOF |
 | 12.1 | Replication | Not started | Replica `PSYNC` + `SET` after full sync (diskful first) |
 | 12.2 | Replication | Not started | Diskless `PSYNC` / `rdbchannel` end-to-end (4.2 path was wired, not re-verified) |
 | 13.1 | Tests | Not started | Add passing 8.10 units to `wintest.tcl` (string minus skip-list, keyspace, expire, …) |
@@ -52,11 +51,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## 11 — Mapped-heap QFork (COW)
 
-**Why official Redis is different:** Linux `fork()` gives the child a COW snapshot. The parent keeps serving. Today Windows sets `g_BypassMemoryMapOnAlloc=1` after `QForkParentInit` because jemalloc on the pagefile-mapped heap OOM’s a 16-byte alloc at `aeApiCreate`. `BGSAVE` / `BGREWRITEAOF` run **in the parent** and reap a `--QForkExit` dummy child.
-
-**DoD for 11.2:** `g_BypassMemoryMapOnAlloc=0` for a normal server start; `BGSAVE` log is a real `--QFork` child (not “saving RDB in parent”); RDB is valid; clients can `SET` during the save; dummy `--QForkExit` path remains only as fallback if mapped heap is off.
-
-**11.1 notes:** `narenas:1` did not fix the OOM. Child must `FILE_MAP_COPY` the heap at the same VA (`/DYNAMICBASE:NO` on `redis-server` only). Freeze (11 already pauses IO + BIO) stays: resume immediately after `CreateProcess`.
+jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the mapped heap (`narenas:1` did not help). 11.1 uses `LG_PAGE=16` (64 KB) and carves those pages out of the existing 4 MB QFork maps. Parent stays on the mapped heap. 11.2/11.3 spawn a real `--QFork` child (`FILE_MAP_COPY` at the same VA). Child must not walk process-`.bss` module/function globals (NULL in the new image). Payload `CreateFileMapping` handle stays open until `waitpid` so the child can `DuplicateHandle` it. Dummy `--QForkExit` remains only when the mapped heap is off (sentinel / `persistence-available no` / check tools).
 
 ---
 

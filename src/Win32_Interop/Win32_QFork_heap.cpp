@@ -10,15 +10,24 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "Win32_QFork.h"
 #include "Win32_EventLog.h"
 
-/* Must match jemalloc LG_PAGE=22. */
-#define QFORK_LG_PAGE 22
-#define QFORK_BLOCK_SIZE ((size_t)1 << QFORK_LG_PAGE)
-#define QFORK_MAX_BLOCKS (1 << (40 - QFORK_LG_PAGE)) /* 4 MB * 256K = 1 TB */
+/*
+ * Mapping unit stays 4 MB (COW / CreateFileMapping). jemalloc 5.3 uses
+ * LG_PAGE=16 (64 KB): a 4 MB PAGE made edata bitmaps ~66 KB and OOMed a
+ * 16-byte zmalloc after ~10k successful ones (aeCreate). Each 4 MB block
+ * is 64 slots of 64 KB.
+ */
+#define QFORK_LG_BLOCK 22
+#define QFORK_BLOCK_SIZE ((size_t)1 << QFORK_LG_BLOCK)
+#define QFORK_LG_SLOT 16
+#define QFORK_SLOT_SIZE ((size_t)1 << QFORK_LG_SLOT)
+#define QFORK_SLOTS_PER_BLOCK (QFORK_BLOCK_SIZE / QFORK_SLOT_SIZE)
+#define QFORK_MAX_BLOCKS (1 << (40 - QFORK_LG_BLOCK)) /* 4 MB * 256K = 1 TB */
 
 enum BlockState : uint8_t {
     bsINVALID = 0,
@@ -29,6 +38,7 @@ enum BlockState : uint8_t {
 
 struct heapBlockInfo {
     HANDLE heapMap;
+    uint64_t used; /* bit i set → 64 KB slot i in use */
     BlockState state;
 };
 
@@ -47,6 +57,7 @@ int g_HasMemoryMappedHeap = 0;
 int g_PersistenceDisabled = 0;
 
 static HANDLE g_hQForkControlFileMap = NULL;
+static int heap_log_on(void);
 
 static QForkControl *ctrl(void) {
     return (QForkControl *)g_pQForkControl;
@@ -160,14 +171,21 @@ int QForkParentInit(size_t heap_bytes) {
     for (int i = 0; i < c->maxAvailableBlocks; i++) {
         c->heapBlockList[i].state = bsUNMAPPED;
         c->heapBlockList[i].heapMap = NULL;
+        c->heapBlockList[i].used = 0;
     }
     for (int i = c->maxAvailableBlocks; i < QFORK_MAX_BLOCKS; i++) {
         c->heapBlockList[i].state = bsINVALID;
         c->heapBlockList[i].heapMap = NULL;
+        c->heapBlockList[i].used = 0;
     }
 
     g_HasMemoryMappedHeap = 1;
     g_BypassMemoryMapOnAlloc = 0;
+    if (heap_log_on())
+        fprintf(stderr, "QForkParentInit: heap [%p, %p) blocks=%d (%.1f GB)\n",
+                c->heapStart, c->heapEnd, c->maxAvailableBlocks,
+                (double)c->maxAvailableBlocks * QFORK_BLOCK_SIZE /
+                    (1024.0 * 1024.0 * 1024.0));
     return 1;
 }
 
@@ -195,19 +213,84 @@ void QForkShutdown(void) {
     g_HasMemoryMappedHeap = 0;
 }
 
+static int heap_log_on(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("QFORK_HEAP_LOG");
+        cached = (e && e[0] && e[0] != '0') ? 1 : 0;
+    }
+    return cached;
+}
+
+static unsigned g_alloc_log_n;
+static void heap_log(const char *what, void *addr, size_t size, void *got) {
+    if (!heap_log_on() && got != NULL)
+        return;
+    if (g_alloc_log_n < 40 || got == NULL)
+        fprintf(stderr, "AllocHeapBlock[%u] %s addr=%p size=%zu -> %p gle=%lu\n",
+                g_alloc_log_n, what, addr, size, got, GetLastError());
+    g_alloc_log_n++;
+}
+
+static int slot_is_free(QForkControl *c, int slot) {
+    int blk = slot / (int)QFORK_SLOTS_PER_BLOCK;
+    int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
+    if (blk < 0 || blk >= c->maxAvailableBlocks)
+        return 0;
+    if (c->heapBlockList[blk].state == bsINVALID)
+        return 0;
+    return (c->heapBlockList[blk].used & (1ull << bit)) == 0;
+}
+
+static int slots_range_free(QForkControl *c, int start, int need) {
+    for (int i = 0; i < need; i++) {
+        if (!slot_is_free(c, start + i))
+            return 0;
+    }
+    return 1;
+}
+
+static int map_block_if_needed(QForkControl *c, int blk) {
+    if (c->heapBlockList[blk].heapMap)
+        return 1;
+    HANDLE map = CreateBlockMap(blk);
+    if (!map)
+        return 0;
+    c->heapBlockList[blk].heapMap = map;
+    c->heapBlockList[blk].used = 0;
+    c->numMappedBlocks += 1;
+    return 1;
+}
+
+static void mark_slots_used(QForkControl *c, int start, int need, int zero) {
+    for (int i = 0; i < need; i++) {
+        int slot = start + i;
+        int blk = slot / (int)QFORK_SLOTS_PER_BLOCK;
+        int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
+        c->heapBlockList[blk].used |= (1ull << bit);
+        c->heapBlockList[blk].state = bsMAPPED_IN_USE;
+        if (zero) {
+            LPVOID p = (BYTE *)c->heapStart + (size_t)slot * QFORK_SLOT_SIZE;
+            SecureZeroMemory(p, QFORK_SLOT_SIZE);
+        }
+    }
+}
+
 void *AllocHeapBlock(void *addr, size_t size, int zero) {
-    (void)zero;
     if (g_pQForkControl == NULL || g_BypassMemoryMapOnAlloc) {
-        return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        void *p = VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        heap_log(g_pQForkControl ? "bypass" : "null-ctrl", addr, size, p);
+        return p;
     }
 
     if (size == 0) {
         errno = EINVAL;
+        heap_log("size0", addr, size, NULL);
         return NULL;
     }
-    /* Slow-path maps are only 4 KB aligned (size+align-os_page). Those stay
-     * on VirtualAlloc; the QFork heap is 4 MB blocks for jemalloc PAGE. */
-    if ((size % QFORK_BLOCK_SIZE) != 0) {
+    /* jemalloc PAGE is 64 KB. Slow-path oversize (size+align-os_page) is not
+     * a 64 KB multiple — those stay on VirtualAlloc. */
+    if ((size % QFORK_SLOT_SIZE) != 0) {
         void *place = (addr && !addr_in_heap(addr)) ? addr : NULL;
         void *p = VirtualAlloc(place, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
         if (!p) {
@@ -216,79 +299,73 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
                     place, size, GetLastError());
             errno = ENOMEM;
         }
+        heap_log(place ? "va-fixed" : "va-fallback", addr, size, p);
         return p;
     }
 
     QForkControl *c = ctrl();
-    int need = (int)(size / QFORK_BLOCK_SIZE);
+    int need = (int)(size / QFORK_SLOT_SIZE);
+    int total_slots = c->maxAvailableBlocks * (int)QFORK_SLOTS_PER_BLOCK;
     int allocAt;
 
-    /* 5.3 pages_trim remaps at a specific VA. Honor in-heap addr. */
     if (addr != NULL) {
         if (!addr_in_heap(addr) ||
-            (((uintptr_t)addr - (uintptr_t)c->heapStart) % QFORK_BLOCK_SIZE) != 0) {
-            fprintf(stderr, "AllocHeapBlock: honor-addr %p not a heap block\n",
+            (((uintptr_t)addr - (uintptr_t)c->heapStart) % QFORK_SLOT_SIZE) != 0) {
+            fprintf(stderr, "AllocHeapBlock: honor-addr %p not a heap slot\n",
                     addr);
             errno = EINVAL;
+            heap_log("honor-bad", addr, size, NULL);
             return NULL;
         }
-        allocAt = (int)(((BYTE *)addr - (BYTE *)c->heapStart) / QFORK_BLOCK_SIZE);
-        if (allocAt < 0 || allocAt + need > c->maxAvailableBlocks) {
+        allocAt = (int)(((BYTE *)addr - (BYTE *)c->heapStart) / QFORK_SLOT_SIZE);
+        if (allocAt < 0 || allocAt + need > total_slots) {
             errno = ENOMEM;
+            heap_log("honor-oob", addr, size, NULL);
             return NULL;
         }
-        for (int i = 0; i < need; i++) {
-            BlockState st = c->heapBlockList[allocAt + i].state;
-            if (st != bsUNMAPPED && st != bsMAPPED_FREE) {
-                errno = ENOMEM;
-                return NULL;
-            }
+        if (!slots_range_free(c, allocAt, need)) {
+            errno = ENOMEM;
+            heap_log("honor-busy", addr, size, NULL);
+            return NULL;
         }
     } else {
-        int endSearch = c->maxAvailableBlocks - need;
+        int endSearch = total_slots - need;
         allocAt = -1;
-        for (int startIdx = c->blockSearchStart; startIdx < endSearch; startIdx++) {
-            int ok = 1;
-            for (int i = 0; i < need; i++) {
-                BlockState st = c->heapBlockList[startIdx + i].state;
-                if (st != bsUNMAPPED && st != bsMAPPED_FREE) {
-                    startIdx += i;
-                    ok = 0;
-                    break;
-                }
-            }
-            if (ok) {
+        int startIdx = c->blockSearchStart * (int)QFORK_SLOTS_PER_BLOCK;
+        if (startIdx < 0) startIdx = 0;
+        for (; startIdx <= endSearch; startIdx++) {
+            if (slots_range_free(c, startIdx, need)) {
                 allocAt = startIdx;
                 break;
             }
         }
         if (allocAt < 0) {
             errno = ENOMEM;
+            heap_log("search-fail", addr, size, NULL);
             return NULL;
         }
     }
 
-    for (int i = 0; i < need; i++) {
-        int index = allocAt + i;
-        if (c->heapBlockList[index].state == bsUNMAPPED) {
-            HANDLE map = CreateBlockMap(index);
-            if (!map) {
-                errno = ENOMEM;
-                return NULL;
-            }
-            c->heapBlockList[index].heapMap = map;
-            c->numMappedBlocks += 1;
-        } else if (zero) {
-            LPVOID ptr = (BYTE *)c->heapStart + (size_t)index * QFORK_BLOCK_SIZE;
-            SecureZeroMemory(ptr, QFORK_BLOCK_SIZE);
+    int first_blk = allocAt / (int)QFORK_SLOTS_PER_BLOCK;
+    int last_blk = (allocAt + need - 1) / (int)QFORK_SLOTS_PER_BLOCK;
+    for (int blk = first_blk; blk <= last_blk; blk++) {
+        if (!map_block_if_needed(c, blk)) {
+            errno = ENOMEM;
+            heap_log("map-fail", addr, size, NULL);
+            return NULL;
         }
-        c->heapBlockList[index].state = bsMAPPED_IN_USE;
+    }
+    mark_slots_used(c, allocAt, need, zero);
+
+    if (addr == NULL) {
+        int next_blk = (allocAt + need) / (int)QFORK_SLOTS_PER_BLOCK;
+        if (next_blk > c->blockSearchStart)
+            c->blockSearchStart = next_blk;
     }
 
-    if (addr == NULL && allocAt == c->blockSearchStart)
-        c->blockSearchStart = allocAt + need;
-
-    return (BYTE *)c->heapStart + (size_t)allocAt * QFORK_BLOCK_SIZE;
+    void *got = (BYTE *)c->heapStart + (size_t)allocAt * QFORK_SLOT_SIZE;
+    heap_log(addr ? "mapped-fixed" : "mapped", addr, size, got);
+    return got;
 }
 
 int FreeHeapBlock(void *addr, size_t size) {
@@ -301,22 +378,31 @@ int FreeHeapBlock(void *addr, size_t size) {
 
     QForkControl *c = ctrl();
     size_t ptrDiff = (BYTE *)addr - (BYTE *)c->heapStart;
-    if ((ptrDiff % QFORK_BLOCK_SIZE) != 0)
+    if ((ptrDiff % QFORK_SLOT_SIZE) != 0)
         return FALSE;
 
-    if ((size % QFORK_BLOCK_SIZE) != 0)
-        size = (size + QFORK_BLOCK_SIZE - 1) & ~(QFORK_BLOCK_SIZE - 1);
+    if ((size % QFORK_SLOT_SIZE) != 0)
+        size = (size + QFORK_SLOT_SIZE - 1) & ~(QFORK_SLOT_SIZE - 1);
 
-    int blockStart = (int)(ptrDiff / QFORK_BLOCK_SIZE);
-    int n = (int)(size / QFORK_BLOCK_SIZE);
-    if (blockStart < 0 || blockStart + n > c->maxAvailableBlocks)
+    int slotStart = (int)(ptrDiff / QFORK_SLOT_SIZE);
+    int n = (int)(size / QFORK_SLOT_SIZE);
+    int total_slots = c->maxAvailableBlocks * (int)QFORK_SLOTS_PER_BLOCK;
+    if (slotStart < 0 || slotStart + n > total_slots)
         return FALSE;
 
-    for (int i = 0; i < n; i++)
-        c->heapBlockList[blockStart + i].state = bsMAPPED_FREE;
+    for (int i = 0; i < n; i++) {
+        int slot = slotStart + i;
+        int blk = slot / (int)QFORK_SLOTS_PER_BLOCK;
+        int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
+        c->heapBlockList[blk].used &= ~(1ull << bit);
+        if (c->heapBlockList[blk].used == 0 &&
+            c->heapBlockList[blk].state == bsMAPPED_IN_USE)
+            c->heapBlockList[blk].state = bsMAPPED_FREE;
+    }
 
-    if (c->blockSearchStart > blockStart)
-        c->blockSearchStart = blockStart;
+    int first_blk = slotStart / (int)QFORK_SLOTS_PER_BLOCK;
+    if (c->blockSearchStart > first_blk)
+        c->blockSearchStart = first_blk;
     return TRUE;
 }
 

@@ -38,6 +38,6 @@ int main(void) {
     je_free(p);
 
     const char *ver = JEMALLOC_VERSION;
-    printf("ok jemalloc %s lg_page=22\n", ver);
+    printf("ok jemalloc %s\n", ver);
     return 0;
 }

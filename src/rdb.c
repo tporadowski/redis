@@ -1866,6 +1866,7 @@ ssize_t rdbSaveFunctions(rio *rdb) {
     ssize_t written = 0;
     ssize_t ret;
 
+    if (functions == NULL) return 0;
     dictInitIterator(&iter, functions);
     while ((entry = dictNext(&iter))) {
         if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION2)) < 0) goto werr;
@@ -4582,6 +4583,12 @@ void stopLoading(int success) {
 }
 
 void startSaving(int rdbflags) {
+#ifdef _WIN32
+    /* QFork child: module listener list lives in process .bss, not the COW
+     * heap. The child image has a NULL/empty list — do not walk the parent's. */
+    if (server.in_fork_child)
+        return;
+#endif
     /* Fire the persistence modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
@@ -4596,6 +4603,10 @@ void startSaving(int rdbflags) {
 }
 
 void stopSaving(int success) {
+#ifdef _WIN32
+    if (server.in_fork_child)
+        return;
+#endif
     /* Fire the persistence modules end event. */
     moduleFireServerEvent(REDISMODULE_EVENT_PERSISTENCE,
                           success?

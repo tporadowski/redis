@@ -1115,6 +1115,7 @@ unsigned long functionsLibNum(void) {
 }
 
 dict* functionsLibGet(void) {
+    if (curr_functions_lib_ctx == NULL) return NULL;
     return curr_functions_lib_ctx->libraries;
 }
 
