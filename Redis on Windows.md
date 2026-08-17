@@ -106,10 +106,13 @@ the limit; leave headroom if you have replicas.
   open file, and Windows `rename` does not overwrite.
 - **BACKUP:** `BACKUP START` / `SEAL` uses `link()` → `CreateHardLinkA`,
   with `CopyFile` fallback.
-- **Diskless replication:** `repl-diskless-sync` is wired
-  (`WSADuplicateSocket`). End-to-end replica PSYNC can still stall after the
-  master PING (IOCP handshake); treat diskless replica sync as not yet
-  verified.
+- **Replica PSYNC:** Diskful (`repl-diskless-sync no`) and diskless
+  (`repl-diskless-sync yes`, including `repl-rdb-channel`) full sync are
+  verified: `REPLICAOF`, RDB transfer, `SET` on the master visible on the
+  replica. Windows `rename` overwrites (`MoveFileEx` replace); the replica
+  closes the transfer fd before renaming `temp-*.rdb` to `dump.rdb`.
+  The replica `$len` / `$EOF:` line is read with non-blocking `connRead`
+  (IOCP cannot block in `connSyncReadLine`).
 
 ## Event Log
 

@@ -37,6 +37,7 @@ void InitTimeFunctions(void);
 #include <io.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #ifndef EAGAIN
 #define EAGAIN 11
@@ -596,6 +597,52 @@ off_t fdapi_lseek(int fd, off_t offset, int whence) {
         return -1;
     }
     return (off_t)crt_lseek64(crt, offset, whence);
+}
+
+int fdapi_fstat(int fd, struct stat *buf) {
+    int crt;
+    if (!buf) {
+        errno = EBADF;
+        return -1;
+    }
+    crt = RFDMap::getInstance().lookupCrtFD(fd);
+    /* fopen/fileno CRT descriptors are not RFDs (same as fsync). */
+    if (crt < 0)
+        crt = fd;
+    return fstat(crt, buf);
+}
+
+int fdapi_rename(const char *oldpath, const char *newpath) {
+    int retries = 50;
+    DWORD flags;
+    if (!oldpath || !newpath) {
+        errno = EINVAL;
+        return -1;
+    }
+    /* POSIX rename replaces an existing dest. Win32 rename() does not.
+     * Antivirus or a briefly-open dest can return ERROR_ACCESS_DENIED;
+     * retry like the 5.0 port. */
+    flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED |
+            MOVEFILE_WRITE_THROUGH;
+    while (retries--) {
+        if (MoveFileExA(oldpath, newpath, flags))
+            return 0;
+        DWORD gle = GetLastError();
+        if (gle == ERROR_ACCESS_DENIED || gle == ERROR_SHARING_VIOLATION) {
+            if (retries)
+                Sleep(10);
+            errno = EACCES;
+            continue;
+        }
+        if (gle == ERROR_FILE_NOT_FOUND)
+            errno = ENOENT;
+        else if (gle == ERROR_ALREADY_EXISTS)
+            errno = EEXIST;
+        else
+            errno = EIO;
+        return -1;
+    }
+    return -1;
 }
 
 void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD func) {

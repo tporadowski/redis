@@ -36,6 +36,9 @@
 #ifndef unlink
 #define unlink _unlink
 #endif
+#ifndef rename
+#define rename fdapi_rename
+#endif
 #ifndef getpid
 #define getpid _getpid
 #endif

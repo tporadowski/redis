@@ -27,7 +27,11 @@
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
+#ifdef _WIN32
+/* RFD, not CRT fd — see fdapi_fstat. */
+#define redis_fstat fdapi_fstat
+#define redis_stat stat
+#elif defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else

@@ -300,6 +300,9 @@ ssize_t fdapi_read(int fd, void *buf, size_t count);
 ssize_t fdapi_write(int fd, const void *buf, size_t count);
 int fdapi_isatty(int fd);
 off_t fdapi_lseek(int fd, off_t offset, int whence);
+struct stat;
+int fdapi_fstat(int fd, struct stat *buf);
+int fdapi_rename(const char *oldpath, const char *newpath);
 
 typedef int (*fnWSIOCP_CloseSocketStateRFD)(int rfd);
 void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD func);
