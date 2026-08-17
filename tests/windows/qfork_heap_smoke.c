@@ -64,14 +64,27 @@ int main(void) {
     }
     FreeHeapBlock(b, BLOCK);
 
+    void *slot = AllocHeapBlock(NULL, (size_t)1 << 16, 1);
+    if (slot == NULL) {
+        fprintf(stderr, "64KB slot alloc failed\n");
+        QForkShutdown();
+        return 7;
+    }
+    memset(slot, 0xCD, 64);
+    if (!FreeHeapBlock(slot, (size_t)1 << 16)) {
+        fprintf(stderr, "64KB FreeHeapBlock failed\n");
+        QForkShutdown();
+        return 7;
+    }
+
     void *small = AllocHeapBlock(NULL, 4096, 1);
     if (small == NULL) {
-        fprintf(stderr, "sub-4MB fallback VirtualAlloc failed\n");
+        fprintf(stderr, "sub-64KB fallback VirtualAlloc failed\n");
         QForkShutdown();
         return 7;
     }
     if (!FreeHeapBlock(small, 4096)) {
-        fprintf(stderr, "sub-4MB FreeHeapBlock failed\n");
+        fprintf(stderr, "sub-64KB FreeHeapBlock failed\n");
         QForkShutdown();
         return 7;
     }

@@ -19,6 +19,7 @@ typedef struct {
     HANDLE process;
     WinPidKind kind;
     HANDLE abort_event;
+    HANDLE retain;
     int used;
 } WinPidEntry;
 
@@ -33,6 +34,11 @@ static void wp_init(void) {
 }
 
 void winpid_register(pid_t pid, HANDLE process, WinPidKind kind, HANDLE abort_event) {
+    winpid_register_retain(pid, process, kind, abort_event, NULL);
+}
+
+void winpid_register_retain(pid_t pid, HANDLE process, WinPidKind kind,
+                            HANDLE abort_event, HANDLE retain) {
     wp_init();
     EnterCriticalSection(&g_lock);
     for (int i = 0; i < WP_MAX; i++) {
@@ -41,12 +47,15 @@ void winpid_register(pid_t pid, HANDLE process, WinPidKind kind, HANDLE abort_ev
             g_pids[i].process = process;
             g_pids[i].kind = kind;
             g_pids[i].abort_event = abort_event;
+            g_pids[i].retain = retain;
             g_pids[i].used = 1;
             LeaveCriticalSection(&g_lock);
             return;
         }
     }
     LeaveCriticalSection(&g_lock);
+    if (retain)
+        CloseHandle(retain);
 }
 
 void winpid_unregister(pid_t pid) {
@@ -54,6 +63,10 @@ void winpid_unregister(pid_t pid) {
     EnterCriticalSection(&g_lock);
     for (int i = 0; i < WP_MAX; i++) {
         if (g_pids[i].used && g_pids[i].pid == pid) {
+            if (g_pids[i].retain) {
+                CloseHandle(g_pids[i].retain);
+                g_pids[i].retain = NULL;
+            }
             g_pids[i].used = 0;
             g_pids[i].process = NULL;
             g_pids[i].abort_event = NULL;

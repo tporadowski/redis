@@ -288,14 +288,9 @@ int RedisWindowsParentMain(int argc, char **argv) {
         return 1;
     }
 
-    /*
-     * jemalloc 5.3 + LG_PAGE=22 still OOMs ("16 bytes") during aeApiCreate
-     * when those pages come from the mapped heap (narenas:1 did not help).
-     * Keep VirtualAlloc so PING works. Real QFork COW needs bypass=0; until
-     * that is fixed, win32RedisFork writes the RDB in the parent and reaps a
-     * dummy --QForkExit child so checkChildrenDone still runs.
-     */
-    g_BypassMemoryMapOnAlloc = 1;
+    /* 11.1: stay on the mapped heap so BGSAVE can COW. Dummy --QForkExit
+     * remains only if QForkParentInit was skipped (sentinel / persistence no). */
+    g_BypassMemoryMapOnAlloc = 0;
 
     int rc = redis_main(argc, argv);
     QForkShutdown();

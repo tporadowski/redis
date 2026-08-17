@@ -7971,6 +7971,10 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
     dictIterator di;
     dictEntry *de;
 
+    /* Windows QFork child: `modules` is a process-global in .bss, not on the
+     * COW heap. The child image has NULL — nothing to save. */
+    if (modules == NULL) return 0;
+
     dictInitIterator(&di, modules);
     while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
@@ -13144,7 +13148,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     /* Fast path to return ASAP if there is nothing to do, avoiding to
      * setup the iterator and so forth: we want this call to be extremely
      * cheap if there are no registered modules. */
-    if (listLength(RedisModule_EventListeners) == 0) return;
+    if (RedisModule_EventListeners == NULL ||
+        listLength(RedisModule_EventListeners) == 0) return;
 
     listIter li;
     listNode *ln;

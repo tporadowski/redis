@@ -78,11 +78,12 @@ have a `maxheap` config key yet. Bound the dataset with **`maxmemory`**. Set
 `persistence-available no` if you do not want QFork init at all (no
 `BGSAVE` / `BGREWRITEAOF` / `SYNC` / `PSYNC` / `REPLCONF` / `BACKUP`).
 
-**Current `win-8.10` gap:** jemalloc still allocates via `VirtualAlloc`
-(`g_BypassMemoryMapOnAlloc=1`) because a mapped-heap 16-byte OOM hits during
-`aeApiCreate`. Persistence still works: the parent writes the RDB/AOF and
-reaps a dummy `--QForkExit` child. Real copy-on-write needs bypass=0. Watch
-the Event Log for `MSG_ERROR_1` inserts such as
+The parent keeps jemalloc on the mapped heap (`g_BypassMemoryMapOnAlloc=0`).
+`BGSAVE` / `BGREWRITEAOF` spawn a `--QFork` child that `FILE_MAP_COPY`s the
+heap at the same VA. `persistence-available no` (and Sentinel / check tools)
+still use `VirtualAlloc` and the dummy `--QForkExit` path. jemalloc 5.3 uses
+64 KB pages; each QFork file mapping is still 4 MB (64 slots). Watch the
+Event Log for `MSG_ERROR_1` inserts such as
 `QForkParentInit failed: … gle=…` and `CreateFileMapping/pagefile: …`.
 
 Pagefile too small: either grow the Windows pagefile, lower `maxmemory`, or

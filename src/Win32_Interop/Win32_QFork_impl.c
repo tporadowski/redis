@@ -130,8 +130,12 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
 
 void SetupRedisGlobals(void *redisData, size_t redisDataSize,
                        unsigned char *dictHashSeed, int purpose) {
-    if (redisData && redisDataSize == sizeof(server))
+    if (redisData && redisDataSize == sizeof(server)) {
         memcpy(&server, redisData, redisDataSize);
+    } else {
+        fprintf(stderr, "SetupRedisGlobals: size mismatch payload=%zu server=%zu\n",
+                redisDataSize, sizeof(server));
+    }
     if (dictHashSeed)
         dictSetHashFunctionSeed(dictHashSeed);
     server.el = NULL;
@@ -500,11 +504,10 @@ int win32RedisFork(int purpose) {
     }
 
     UnmapViewOfFile(hdr);
-    /* Mapping object stays open in the child via DuplicateHandle; drop our view
-     * but keep the handle until waitpid reaps (child dups immediately). */
-    CloseHandle(hPayload);
-
-    winpid_register((pid_t)child_pid, hProcess, WP_QFORK, abort_ev);
+    /* Keep the payload mapping open until waitpid reaps so the child can
+     * DuplicateHandle it (CreateFileMapping handles are not inheritable). */
+    winpid_register_retain((pid_t)child_pid, hProcess, WP_QFORK, abort_ev,
+                           hPayload);
     serverLog(LL_NOTICE, "QFork: child pid %lu created", child_pid);
     return (int)child_pid;
 }

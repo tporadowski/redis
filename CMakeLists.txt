@@ -131,7 +131,9 @@ endif()
 add_subdirectory(deps/hiredis EXCLUDE_FROM_ALL)
 
 # ---------------------------------------------------------------------------
-# jemalloc 5.3 (page hooks; retain OFF; LG_PAGE=22). No jemalloc_cpp.cpp.
+# jemalloc 5.3 (page hooks; retain OFF; LG_PAGE=16). 4 MB QFork maps
+# are subdivided into 64 KB slots so jemalloc PAGE matches Windows
+# allocation granularity. No jemalloc_cpp.cpp.
 # ---------------------------------------------------------------------------
 set(JEMALLOC_SRC
     deps/jemalloc/src/jemalloc.c
@@ -328,6 +330,20 @@ if(MSVC)
         $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
 endif()
 target_link_libraries(qfork_heap_smoke PRIVATE win32_interop)
+
+add_executable(mapped_jemalloc_smoke
+    tests/windows/mapped_jemalloc.c
+    src/Win32_Interop/Win32_QFork_heap.cpp)
+target_include_directories(mapped_jemalloc_smoke PRIVATE
+    deps/jemalloc/include
+    "${REDIS_INTEROP_INC}")
+target_compile_definitions(mapped_jemalloc_smoke PRIVATE
+    JEMALLOC_EXPORT= QFORK_MAIN_IMPL QFORK_HEAP_LOG)
+if(MSVC)
+    target_compile_options(mapped_jemalloc_smoke PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
+endif()
+target_link_libraries(mapped_jemalloc_smoke PRIVATE jemalloc win32_interop)
 
 # ---------------------------------------------------------------------------
 # redis-server (M3: jemalloc + QFork heap + parent-only redisFork)
