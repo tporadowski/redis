@@ -33,6 +33,9 @@
 #include "functions.h"
 #include "connection.h"
 #include "cluster_asm.h"
+#ifdef _WIN32
+#include "Win32_Interop/win32_wsiocp.h"
+#endif
 
 #include <memory.h>
 #include <sys/time.h>
@@ -88,6 +91,11 @@ void setReplCompression(int level) {
 static rio *disklessLoadingRio = NULL;
 #ifdef _WIN32
 static sds bulkline = NULL;
+/* Handshake replies: connSyncReadLine + poll fights a pending 0-byte
+ * WSARecv (AUTH +OK / REPLCONF never arrives; replica stays down). */
+static sds handshake_line = NULL;
+static char repl_sync_again_blob;
+#define REPL_SYNC_AGAIN ((char *)&repl_sync_again_blob)
 #endif
 
 /* --------------------------- Utility functions ---------------------------- */
@@ -2928,6 +2936,56 @@ error:
 }
 
 char *receiveSynchronousResponse(connection *conn) {
+#ifdef _WIN32
+    char chunk[256];
+    ssize_t nread;
+    char *nl;
+    sds line;
+    size_t linelen;
+
+    if (!handshake_line || !strstr(handshake_line, "\r\n")) {
+        /* Pending 0-byte WSARecv makes recv() EAGAIN even when the AUTH
+         * line is in the TCP buffer; handshake then never completes. */
+        if (conn->fd >= 0)
+            WSIOCP_CancelQueuedRead(conn->fd);
+        nread = connRead(conn, chunk, sizeof(chunk));
+        if (nread <= 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED)
+                return REPL_SYNC_AGAIN;
+            if (handshake_line) {
+                sdsfree(handshake_line);
+                handshake_line = NULL;
+            }
+            serverLog(LL_WARNING, "Failed to read response from the server: %s",
+                      nread == -1 ? connGetLastError(conn) : "connection lost");
+            return NULL;
+        }
+        if (!handshake_line) handshake_line = sdsempty();
+        handshake_line = sdscatlen(handshake_line, chunk, nread);
+    }
+    nl = strstr(handshake_line, "\r\n");
+    if (!nl) {
+        if (sdslen(handshake_line) > 512) {
+            serverLog(LL_WARNING, "Failed to read response from the server: line too long");
+            sdsfree(handshake_line);
+            handshake_line = NULL;
+            return NULL;
+        }
+        return REPL_SYNC_AGAIN;
+    }
+    linelen = (size_t)(nl - handshake_line);
+    line = sdsnewlen(handshake_line, linelen);
+    {
+        sds rest = sdsnewlen(nl + 2, sdslen(handshake_line) - linelen - 2);
+        sdsfree(handshake_line);
+        handshake_line = sdslen(rest) ? rest : NULL;
+        if (!handshake_line) sdsfree(rest);
+    }
+    server.repl_transfer_lastio = server.unixtime;
+    if (conn->fd >= 0)
+        WSIOCP_RearmRead(conn->fd);
+    return line;
+#else
     char buf[256];
     /* Read the reply from the server. */
     if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000) == -1)
@@ -2937,6 +2995,7 @@ char *receiveSynchronousResponse(connection *conn) {
     }
     server.repl_transfer_lastio = server.unixtime;
     return sdsnew(buf);
+#endif
 }
 
 /* Send a pre-formatted multi-bulk command to the connection. */
@@ -3117,6 +3176,9 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     /* Reading half */
     reply = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+    if (reply == REPL_SYNC_AGAIN) return PSYNC_WAIT_REPLY;
+#endif
     /* Master did not reply to PSYNC */
     if (reply == NULL) {
         connSetReadHandler(conn, NULL);
@@ -3303,6 +3365,9 @@ void syncWithMaster(connection *conn) {
     /* Receive the PONG command. */
     if (server.repl_state == REPL_STATE_RECEIVE_PING_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
 
         /* The master did not reply */
         if (err == NULL) goto no_response_error;
@@ -3408,6 +3473,9 @@ void syncWithMaster(connection *conn) {
     /* Receive AUTH reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
         if (err[0] == '-') {
             serverLog(LL_WARNING,"Unable to AUTH to MASTER: %s",err);
@@ -3423,6 +3491,9 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF listening-port reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_PORT_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
@@ -3441,6 +3512,9 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF ip-address. */
@@ -3459,6 +3533,9 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF REQUEST reply (rdb-no-compress and rdb-no-checksum). */
     if (server.repl_state == REPL_STATE_RECEIVE_REQ_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF rdb-no-compress and rdb-no-checksum. */
@@ -3476,6 +3553,9 @@ void syncWithMaster(connection *conn) {
 
     if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
 
         /* Ignore the error if any, not all the Redis versions support
@@ -3498,6 +3578,9 @@ void syncWithMaster(connection *conn) {
     /* Receive CAPA reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_CAPA_REPLY) {
         err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+        if (err == REPL_SYNC_AGAIN) return;
+#endif
         if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
@@ -3638,6 +3721,12 @@ no_response_error: /* Handle receiveSynchronousResponse() error when master has 
     /* Fall through to regular error handling */
 
 error:
+#ifdef _WIN32
+    if (handshake_line) {
+        sdsfree(handshake_line);
+        handshake_line = NULL;
+    }
+#endif
     if (dfd != -1) close(dfd);
     connClose(conn);
     if (server.repl_rdb_transfer_s)
@@ -3660,6 +3749,12 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
+#ifdef _WIN32
+    if (handshake_line) {
+        sdsfree(handshake_line);
+        handshake_line = NULL;
+    }
+#endif
     server.repl_current_sync_attempts++;
     server.repl_total_sync_attempts++;
     server.repl_transfer_s = connCreate(server.el, connTypeOfReplication());
@@ -3720,6 +3815,10 @@ int cancelReplicationHandshake(int reconnect) {
     if (bulkline) {
         sdsfree(bulkline);
         bulkline = NULL;
+    }
+    if (handshake_line) {
+        sdsfree(handshake_line);
+        handshake_line = NULL;
     }
 #endif
     if (rdbChannelAbort() != C_OK)
@@ -4049,6 +4148,12 @@ static int rdbChannelSendHandshake(connection *conn, sds *err) {
 /* Replication: Replica side. */
 static int rdbChannelHandleAuthReply(connection *conn, sds *err) {
     *err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+    if (*err == REPL_SYNC_AGAIN) {
+        *err = NULL;
+        return C_RETRY;
+    }
+#endif
     if (*err == NULL) {
         serverLog(LL_WARNING, "Master did not respond to auth command during rdb channel handshake");
         return C_ERR;
@@ -4064,6 +4169,12 @@ static int rdbChannelHandleAuthReply(connection *conn, sds *err) {
 /* Replication: Replica side. */
 static int rdbChannelHandleReplconfReply(connection *conn, sds *err) {
     *err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+    if (*err == REPL_SYNC_AGAIN) {
+        *err = NULL;
+        return C_RETRY;
+    }
+#endif
     if (*err == NULL) {
         serverLog(LL_WARNING, "Master did not respond to replconf command during rdb channel handshake");
         return C_ERR;
@@ -4092,6 +4203,12 @@ static int rdbChannelHandleFullresyncReply(connection *conn, sds *err) {
     char *replid = NULL, *offset = NULL;
 
     *err = receiveSynchronousResponse(conn);
+#ifdef _WIN32
+    if (*err == REPL_SYNC_AGAIN) {
+        *err = NULL;
+        return C_RETRY;
+    }
+#endif
     if (*err == NULL)
         return C_ERR;
 

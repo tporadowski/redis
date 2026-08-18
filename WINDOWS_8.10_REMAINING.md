@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
-| **Date** | 2026-08-17 |
-| **Status** | 14.x done; 13.2 leftover + later items remain |
+| **Date** | 2026-08-18 |
+| **Status** | 13.x and 14.x done; later items remain |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -22,9 +22,9 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## Priority
 
-1. **Test suite** (13.x) — widen 10.1 so regressions stay caught; replica Tcl off the skip-list now that 12.x is green.
-2. **Smaller Windows contracts** (14.x) — protocol text, HNSW AVX, `unixsocketperm` docs/tests.
-3. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
+13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**.
+
+1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
 
 ---
 
@@ -38,7 +38,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 12.1 | Replication | Done | Diskful `PSYNC`; `SET` after full sync visible on replica |
 | 12.2 | Replication | Done | Diskless `PSYNC` + `rdbchannel`; live `SET` after sync |
 | 13.1 | Tests | Done | Fenced `wintest`: printver, incr, string, keyspace, expire, auth, protocol. Inventory: `tests/windows/DEFERRED-TESTS.md` |
-| 13.2 | Tests | Partial | AUTH replica sync green (`windows/regression`). Still skipped: binary `MASTERAUTH`, replica AUTH-fail `maxclients` |
+| 13.2 | Tests | Done | AUTH replica sync, binary `MASTERAUTH` (rdbchannel yes/no), AUTH-fail `maxclients`. Handshake: `connRead` + `WSIOCP_CancelQueuedRead` (no IOCP drain). Windows test waits on replica log, not INFO poll. |
 | 14.1 | Client | Done | `shutdown(SD_SEND)` + drain before `closesocket`; protocol `-ERR` / QUIT `+OK` visible. Desync flood tests still skip (raw Tcl) |
 | 14.2 | Vecsets | Done | clang-cl AVX2 via `__cpuid`/`_xgetbv`; AVX-512 stays off |
 | 14.3 | AF_UNIX | Done | `smoke_unix.ps1` checks socket exists + NTFS owner/DACL; `unixsocketperm` is not Linux `0700` |
@@ -62,7 +62,7 @@ jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the ma
 
 **DoD for 12.1:** Two processes, `repl-diskless-sync no` + `repl-rdb-channel no`, `REPLICAOF`, log “Finished with success”, `SET` on master visible on replica. **Met.**
 
-**DoD for 12.2:** `repl-diskless-sync yes` (rdbchannel on and off) completes the same check, including a live `SET` after the link is up. Replica `repl-diskless-load flushdb` also loaded from the socket. **Met.** 10.1 skip-list still excludes replica Tcl until 13.2.
+**DoD for 12.2:** `repl-diskless-sync yes` (rdbchannel on and off) completes the same check, including a live `SET` after the link is up. Replica `repl-diskless-load flushdb` also loaded from the socket. **Met.** Replica AUTH / `MASTERAUTH` Tcl is in the 13.2 default run. `SYNC` stream / `attach_to_replication_stream` stay skipped.
 
 ---
 
@@ -70,7 +70,7 @@ jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the ma
 
 Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has smokes plus a widening 13.1 `wintest.tcl` list.
 
-**DoD for 13.1:** Met under fences. **13.2:** AUTH replica sync is in the default run. Binary `MASTERAUTH` and replica AUTH-fail `maxclients` stay on the skip-list (see DEFERRED-TESTS.md).
+**DoD for 13.1:** Met under fences. **13.2:** Met. AUTH replica sync, binary `MASTERAUTH`, and AUTH-fail `maxclients` are in the default fenced run. Remaining replica Tcl is the `SYNC` stream group (`DEFERRED-TESTS.md`).
 
 **Stay skipped unless the OS grows the feature:** abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize`, `SIGSTOP` process-state tests, gcc `.so` moduleapi.
 

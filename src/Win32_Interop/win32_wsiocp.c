@@ -404,6 +404,16 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
     return 0;
 }
 
+/* Drop a pending 0-byte WSARecv so a following recv() can take the data.
+ * Does not drain the IOCP port (that can steal ConnectEx / AcceptEx). */
+void WSIOCP_CancelQueuedRead(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    if (!ss || (ss->masks & READ_QUEUED) == 0)
+        return;
+    FDAPI_CancelIoEx(rfd, &ss->ov_read);
+    ss->masks &= ~READ_QUEUED;
+}
+
 int WSIOCP_RearmRead(int rfd) {
     iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
     if (!ss) return 0;
