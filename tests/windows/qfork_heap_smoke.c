@@ -7,7 +7,7 @@
 #include <string.h>
 #include "Win32_QFork.h"
 
-#define BLOCK ((size_t)1 << 22)
+#define BLOCK QFORK_BLOCK_SIZE
 
 static int va_committed(void *p) {
     MEMORY_BASIC_INFORMATION mbi;
@@ -123,9 +123,9 @@ int main(void) {
         }
     }
 
-    /* Partial free: MEM_RESET the hole, block stays mapped (sibling slot). */
+    /* Partial free: discard the hole, block stays mapped (sibling slot). */
     {
-        const size_t slot_sz = (size_t)1 << 16;
+        const size_t slot_sz = QFORK_SLOT_SIZE;
         void *keep = AllocHeapBlock(NULL, slot_sz, 0);
         void *hole = AllocHeapBlock(NULL, slot_sz, 0);
         if (!keep || !hole) {
@@ -155,36 +155,36 @@ int main(void) {
         FreeHeapBlock(keep, slot_sz);
     }
 
-    void *slot = AllocHeapBlock(NULL, (size_t)1 << 16, 1);
+    void *slot = AllocHeapBlock(NULL, QFORK_SLOT_SIZE, 1);
     if (slot == NULL) {
-        fprintf(stderr, "64KB slot alloc failed\n");
+        fprintf(stderr, "slot alloc failed\n");
         QForkShutdown();
         return 7;
     }
     memset(slot, 0xCD, 64);
-    if (!FreeHeapBlock(slot, (size_t)1 << 16)) {
-        fprintf(stderr, "64KB FreeHeapBlock failed\n");
+    if (!FreeHeapBlock(slot, QFORK_SLOT_SIZE)) {
+        fprintf(stderr, "slot FreeHeapBlock failed\n");
         QForkShutdown();
         return 7;
     }
 
-    /* Block-first search: many 64 KB slots, punch holes, refill. */
+    /* Block-first search: many slots, punch holes, refill. */
     {
-        enum { N = 128 };
-        const size_t slot_sz = (size_t)1 << 16;
+        enum { N = 32 };
+        const size_t slot_sz = QFORK_SLOT_SIZE;
         void *p[N];
         int i;
         for (i = 0; i < N; i++) {
             p[i] = AllocHeapBlock(NULL, slot_sz, 0);
             if (p[i] == NULL) {
-                fprintf(stderr, "64KB burst failed at %d\n", i);
+                fprintf(stderr, "slot burst failed at %d\n", i);
                 QForkShutdown();
                 return 9;
             }
         }
         for (i = 0; i < N; i += 2) {
             if (!FreeHeapBlock(p[i], slot_sz)) {
-                fprintf(stderr, "64KB hole free failed at %d\n", i);
+                fprintf(stderr, "slot hole free failed at %d\n", i);
                 QForkShutdown();
                 return 9;
             }
@@ -193,7 +193,7 @@ int main(void) {
         for (i = 0; i < N; i += 2) {
             p[i] = AllocHeapBlock(NULL, slot_sz, 0);
             if (p[i] == NULL) {
-                fprintf(stderr, "64KB refill failed at %d\n", i);
+                fprintf(stderr, "slot refill failed at %d\n", i);
                 QForkShutdown();
                 return 9;
             }
@@ -226,10 +226,12 @@ int main(void) {
     }
 
     /* Cross-block: fill the 16-block heap, free last slot of blk0 + first of
-     * blk1, then a 128 KB request must take that seam (not a later hole). */
+     * blk1, then a 2-slot request must take that seam. */
     {
-        enum { NS = 16 * 64 };
-        const size_t slot_sz = (size_t)1 << 16;
+        enum { NS = 16 * (int)QFORK_SLOTS_PER_BLOCK };
+        const size_t slot_sz = QFORK_SLOT_SIZE;
+        const int seam0 = (int)QFORK_SLOTS_PER_BLOCK - 1;
+        const int seam1 = (int)QFORK_SLOTS_PER_BLOCK;
         void *all[NS];
         int i;
         for (i = 0; i < NS; i++) {
@@ -240,17 +242,17 @@ int main(void) {
                 return 11;
             }
         }
-        FreeHeapBlock(all[63], slot_sz);
-        FreeHeapBlock(all[64], slot_sz);
+        FreeHeapBlock(all[seam0], slot_sz);
+        FreeHeapBlock(all[seam1], slot_sz);
         void *span = AllocHeapBlock(NULL, slot_sz * 2, 0);
-        if (span != all[63]) {
-            fprintf(stderr, "cross-block expected seam %p got %p\n", all[63], span);
+        if (span != all[seam0]) {
+            fprintf(stderr, "cross-block expected seam %p got %p\n", all[seam0], span);
             QForkShutdown();
             return 11;
         }
         FreeHeapBlock(span, slot_sz * 2);
         for (i = 0; i < NS; i++) {
-            if (i == 63 || i == 64)
+            if (i == seam0 || i == seam1)
                 continue;
             FreeHeapBlock(all[i], slot_sz);
         }
@@ -258,12 +260,12 @@ int main(void) {
 
     void *small = AllocHeapBlock(NULL, 4096, 1);
     if (small == NULL) {
-        fprintf(stderr, "sub-64KB fallback VirtualAlloc failed\n");
+        fprintf(stderr, "sub-slot fallback VirtualAlloc failed\n");
         QForkShutdown();
         return 7;
     }
     if (!FreeHeapBlock(small, 4096)) {
-        fprintf(stderr, "sub-64KB FreeHeapBlock failed\n");
+        fprintf(stderr, "sub-slot FreeHeapBlock failed\n");
         QForkShutdown();
         return 7;
     }

@@ -26,6 +26,13 @@ extern void *g_pQForkControl;
 extern int g_BypassMemoryMapOnAlloc;
 extern int g_HasMemoryMappedHeap;
 
+/* Must match jemalloc LG_PAGE. 20 = 1 MB slots (4 per 4 MB map). 22 OOMed. */
+#define QFORK_LG_BLOCK 22
+#define QFORK_BLOCK_SIZE ((size_t)1 << QFORK_LG_BLOCK)
+#define QFORK_LG_SLOT 20
+#define QFORK_SLOT_SIZE ((size_t)1 << QFORK_LG_SLOT)
+#define QFORK_SLOTS_PER_BLOCK (QFORK_BLOCK_SIZE / QFORK_SLOT_SIZE)
+
 /* heap_bytes == 0 → QFORK_HEAP_BYTES env (M/G suffix ok), else 10× RAM, cap 1 TB. */
 int QForkParentInit(size_t heap_bytes);
 void QForkShutdown(void);

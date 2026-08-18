@@ -89,7 +89,7 @@ void je_free_with_usize(void *ptr, size_t *usize);
  *   tcache_nslots_small_max:1000 per-bin hard cap 200 -> 1000.
  *
  * Windows used to ship LG_PAGE=22 (4 MB pages); small classes went to 8 MB
- * and a 1000-slot tcache would cache gigabytes. LG_PAGE is 16 now (64 KB).
+ * and a 1000-slot tcache would cache gigabytes. LG_PAGE is 20 now (1 MB).
  */
 #ifdef _WIN32
 const char *je_malloc_conf =

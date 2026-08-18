@@ -85,7 +85,7 @@ The parent keeps jemalloc on the mapped heap (`g_BypassMemoryMapOnAlloc=0`).
 `BGSAVE` / `BGREWRITEAOF` spawn a `--QFork` child that `FILE_MAP_COPY`s the
 heap at the same VA. `persistence-available no` (and Sentinel / check tools)
 still use `VirtualAlloc` and the dummy `--QForkExit` path. jemalloc 5.3 uses
-64 KB pages; each QFork file mapping is still 4 MB (64 slots). Watch the
+1 MB pages; each QFork file mapping is still 4 MB (4 slots). Watch the
 Event Log for `MSG_ERROR_1` inserts such as
 `QForkParentInit failed: … gle=…` and `CreateFileMapping/pagefile: …`.
 
