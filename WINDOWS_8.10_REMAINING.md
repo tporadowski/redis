@@ -4,7 +4,7 @@
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
 | **Date** | 2026-08-18 |
-| **Status** | 13.x and 14.x done; later items remain |
+| **Status** | 13.x–14.x done; 17.1 COUNT `long long`; 17.2 QFork block-first alloc |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -22,7 +22,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## Priority
 
-13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**.
+13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1 COUNT parse and 17.2 block-first QFork alloc are **Done**. Next QFork items if asked: unmap empty 4 MB blocks; `MEM_RESET` on free; jemalloc decay/purge; try `LG_PAGE` 18/20.
 
 1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
 
@@ -45,6 +45,8 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 15.1 | Product | Deferred | Tag `v8.10.0-win.1` + switch default branch — **only when asked** |
 | 16.1 | Modules | Out of queue | Bundled Rust Search/JSON/TS/Bloom — next program |
 | 16.2 | Modules | Out of queue | Faithful `RedisModule_Fork` stack continuation — Decision 26; `SetForkChildFn` stays the contract |
+| 17.1 | SCAN | Partial | COUNT parsed as `long long` (LLP64). Isolated COUNT overflow + `{foo}-*` MATCH green. Full `unit/scan` parked (LiveKernel 141) |
+| 17.2 | QFork | Done | Block-first alloc: search 4 MB blocks, then bit-run in `used[]`. No per-slot walk of the heap |
 
 ---
 
@@ -88,6 +90,14 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 
 ---
 
+## 17 — SCAN / QFork heap
+
+**17.1** Met: `SCAN COUNT` uses `long long` so LLP64 accepts the same values as Linux `long`. Isolated Tcl green. Full `unit/scan` stays off default `wintest` (2026-08-18 LiveKernel 141 during expire+TYPE).
+
+**17.2** Met: `AllocHeapBlock` searches **4 MB blocks** first (skip `used == ~0` in O(1)), then a bit-run inside the block. Cross-block seam and multi-block requests stay correct. Smoke: `qfork_heap_smoke` (burst + holes + 8 MB + seam) and `mapped_jemalloc_smoke`. Next if asked: unmap empty blocks, `MEM_RESET` on free, jemalloc decay.
+
+---
+
 ## Not this queue
 
 | Item | Why |
@@ -116,3 +126,5 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 | 14.1 | `fix: protocol error strings to hiredis` | 10.1 |
 | 14.2 | `opt: HNSW AVX probe on clang-cl` | 6.2 |
 | 14.3 | `docs: unixsocketperm vs NTFS DACL` | 9.1 |
+| 17.1 | `fix: SCAN COUNT long long on LLP64` | 10.4 |
+| 17.2 | `perf: QFork block-first heap search` | 11.1 |
