@@ -565,7 +565,7 @@ add_custom_target(wintest
         -BuildDir "${CMAKE_BINARY_DIR}"
     DEPENDS redis-server redis-cli
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "M10: 5.0 RDB load + 5.0-first Tcl suite")
+    COMMENT "13.x: 5.0 RDB load + fenced Tcl units (one process each)")
 
 # ---------------------------------------------------------------------------
 # 10.2 zip: Redis-x64-8.10.0-win.1

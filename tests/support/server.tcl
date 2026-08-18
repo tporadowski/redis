@@ -702,17 +702,38 @@ proc start_server {options {code undefined}} {
         dict set config port $port
     }
 
-    set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
-    dict set config "unixsocket" $unixsocket
+    # Windows: do not listen on AF_UNIX unless the test asks (REDIS_TEST_UNIXSOCKET
+    # or an explicit unixsocket override). Default-on unix + poll/accept was in
+    # the 0x133 DPC_WATCHDOG path when widening 13.x units. Re-enable later for
+    # AF_UNIX coverage (smoke_unix.ps1 already sets unixsocket itself).
+    set unixsocket ""
+    set want_unix 0
+    if {$::tcl_platform(platform) ne "windows"} {
+        set want_unix 1
+    } elseif {[info exists ::env(REDIS_TEST_UNIXSOCKET)] &&
+              $::env(REDIS_TEST_UNIXSOCKET) ne "" &&
+              $::env(REDIS_TEST_UNIXSOCKET) ne "0"} {
+        set want_unix 1
+    }
+    if {$want_unix} {
+        set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
+        dict set config "unixsocket" $unixsocket
+    }
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
     }
+    if {[dict exists $config unixsocket]} {
+        set unixsocket [dict get $config unixsocket]
+    }
 
     # remove directives that are marked to be omitted
     foreach directive $omit {
         dict unset config $directive
+    }
+    if {![dict exists $config unixsocket]} {
+        set unixsocket ""
     }
 
     if {$::log_req_res} {

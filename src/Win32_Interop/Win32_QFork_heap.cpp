@@ -129,7 +129,25 @@ int QForkParentInit(size_t heap_bytes) {
     }
 
     uint64_t cap = (uint64_t)QFORK_BLOCK_SIZE * QFORK_MAX_BLOCKS;
-    uint64_t max_heap = heap_bytes ? (uint64_t)heap_bytes : memstatus.ullTotalPhys * 10;
+    uint64_t max_heap = (uint64_t)heap_bytes;
+    if (max_heap == 0) {
+        /* Tests set QFORK_HEAP_BYTES (decimal, or suffix M/G) so we do not
+         * reserve a 10×RAM VA on every tcl-spawned server. */
+        const char *env = getenv("QFORK_HEAP_BYTES");
+        if (env && env[0]) {
+            char *end = NULL;
+            unsigned long long n = strtoull(env, &end, 10);
+            if (end) {
+                if (*end == 'M' || *end == 'm')
+                    n *= 1024ull * 1024ull;
+                else if (*end == 'G' || *end == 'g')
+                    n *= 1024ull * 1024ull * 1024ull;
+            }
+            max_heap = (uint64_t)n;
+        }
+    }
+    if (max_heap == 0)
+        max_heap = memstatus.ullTotalPhys * 10;
     if (max_heap > cap)
         max_heap = cap;
     if (max_heap < QFORK_BLOCK_SIZE)
