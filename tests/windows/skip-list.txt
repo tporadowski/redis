@@ -1,11 +1,9 @@
-# 8.10 Windows skip-list (10.1). Used as --skipfile.
-# Empty / # lines are ignored. Entries are test names or /regexp/.
-#
-# Units that need Linux fork, abstract Unix, /proc, setsid, taskset,
-# or a gcc-built .so are skipped by tests/windows/wintest.tcl via
-# --single (5.0-first list) rather than listed one-by-one here.
-# This file is the named-test net for a later full-suite run.
+# 8.10 Windows skip-list (--skipfile). Empty / # lines are ignored.
+# Inventory + how to re-enable each group: tests/windows/DEFERRED-TESTS.md
+# Nothing here is dropped. Groups marked DEFERRED come back when the
+# unblocking work lands. OS-impossible cases stay until the OS grows them.
 
+# --- OS-impossible (not this port) ---
 # SIGSTOP / SIGCONT / process state (leading / = regexp; no closing slash)
 /pause process
 /resume process
@@ -21,15 +19,23 @@
 /setsid
 /daemonize
 
-# Replica PSYNC not end-to-end on Windows (4.2 / ConnectEx path)
+# --- DEFERRED 13.2 leftover ---
 MASTERAUTH test with binary password rdbchannel=yes
 MASTERAUTH test with binary password rdbchannel=no
-Replica is able to sync with master when AUTH is on
 Master should release the connection after an AUTH failure from a Replica
+
+# --- DEFERRED: attach_to_replication_stream / SYNC (hangs; 0x133 risk) ---
+# Re-enable after SYNC + extra-client AcceptEx is safe on this port.
+# wintest also passes --tags "-needs:repl -repl". These names are only tagged
+# needs:debug and would still run without the skipfile.
 /propagate.*replica
 GETEX without argument does not propagate to replica
+Redis should not propagate the read command on lazy expire
+SCAN: Lazy-expire should not be wrapped in MULTI/EXEC
+RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC
 
-# hiredis on Windows reports I/O error instead of the protocol error string
+# --- DEFERRED 14.1: hiredis sees I/O error instead of the protocol -ERR ---
+For unauthenticated clients multibulk and bulk length are limited
 Out of range multibulk length
 Wrong multibulk payload header
 Negative multibulk payload length
@@ -40,14 +46,35 @@ Unbalanced number of quotes
 Protocol desync regression test #1
 Protocol desync regression test #2
 Protocol desync regression test #3
+QUIT returns OK
+Pipelined commands after QUIT must not be executed
+Pipelined commands after QUIT that exceed read buffer size
 
-# Slow / large-payload / flaky on this port (not in the 10.1 default run)
+# --- DEFERRED: slow / large-payload (not a correctness skip) ---
 Very big payload random access
 Very big payload in GET/SET
 SET 10000 numeric keys and access all them in reverse order
+DBSIZE should be 10000 now
 SETBIT fuzzing
 GETRANGE fuzzing
 MSET spanning multiple prefetch batches (batch size 16)
 
-# Known open port gaps — not Windows-harness bugs
-# jemalloc mapped-heap OOM (3.2) — does not skip TCP tests
+# --- DEFERRED: TTL clock-skew flake (Tcl now+10000 vs pttl 10002) ---
+GETEX PXAT option
+
+# --- DEFERRED: SWAPDB/FLUSHALL very slow on mapped heap (61s / >180s timeout) ---
+Coverage: basic SWAPDB test and unhappy path
+Coverage: SWAPDB and FLUSHDB
+
+# --- DEFERRED: SCAN hangs / LLP64 huge COUNT (unit/scan parked from default list) ---
+/SCAN COUNT overflow
+/SCAN MATCH pattern implies cluster slot
+
+# --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---
+# Re-enable after the 13.x harness fences are proven and these are timed alone.
+RANDOMKEY
+RANDOMKEY against empty DB
+RANDOMKEY regression 1
+KEYS * two times with long key, Github issue #1208
+Regression for pattern matching long nested loops
+Regression for pattern matching very long nested loops

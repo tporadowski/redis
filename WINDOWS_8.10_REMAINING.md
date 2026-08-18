@@ -4,7 +4,7 @@
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
 | **Date** | 2026-08-17 |
-| **Status** | 12.x done; next is 13.1 |
+| **Status** | 13.1 done (fenced); 13.2 partial — see tracker |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -37,8 +37,8 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 11.3 | QFork | Done | QFork-child `BGREWRITEAOF`; restart loads MP-AOF |
 | 12.1 | Replication | Done | Diskful `PSYNC`; `SET` after full sync visible on replica |
 | 12.2 | Replication | Done | Diskless `PSYNC` + `rdbchannel`; live `SET` after sync |
-| 13.1 | Tests | Not started | Add passing 8.10 units to `wintest.tcl` (string minus skip-list, keyspace, expire, …) |
-| 13.2 | Tests | Not started | Replica Tcl cases off the skip-list (12.1 is green) |
+| 13.1 | Tests | Done | Fenced `wintest`: printver, incr, string, keyspace, expire, auth, protocol. Inventory: `tests/windows/DEFERRED-TESTS.md` |
+| 13.2 | Tests | Partial | AUTH replica sync green (`windows/regression`). Still skipped: binary `MASTERAUTH`, replica AUTH-fail `maxclients` |
 | 14.1 | Client | Not started | Protocol-error replies: hiredis should see the server error string, not only `I/O error reading reply` |
 | 14.2 | Vecsets | Not started | Optional: HNSW AVX on Windows if a clang-cl-safe CPU probe exists; else leave scalar |
 | 14.3 | AF_UNIX | Not started | Test/document NTFS DACL vs `unixsocketperm` (best-effort `_chmod`) |
@@ -68,11 +68,13 @@ jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the ma
 
 ## 13 — Test suite
 
-Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has smokes plus `unit/printver` + `unit/type/incr`.
+Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has smokes plus a widening 13.1 `wintest.tcl` list.
 
-**DoD for 13.1:** `runtest-win.ps1` includes more units that already pass (or pass after small harness fixes). 12.1 is green; 13.2 can take replica cases off the skip-list.
+**DoD for 13.1:** Met under fences. **13.2:** AUTH replica sync is in the default run. Binary `MASTERAUTH` and replica AUTH-fail `maxclients` stay on the skip-list (see DEFERRED-TESTS.md).
 
 **Stay skipped unless the OS grows the feature:** abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize`, `SIGSTOP` process-state tests, gcc `.so` moduleapi.
+
+**Deferred, not dropped:** every other skip is inventoried in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). Re-run those groups when the unblock column is done. Two `0x133 DPC_WATCHDOG_VIOLATION` resets (2026-08-17 12.x, 2026-08-18 13.x probe) are why the default run now: omits AF_UNIX unless `REDIS_TEST_UNIXSOCKET=1`, caps QFork at `QFORK_HEAP_BYTES=512M`, denies `needs:repl`/`repl`/`cluster`, skips `SYNC`/long `KEYS`/`RANDOMKEY`, runs one unit per process, kills leftover `redis-server`, and expects Defender exclusions (`tests/windows/defender-exclude.ps1`).
 
 ---
 

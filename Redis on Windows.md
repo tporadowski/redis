@@ -77,6 +77,9 @@ the heap by mapping pagefile sections `PAGE_WRITECOPY` and starting a child
 have a `maxheap` config key yet. Bound the dataset with **`maxmemory`**. Set
 `persistence-available no` if you do not want QFork init at all (no
 `BGSAVE` / `BGREWRITEAOF` / `SYNC` / `PSYNC` / `REPLCONF` / `BACKUP`).
+The Windows test runner sets **`QFORK_HEAP_BYTES=512M`** so each Tcl-spawned
+server does not reserve the default 10×RAM VA (a `0x133` DPC watchdog
+contributor). Production `redis-server.exe` is unchanged unless that env is set.
 
 The parent keeps jemalloc on the mapped heap (`g_BypassMemoryMapOnAlloc=0`).
 `BGSAVE` / `BGREWRITEAOF` spawn a `--QFork` child that `FILE_MAP_COPY`s the
@@ -186,21 +189,29 @@ Windows x64 `long` is 32-bit. This port keeps upstream `long` (no `PORT_LONG`).
 `arch_bits` is `sizeof(void *)`. CMake target `lint_llp64` /
 `tests/windows/lint-llp64.ps1` is the regression net (`llp64-allow.txt`).
 
-## Tests (10.1)
+## Tests (13.1)
 
 `tests/windows/runtest-win.ps1` (CMake target `wintest`):
 
 1. Load a Redis 5.0 `encodings.rdb` (`smoke_rdb50.ps1`).
-2. Run the 5.0-first Tcl units via Git `tclsh` (`wintest.tcl`: `unit/printver`,
-   `unit/type/incr`).
+2. Run one Tcl unit per process (`wintest.tcl`: `printver`, `type/incr`,
+   `type/string`, `keyspace`, `expire`, `auth`, `protocol`) with leftover
+   `redis-server` killed between units. `unit/scan` and `unit/quit` are
+   deferred (`DEFERRED-TESTS.md`).
 
 RDB/AOF files are opened with `fopen(..., "rb"/"wb")`. Text mode on Windows
 treats `0x1A` as EOF and truncated old RDBs.
 
-Skip-list: `tests/windows/skip-list.txt` (replica PSYNC, hiredis protocol-error
-close, Linux `fork`/`/proc`/`setsid`/`taskset`, abstract Unix). Lifted 5.0
-`tests/windows/regression.tcl` is in the tree; it is not in the default run
-until replica sync is end-to-end.
+Tcl-spawned servers do **not** listen on AF_UNIX unless `REDIS_TEST_UNIXSOCKET=1`
+(or the test overrides `unixsocket`). Dedicated coverage stays
+`tests/windows/smoke_unix.ps1`.
+
+Skip-list: `tests/windows/skip-list.txt`. **Deferred** groups (SYNC stream,
+long `KEYS`/`RANDOMKEY`, 13.2 replica Tcl, 14.1 protocol `-ERR`) are listed
+in `tests/windows/DEFERRED-TESTS.md` so they can be turned back on later.
+OS-impossible cases (abstract Unix, `/proc`, `setsid`, `taskset`, `daemonize`,
+`SIGSTOP`) stay skipped. Lifted 5.0 `tests/windows/regression.tcl` waits for
+13.2. Before a long run, `tests/windows/defender-exclude.ps1` (elevated).
 
 ## Modules
 

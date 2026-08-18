@@ -26,7 +26,7 @@ extern void *g_pQForkControl;
 extern int g_BypassMemoryMapOnAlloc;
 extern int g_HasMemoryMappedHeap;
 
-/* heap_bytes == 0 → default (10× physical RAM, cap 1 TB). */
+/* heap_bytes == 0 → QFORK_HEAP_BYTES env (M/G suffix ok), else 10× RAM, cap 1 TB. */
 int QForkParentInit(size_t heap_bytes);
 void QForkShutdown(void);
 
