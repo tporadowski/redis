@@ -95,6 +95,10 @@ void *QForkGetControlMap(void);
 int QForkProtectForFork(void);
 int QForkChildAttach(void *parent_process, void *control_map);
 int QForkRejoinAfterFork(void);
+/* hold=1 after PAGE_WRITECOPY until the --QFork child is reaped (or spawn
+ * fails). While held, empty 4 MB blocks stay mapped so the child can
+ * DuplicateHandle them. hold=0 unmaps any fully free blocks. */
+void QForkHoldUnmap(int hold);
 
 #ifndef QFORK_MAIN_IMPL
 #define main redis_main
