@@ -1658,7 +1658,7 @@ typedef struct {
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
-    long sampled; /* cumulative number of keys sampled */
+    long long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
     sds typename; /* typename string, NULL means no type filter */
     redisDb *db;  /* database reference for expiration checks */
@@ -1834,7 +1834,9 @@ static int scanShouldSkipDict(dict *d, int didx) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     int i, j;
-    long count = 10;
+    /* long long, not long: Windows LLP64 long is 32-bit; Linux SCAN COUNT
+     * accepts up to 2^63-1 (arch_bits is pointer width, not sizeof(long)). */
+    long long count = 10;
     sds pat = NULL;
     sds typename = NULL;
     long long type = LLONG_MAX;
@@ -1853,7 +1855,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     while (i < c->argc) {
         j = c->argc - i;
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
-            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
+            if (getLongLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
                 != C_OK)
             {
                 return;
@@ -1932,7 +1934,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
+        long long maxiterations = (count > LLONG_MAX / 10) ? LLONG_MAX : count * 10;
 
         /* We pass scanData which have three pointers to the callback:
          * 1. data.keys: the list to which it will add new elements;

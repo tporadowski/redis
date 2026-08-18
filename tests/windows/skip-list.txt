@@ -52,9 +52,6 @@ GETEX PXAT option
 Coverage: basic SWAPDB test and unhappy path
 Coverage: SWAPDB and FLUSHDB
 
-# --- DEFERRED: SCAN hangs / LLP64 huge COUNT (unit/scan parked from default list) ---
-/SCAN COUNT overflow
-/SCAN MATCH pattern implies cluster slot
 
 # --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---
 # Re-enable after the 13.x harness fences are proven and these are timed alone.

@@ -4,13 +4,27 @@ Every entry in `skip-list.txt` and every `--tags` deny below is temporary
 unless marked **OS-impossible**. Re-run the group when its unblock item
 lands. Default Windows run: `tests/windows/runtest-win.ps1`.
 
-Two `0x133 DPC_WATCHDOG_VIOLATION` resets (2026-08-17 ~21:42 during 12.x,
-2026-08-18 ~08:10 during 13.x) happened while `redis-server.exe` was under
-this suite. Fences: no default AF_UNIX listen, `QFORK_HEAP_BYTES=512M`,
+Three hard resets while `redis-server.exe` was under this suite:
+
+- 2026-08-17 ~21:42 (12.x) and 2026-08-18 ~08:10 (13.x): `0x133`
+  `DPC_WATCHDOG_VIOLATION` (no dump saved).
+- 2026-08-18 ~22:23 during a solo `unit/scan` (after the 75s
+  `{standalone} SCAN with expired keys with TYPE filter and PATTERN filter`,
+  before write-load finished): LiveKernelEvent **141**
+  (`VIDEO_ENGINE_TIMEOUT_DETECTED`) + **193**, then Kernel-Power 41 reboot
+  at 22:26. WER pointed at
+  `C:\WINDOWS\LiveKernelReports\WATCHDOG\WATCHDOG-20260818-2223.dmp`;
+  that file is not on disk after reboot (Minidump empty, no `MEMORY.DMP`,
+  no Event 1001 bugcheck dump). `CrashControl\AutoReboot` is still **1**;
+  `CrashDumpEnabled=3`. Defender exclude + AutoReboot=0 need an **elevated**
+  PowerShell — this session got HRESULT 0xc0000142.
+
+Fences: no default AF_UNIX listen, `QFORK_HEAP_BYTES=512M`,
 `--tags -needs:repl -repl -cluster`, this skip-list, one unit per `tclsh`,
-kill leftover `redis-server` between units. Defender exclusions
-(`tests/windows/defender-exclude.ps1`) need an **elevated** PowerShell —
-this session got HRESULT 0xc0000142. Same for `CrashControl\AutoReboot=0`.
+kill leftover `redis-server` between units. Do **not** put `unit/scan` on
+the default `wintest` list until expire+TYPE / write-load are fenced.
+COUNT overflow + `{foo}-*` MATCH are green in isolation (17.1 COUNT is
+`long long`).
 
 ## How to re-enable a group
 
@@ -37,9 +51,9 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | Large payload / 10k SET / fuzz | skip-list | timed solo run |
 | `GETEX PXAT option` (pttl 10002 vs 5000–10000) | skip-list | clock-skew / loosen assert |
 | SWAPDB / FLUSHALL coverage (61s / >180s) | skip-list | faster FLUSHALL on mapped heap |
-| `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo; hung 180s and killed the TUI |
+| `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
-| `SCAN COUNT overflow` / `SCAN MATCH pattern implies cluster slot` | skip-list | SCAN + LLP64 / cursor loop |
+| `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | Cluster Tcl | `--tags -cluster` | dedicated cluster runner |
 | AF_UNIX on every unit server | `server.tcl` default off | `REDIS_TEST_UNIXSOCKET=1`; 14.3 smoke is `smoke_unix.ps1` |
