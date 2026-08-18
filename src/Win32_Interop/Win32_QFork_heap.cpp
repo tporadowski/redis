@@ -788,14 +788,11 @@ int QForkRejoinAfterFork(void) {
 
 int CommitHeapBlock(void *addr, size_t size, int commit) {
     if (g_HasMemoryMappedHeap && addr_in_heap(addr)) {
-        /*
-         * Pagefile views cannot MEM_DECOMMIT/MEM_COMMIT the way VirtualAlloc
-         * regions can. Leave them committed; PurgePages (MEM_RESET) is the
-         * discard path. Returning success keeps jemalloc from treating a
-         * failed VirtualFree as OOM on a live slab.
-         */
-        (void)size;
-        (void)commit;
+        /* Cannot MEM_DECOMMIT a pagefile view. jemalloc still calls decommit
+         * on decay/arena.purge — DiscardVirtualMemory so the working set
+         * actually drops. Recommit is demand-zero on next touch. */
+        if (!commit && !g_BypassMemoryMapOnAlloc)
+            PurgePages(addr, size);
         return TRUE;
     }
     if (commit)

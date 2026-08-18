@@ -92,7 +92,8 @@ void je_free_with_usize(void *ptr, size_t *usize);
  * and a 1000-slot tcache would cache gigabytes. LG_PAGE is 16 now (64 KB).
  */
 #ifdef _WIN32
-const char *je_malloc_conf = "narenas:1,tcache_nslots_small_max:8";
+const char *je_malloc_conf =
+    "narenas:1,tcache_nslots_small_max:8,dirty_decay_ms:0,muzzy_decay_ms:0";
 #else
 const char *je_malloc_conf =
     "lg_tcache_nslots_mul:3,tcache_nslots_small_max:1000";

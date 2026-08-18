@@ -15,7 +15,8 @@
 #include <windows.h>
 #endif
 
-const char *je_malloc_conf = "narenas:1,tcache_nslots_small_max:8";
+const char *je_malloc_conf =
+    "narenas:1,tcache_nslots_small_max:8,dirty_decay_ms:0,muzzy_decay_ms:0";
 
 #define BLOCK ((size_t)1 << 22)
 
@@ -95,7 +96,26 @@ int main(int argc, char **argv) {
     for (i = 0; i < 256; i++)
         je_free(mix[i]);
 
+    /* arena.<narenas>.purge == all arenas; must not fail on the mapped heap. */
+    {
+        unsigned narenas = 0;
+        size_t sz = sizeof(narenas);
+        char tmp[32];
+        if (je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
+            fprintf(stderr, "FAIL arenas.narenas\n");
+            QForkShutdown();
+            return 7;
+        }
+        snprintf(tmp, sizeof(tmp), "arena.%u.purge", narenas);
+        if (je_mallctl(tmp, NULL, 0, NULL, 0)) {
+            fprintf(stderr, "FAIL %s\n", tmp);
+            QForkShutdown();
+            return 7;
+        }
+        fprintf(stderr, "ok arena.%u.purge after frees\n", narenas);
+    }
+
     QForkShutdown();
-    printf("ok mapped jemalloc (16-byte + mixed + kvstore-ish)\n");
+    printf("ok mapped jemalloc (16-byte + mixed + kvstore-ish + purge)\n");
     return 0;
 }
