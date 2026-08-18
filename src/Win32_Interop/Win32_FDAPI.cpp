@@ -516,6 +516,17 @@ int ftruncate(int fd, off_t length) {
     return crt_chsize64(crt, length);
 }
 
+/* Unread recv data + closesocket() is RST on Windows, which drops any
+ * just-queued send (protocol -ERR, QUIT +OK). shutdown(SD_SEND) + drain
+ * so the peer sees the reply then FIN. */
+static void win32_socket_flush_then_close(SOCKET s) {
+    char buf[512];
+    u_long nb = 1;
+    (void)shutdown(s, SD_SEND);
+    (void)ioctlsocket(s, FIONBIO, &nb);
+    while (recv(s, buf, (int)sizeof(buf), 0) > 0) {}
+}
+
 int fdapi_close(int fd) {
     SOCKET s = sock_of(fd);
     if (s != INVALID_SOCKET) {
@@ -523,6 +534,7 @@ int fdapi_close(int fd) {
             g_close_sock_state(fd);
         RFDMap::getInstance().removeRFDToSocketInfo(fd);
         RFDMap::getInstance().removeSocketToRFD(s);
+        win32_socket_flush_then_close(s);
         if (closesocket(s) == SOCKET_ERROR) {
             set_wsa_errno(0);
             return -1;

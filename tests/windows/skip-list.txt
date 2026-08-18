@@ -34,21 +34,12 @@ Redis should not propagate the read command on lazy expire
 SCAN: Lazy-expire should not be wrapped in MULTI/EXEC
 RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC
 
-# --- DEFERRED 14.1: hiredis sees I/O error instead of the protocol -ERR ---
-For unauthenticated clients multibulk and bulk length are limited
-Out of range multibulk length
-Wrong multibulk payload header
-Negative multibulk payload length
-Out of range multibulk payload length
-Non-number multibulk payload length
-Multi bulk request not followed by bulk arguments
-Unbalanced number of quotes
+# --- DEFERRED: protocol desync flood (raw Tcl socket; write-fail then gets is empty) ---
+# 14.1 hiredis/redis.tcl protocol -ERR path is green. These three still
+# read "" after the client keeps writing past CLOSE_AFTER_REPLY.
 Protocol desync regression test #1
 Protocol desync regression test #2
 Protocol desync regression test #3
-QUIT returns OK
-Pipelined commands after QUIT must not be executed
-Pipelined commands after QUIT that exceed read buffer size
 
 # --- DEFERRED: slow / large-payload (not a correctness skip) ---
 Very big payload random access

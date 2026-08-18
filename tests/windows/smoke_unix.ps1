@@ -58,6 +58,16 @@ try {
     if (-not (Test-Path $sock)) { throw "socket file missing: $sock" }
     Write-Host "ok unixsocket PING ($sock)"
 
+    # 14.3: unixsocketperm 700 is not Linux mode bits. CRT _chmod only
+    # toggles the owner write flag; the ACL is the creating user's NTFS DACL.
+    $item = Get-Item -LiteralPath $sock
+    if (-not $item) { throw "Get-Item failed for $sock" }
+    $acl = Get-Acl -LiteralPath $sock
+    $owner = $acl.Owner
+    if (-not $owner) { throw "socket has no NTFS owner" }
+    Write-Host "ok unixsocket NTFS owner=$owner attributes=$($item.Attributes) (unixsocketperm is not 0700)"
+    if ($acl.Access.Count -lt 1) { throw "socket DACL is empty" }
+
     $set = Invoke-UnixRedis @("SET", "k", "v")
     if ($set -ne "OK") { throw "SET over unixsocket: $set" }
     $get = Invoke-UnixRedis @("GET", "k")

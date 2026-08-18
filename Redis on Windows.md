@@ -158,11 +158,18 @@ The 9.3 gate stays on IOCP (not wepoll). TLS + `io-threads 4` is
 
 `SO_REUSEADDR` is skipped (it fails the bind). A leftover socket file
 from a crash is `DeleteFile`d before bind. `unixsocketperm` is
-best-effort `_chmod`; the real ACL is the process token’s default NTFS
-DACL (typically the creating user and Administrators). Do not treat
-`unixsocketperm 700` as Linux-equivalent.
+best-effort CRT `_chmod` (owner write bit only). The real ACL is the
+process token’s default NTFS DACL (typically the creating user and
+Administrators). Do not treat `unixsocketperm 700` as Linux `0700`.
+`tests/windows/smoke_unix.ps1` checks the socket file exists and prints
+the NTFS owner.
 
-`redis-cli -s path\to\redis.sock PING`. Smoke: `tests/windows/smoke_unix.ps1`.
+`redis-cli -s path\to\redis.sock PING`.
+
+Protocol errors (`-ERR Protocol error: …`) and `QUIT +OK` are written,
+then the socket is `shutdown(SD_SEND)` and the recv queue is drained
+before `closesocket`. A plain close with unread recv data is RST on
+Windows and used to drop that reply (`I/O error reading reply`).
 
 ## TLS
 
@@ -195,9 +202,9 @@ Windows x64 `long` is 32-bit. This port keeps upstream `long` (no `PORT_LONG`).
 
 1. Load a Redis 5.0 `encodings.rdb` (`smoke_rdb50.ps1`).
 2. Run one Tcl unit per process (`wintest.tcl`: `printver`, `type/incr`,
-   `type/string`, `keyspace`, `expire`, `auth`, `protocol`) with leftover
-   `redis-server` killed between units. `unit/scan` and `unit/quit` are
-   deferred (`DEFERRED-TESTS.md`).
+   `type/string`, `keyspace`, `expire`, `auth`, `protocol`, `quit`,
+   `windows/regression`) with leftover `redis-server` killed between units.
+   `unit/scan` is deferred (`DEFERRED-TESTS.md`).
 
 RDB/AOF files are opened with `fopen(..., "rb"/"wb")`. Text mode on Windows
 treats `0x1A` as EOF and truncated old RDBs.
@@ -230,8 +237,9 @@ not `malloc`/`HeapAlloc`, so they sit on the Redis heap.
 
 In-tree **vector-sets** (`VADD`, `VSIM`, `VCARD`, …) are compiled into
 `redis-server` when CMake `INCLUDE_VEC_SETS=ON` (the default). They are
-not a separate `.dll`. HNSW uses the scalar distance path on Windows
-(clang-cl has no `__cpu_model` for `__builtin_cpu_supports`).
+not a separate `.dll`. HNSW AVX2 is selected at runtime with `__cpuid` /
+`_xgetbv` (OSXSAVE + YMM). AVX-512 stays off. `__builtin_cpu_supports`
+is not used on `_WIN32`.
 
 Bundled Rust modules (Search, JSON, Time Series, Bloom) are out of scope.
 

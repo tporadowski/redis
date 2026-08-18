@@ -50,17 +50,46 @@
 /* Check if we can compile SIMD code with function attributes.
  * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
  * supports the target() attribute for runtime CPU feature dispatch. */
-#if defined(__x86_64__) && !defined(_WIN32) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
     #if defined(__has_attribute) && __has_attribute(target)
         #define HAVE_AVX2
+        #ifndef _WIN32
         #define HAVE_AVX512
+        #endif
         #define HAVE_POPCNT
     #endif
 #endif
 
+#ifdef _WIN32
+#include <intrin.h>
+/* clang-cl: __builtin_cpu_supports / __cpu_model are not reliable.
+ * Probe OSXSAVE + XCR0 + leaf 7 so we never run AVX2 if the OS did not
+ * enable YMM. AVX-512 stays off on this port (no clang-cl-safe XCR0 mask
+ * story we want to ship). */
+static int vset_cpuid_bit(int leaf, int sub, int reg, int bit) {
+    int info[4];
+    __cpuid(info, 0);
+    if (info[0] < leaf) return 0;
+    __cpuidex(info, leaf, sub);
+    return (info[reg] >> bit) & 1;
+}
+static int vset_os_ymm(void) {
+    int info[4];
+    __cpuid(info, 1);
+    if (!(info[2] & (1 << 27))) return 0; /* OSXSAVE */
+    unsigned long long xcr0 = _xgetbv(0);
+    return (xcr0 & 6u) == 6u; /* XMM+YMM */
+}
+#define VSET_CPU_AVX2 (vset_os_ymm() && vset_cpuid_bit(7, 0, 1, 5) && vset_cpuid_bit(1, 0, 2, 12))
+#define VSET_CPU_POPCNT vset_cpuid_bit(1, 0, 2, 23)
+#else
+#define VSET_CPU_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#define VSET_CPU_POPCNT __builtin_cpu_supports("popcnt")
+#endif
+
 #if defined(HAVE_POPCNT)
     #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
-    #define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
+    #define VSET_USE_POPCNT VSET_CPU_POPCNT
 #else
     #define ATTRIBUTE_TARGET_POPCNT
     #define VSET_USE_POPCNT 0
@@ -69,7 +98,7 @@
 #if defined(HAVE_AVX2)
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
 #define ATTRIBUTE_TARGET_AVX2_POPCNT __attribute__((target("avx2,fma,popcnt")))
-#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#define VSET_USE_AVX2 VSET_CPU_AVX2
 #else
 #define ATTRIBUTE_TARGET_AVX2
 #define ATTRIBUTE_TARGET_AVX2_POPCNT
@@ -252,7 +281,7 @@ static inline int hnsw_cpu_supports_popcnt(void) {
 #if defined(HAVE_POPCNT)
     static __thread int popcnt_supported = -1;
     if (popcnt_supported == -1) {
-        popcnt_supported = __builtin_cpu_supports("popcnt");
+        popcnt_supported = VSET_CPU_POPCNT;
     }
     return popcnt_supported;
 #else
