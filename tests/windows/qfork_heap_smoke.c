@@ -1,9 +1,20 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <stdio.h>
 #include <string.h>
 #include "Win32_QFork.h"
 
 #define BLOCK ((size_t)1 << 22)
+
+static int va_committed(void *p) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(p, &mbi, sizeof(mbi)))
+        return 0;
+    return mbi.State == MEM_COMMIT;
+}
 
 int main(void) {
     void *before = AllocHeapBlock(NULL, BLOCK, 1);
@@ -55,6 +66,11 @@ int main(void) {
         QForkShutdown();
         return 5;
     }
+    if (va_committed(a)) {
+        fprintf(stderr, "expected unmap after last slot free at %p\n", a);
+        QForkShutdown();
+        return 5;
+    }
 
     void *b = AllocHeapBlock(NULL, BLOCK, 1);
     if (b != a) {
@@ -63,6 +79,49 @@ int main(void) {
         return 6;
     }
     FreeHeapBlock(b, BLOCK);
+
+    QForkHoldUnmap(1);
+    void *held = AllocHeapBlock(NULL, BLOCK, 0);
+    if (held == NULL) {
+        fprintf(stderr, "hold alloc failed\n");
+        QForkShutdown();
+        return 6;
+    }
+    if (!FreeHeapBlock(held, BLOCK) || !va_committed(held)) {
+        fprintf(stderr, "hold should keep the 4MB view mapped\n");
+        QForkShutdown();
+        return 6;
+    }
+    QForkHoldUnmap(0);
+    if (va_committed(held)) {
+        fprintf(stderr, "hold release should unmap empty blocks\n");
+        QForkShutdown();
+        return 6;
+    }
+    {
+        int i;
+        void *p0 = NULL;
+        for (i = 0; i < 32; i++) {
+            void *p = AllocHeapBlock(NULL, BLOCK, 0);
+            if (p == NULL) {
+                fprintf(stderr, "remap cycle alloc failed at %d\n", i);
+                QForkShutdown();
+                return 6;
+            }
+            if (i == 0)
+                p0 = p;
+            else if (p != p0) {
+                fprintf(stderr, "remap cycle %d expected %p got %p\n", i, p0, p);
+                QForkShutdown();
+                return 6;
+            }
+            if (!FreeHeapBlock(p, BLOCK) || va_committed(p)) {
+                fprintf(stderr, "remap cycle unmap failed at %d\n", i);
+                QForkShutdown();
+                return 6;
+            }
+        }
+    }
 
     void *slot = AllocHeapBlock(NULL, (size_t)1 << 16, 1);
     if (slot == NULL) {

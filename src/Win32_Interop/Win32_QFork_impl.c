@@ -449,6 +449,8 @@ int win32RedisFork(int purpose) {
         errno = EIO;
         return -1;
     }
+    /* Keep empty 4 MB sections mapped until waitpid reaps this child. */
+    QForkHoldUnmap(1);
 
     unsigned long child_pid = 0;
     HANDLE hProcess = NULL;
@@ -456,6 +458,7 @@ int win32RedisFork(int purpose) {
     if (!QForkSpawnChild(hPayload, abort_ev, &child_pid, (void **)&hProcess,
                          socket_job, socket_job ? (void **)&hThread : NULL)) {
         QForkRejoinAfterFork();
+        QForkHoldUnmap(0);
         win32ThawAfterSnapshot();
         UnmapViewOfFile(hdr);
         CloseHandle(hPayload);
@@ -477,6 +480,7 @@ int win32RedisFork(int purpose) {
                 CloseHandle(hThread);
                 CloseHandle(hProcess);
                 QForkRejoinAfterFork();
+                QForkHoldUnmap(0);
                 win32ThawAfterSnapshot();
                 UnmapViewOfFile(hdr);
                 CloseHandle(hPayload);
@@ -495,6 +499,7 @@ int win32RedisFork(int purpose) {
         serverLog(LL_WARNING, "QFork: rejoin after CreateProcess failed");
         TerminateProcess(hProcess, 1);
         CloseHandle(hProcess);
+        QForkHoldUnmap(0);
         UnmapViewOfFile(hdr);
         CloseHandle(hPayload);
         if (abort_ev)

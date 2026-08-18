@@ -8,6 +8,9 @@
 #include "win32_types.h"
 #include "Win32_Signal.h"
 
+/* Heap hold: do not include Win32_QFork.h (it remaps main). */
+void QForkHoldUnmap(int hold);
+
 #ifndef WNOHANG
 #define WNOHANG 1
 #endif
@@ -63,6 +66,8 @@ void winpid_unregister(pid_t pid) {
     EnterCriticalSection(&g_lock);
     for (int i = 0; i < WP_MAX; i++) {
         if (g_pids[i].used && g_pids[i].pid == pid) {
+            if (g_pids[i].kind == WP_QFORK && g_pids[i].retain)
+                QForkHoldUnmap(0);
             if (g_pids[i].retain) {
                 CloseHandle(g_pids[i].retain);
                 g_pids[i].retain = NULL;

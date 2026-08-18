@@ -58,7 +58,9 @@ int g_HasMemoryMappedHeap = 0;
 int g_PersistenceDisabled = 0;
 
 static HANDLE g_hQForkControlFileMap = NULL;
+static volatile long g_unmap_hold;
 static int heap_log_on(void);
+static void unmap_block_if_empty(QForkControl *c, int blk);
 
 static QForkControl *ctrl(void) {
     return (QForkControl *)g_pQForkControl;
@@ -83,6 +85,13 @@ static HANDLE CreateBlockMap(int blockIndex) {
     }
 
     LPVOID addr = (BYTE *)ctrl()->heapStart + (size_t)blockIndex * QFORK_BLOCK_SIZE;
+    /* Drop the MEM_RESERVE hole we left after a previous unmap. */
+    {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery(addr, &mbi, sizeof(mbi)) &&
+            mbi.AllocationBase == addr && mbi.State == MEM_RESERVE)
+            VirtualFree(addr, 0, MEM_RELEASE);
+    }
     if (!MapViewOfFileEx(map, FILE_MAP_ALL_ACCESS, 0, 0, 0, addr)) {
         fprintf(stderr, "CreateBlockMap: MapViewOfFileEx(%p) failed gle=%lu\n",
                 addr, GetLastError());
@@ -212,14 +221,19 @@ void QForkShutdown(void) {
     QForkControl *c = ctrl();
     if (c) {
         for (int i = 0; i < c->maxAvailableBlocks; i++) {
+            LPVOID addr = (BYTE *)c->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
             if (c->heapBlockList[i].state == bsMAPPED_IN_USE ||
                 c->heapBlockList[i].state == bsMAPPED_FREE) {
-                LPVOID addr = (BYTE *)c->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
                 UnmapViewOfFile(addr);
                 if (c->heapBlockList[i].heapMap) {
                     CloseHandle(c->heapBlockList[i].heapMap);
                     c->heapBlockList[i].heapMap = NULL;
                 }
+            } else if (c->heapBlockList[i].state == bsUNMAPPED) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (VirtualQuery(addr, &mbi, sizeof(mbi)) &&
+                    mbi.AllocationBase == addr && mbi.State == MEM_RESERVE)
+                    VirtualFree(addr, 0, MEM_RELEASE);
             }
         }
         UnmapViewOfFile(c);
@@ -572,6 +586,51 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
     return got;
 }
 
+static void unmap_block_if_empty(QForkControl *c, int blk) {
+    if (!block_valid(c, blk) || c->heapBlockList[blk].used != 0)
+        return;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return;
+    /* Child process, or parent during a live --QFork COW: keep the section
+     * so QForkChildAttach can DuplicateHandle. */
+    if (g_BypassMemoryMapOnAlloc || g_unmap_hold > 0) {
+        if (c->heapBlockList[blk].state == bsMAPPED_IN_USE)
+            c->heapBlockList[blk].state = bsMAPPED_FREE;
+        return;
+    }
+    HANDLE map = c->heapBlockList[blk].heapMap;
+    LPVOID base = (BYTE *)c->heapStart + (size_t)blk * QFORK_BLOCK_SIZE;
+    if (map) {
+        UnmapViewOfFile(base);
+        CloseHandle(map);
+        c->heapBlockList[blk].heapMap = NULL;
+        if (c->numMappedBlocks > 0)
+            c->numMappedBlocks -= 1;
+    }
+    /* Hold the VA so a later MapViewOfFileEx can reuse this block. */
+    VirtualAlloc(base, QFORK_BLOCK_SIZE, MEM_RESERVE, PAGE_NOACCESS);
+    c->heapBlockList[blk].state = bsUNMAPPED;
+}
+
+void QForkHoldUnmap(int hold) {
+    if (hold) {
+        InterlockedIncrement(&g_unmap_hold);
+        return;
+    }
+    LONG v = InterlockedDecrement(&g_unmap_hold);
+    if (v < 0) {
+        InterlockedIncrement(&g_unmap_hold);
+        return;
+    }
+    if (v != 0)
+        return;
+    QForkControl *c = ctrl();
+    if (!c || g_BypassMemoryMapOnAlloc)
+        return;
+    for (int i = 0; i < c->maxAvailableBlocks; i++)
+        unmap_block_if_empty(c, i);
+}
+
 int FreeHeapBlock(void *addr, size_t size) {
     if (size == 0)
         return FALSE;
@@ -594,17 +653,17 @@ int FreeHeapBlock(void *addr, size_t size) {
     if (slotStart < 0 || slotStart + n > total_slots)
         return FALSE;
 
+    int first_blk = slotStart / (int)QFORK_SLOTS_PER_BLOCK;
+    int last_blk = (slotStart + n - 1) / (int)QFORK_SLOTS_PER_BLOCK;
     for (int i = 0; i < n; i++) {
         int slot = slotStart + i;
         int blk = slot / (int)QFORK_SLOTS_PER_BLOCK;
         int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
         c->heapBlockList[blk].used &= ~(1ull << bit);
-        if (c->heapBlockList[blk].used == 0 &&
-            c->heapBlockList[blk].state == bsMAPPED_IN_USE)
-            c->heapBlockList[blk].state = bsMAPPED_FREE;
     }
+    for (int blk = first_blk; blk <= last_blk; blk++)
+        unmap_block_if_empty(c, blk);
 
-    int first_blk = slotStart / (int)QFORK_SLOTS_PER_BLOCK;
     if (c->blockSearchStart > first_blk)
         c->blockSearchStart = first_blk;
     return TRUE;
