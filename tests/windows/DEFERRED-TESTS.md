@@ -17,7 +17,7 @@ this session got HRESULT 0xc0000142. Same for `CrashControl\AutoReboot=0`.
 1. Remove the names/regexes from `skip-list.txt` (and drop the matching
    `--tags` deny in `wintest.tcl` if that is what hid the group).
 2. Run **that unit only**:
-   `pwsh tests/windows/runtest-win.ps1 -Single unit/keyspace`
+   `powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows/runtest-win.ps1 -Single unit/keyspace`
 3. Keep `QFORK_HEAP_BYTES` and leftover-kill. Do not batch KEYS globs
    with SYNC tests until those two are green alone.
 
@@ -34,20 +34,20 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | **13.2 leftover** `MASTERAUTH` binary password | skip-list | replica + binary `masterauth` |
 | **13.2 leftover** AUTH-fail replica does not drop the client (`maxclients`) | skip-list | replica AUTH failure close |
 | `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, plus three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
-| **14.1** protocol `-ERR` vs hiredis `I/O error` (incl. pipelined QUIT) | skip-list | 14.1 |
+| **14.1 leftover** protocol desync flood #1–#3 (raw Tcl `gets` empty) | skip-list | client still writing when we FIN |
 | Large payload / 10k SET / fuzz | skip-list | timed solo run |
 | `GETEX PXAT option` (pttl 10002 vs 5000–10000) | skip-list | clock-skew / loosen assert |
 | SWAPDB / FLUSHALL coverage (61s / >180s) | skip-list | faster FLUSHALL on mapped heap |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo; hung 180s and killed the TUI |
-| `unit/quit` (QUIT + pipelined after QUIT) | skip-list + not in default list | 14.1 hiredis close vs `+OK` |
+| `unit/quit` | default `wintest.tcl` (14.1) | green |
 | `SCAN COUNT overflow` / `SCAN MATCH pattern implies cluster slot` | skip-list | SCAN + LLP64 / cursor loop |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | Cluster Tcl | `--tags -cluster` | dedicated cluster runner |
-| AF_UNIX on every unit server | `server.tcl` default off | `REDIS_TEST_UNIXSOCKET=1` or 14.3 |
+| AF_UNIX on every unit server | `server.tcl` default off | `REDIS_TEST_UNIXSOCKET=1`; 14.3 smoke is `smoke_unix.ps1` |
 
 ## 13.1 default units
 
 `unit/printver`, `unit/type/incr`, `unit/type/string`, `unit/keyspace`,
-`unit/expire`, `unit/auth`, `unit/protocol`, `windows/regression`.
-`unit/scan` hung mid-unit (TUI died). `unit/quit` is 14.1 hiredis close.
+`unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`, `windows/regression`.
+`unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.

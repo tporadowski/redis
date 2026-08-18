@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
-# Defender exclusions for the 13.x Tcl runner. Needs elevation.
+# Defender exclusions for the 13.x Tcl runner. Needs an elevated
+# Windows PowerShell (this box has no `pwsh` / PowerShell 7):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\windows\defender-exclude.ps1
 # Re-enable later: Remove-MpPreference -ExclusionPath/-ExclusionProcess ...
 param(
     [string]$Repo = ""

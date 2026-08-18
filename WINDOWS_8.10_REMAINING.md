@@ -4,7 +4,7 @@
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
 | **Date** | 2026-08-17 |
-| **Status** | 13.1 done (fenced); 13.2 partial — see tracker |
+| **Status** | 14.x done; 13.2 leftover + later items remain |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -39,9 +39,9 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 12.2 | Replication | Done | Diskless `PSYNC` + `rdbchannel`; live `SET` after sync |
 | 13.1 | Tests | Done | Fenced `wintest`: printver, incr, string, keyspace, expire, auth, protocol. Inventory: `tests/windows/DEFERRED-TESTS.md` |
 | 13.2 | Tests | Partial | AUTH replica sync green (`windows/regression`). Still skipped: binary `MASTERAUTH`, replica AUTH-fail `maxclients` |
-| 14.1 | Client | Not started | Protocol-error replies: hiredis should see the server error string, not only `I/O error reading reply` |
-| 14.2 | Vecsets | Not started | Optional: HNSW AVX on Windows if a clang-cl-safe CPU probe exists; else leave scalar |
-| 14.3 | AF_UNIX | Not started | Test/document NTFS DACL vs `unixsocketperm` (best-effort `_chmod`) |
+| 14.1 | Client | Done | `shutdown(SD_SEND)` + drain before `closesocket`; protocol `-ERR` / QUIT `+OK` visible. Desync flood tests still skip (raw Tcl) |
+| 14.2 | Vecsets | Done | clang-cl AVX2 via `__cpuid`/`_xgetbv`; AVX-512 stays off |
+| 14.3 | AF_UNIX | Done | `smoke_unix.ps1` checks socket exists + NTFS owner/DACL; `unixsocketperm` is not Linux `0700` |
 | 15.1 | Product | Deferred | Tag `v8.10.0-win.1` + switch default branch — **only when asked** |
 | 16.1 | Modules | Out of queue | Bundled Rust Search/JSON/TS/Bloom — next program |
 | 16.2 | Modules | Out of queue | Faithful `RedisModule_Fork` stack continuation — Decision 26; `SetForkChildFn` stays the contract |
@@ -80,9 +80,9 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 
 ## 14 — Smaller contracts
 
-- **14.1** Protocol tests expect `*invalid multibulk length*` etc. hiredis on Windows often reports `I/O error reading reply` (connection reset vs reading the `-ERR`). Fix so the client sees the server’s error when it was sent.
-- **14.2** Vector-sets use the scalar HNSW path (`__builtin_cpu_supports` / `__cpu_model` missing in clang-cl). Optional speed-up only.
-- **14.3** `unixsocketperm` is not Linux mode bits. Document + a smoke that the socket file exists and a second user/ACL story is NTFS, not `0700`.
+- **14.1** Met: `fdapi_close` does `shutdown(SD_SEND)` then non-blocking recv drain so Windows does not RST and drop the just-written `-ERR` / `+OK`. `unit/protocol` (minus the three desync flood cases), `unit/quit`, and unauthenticated multibulk are green. Desync tests stay on the skip-list: the client keeps writing after close and `gets` is empty.
+- **14.2** Met: HNSW AVX2 on clang-cl uses `__cpuid`/`_xgetbv` (OSXSAVE + YMM). `__builtin_cpu_supports` is not used on `_WIN32`. AVX-512 stays scalar-off.
+- **14.3** Met: `smoke_unix.ps1` asserts the socket file exists and prints NTFS owner/DACL. `unixsocketperm` still goes through CRT `_chmod` (owner write bit only), not POSIX `0700`.
 
 `pthread_cancel` stays `ENOSYS` (Decision 11). BIO/IO already cooperative-join. Not a 14.x unless a real shutdown hang appears.
 

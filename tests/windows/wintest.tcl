@@ -34,6 +34,7 @@ set units {
     unit/expire
     unit/auth
     unit/protocol
+    unit/quit
     windows/regression
 }
 
