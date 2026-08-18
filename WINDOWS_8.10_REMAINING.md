@@ -4,7 +4,7 @@
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
 | **Date** | 2026-08-18 |
-| **Status** | 13.x–14.x done; 17.1–17.3 QFork/SCAN heap |
+| **Status** | 13.x–14.x done; 17.1–17.4 QFork/SCAN heap |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -22,7 +22,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## Priority
 
-13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1–17.3 (COUNT parse, block-first alloc, unmap empty 4 MB blocks) are **Done**. Next QFork items if asked: `MEM_RESET` on free; jemalloc decay/purge; try `LG_PAGE` 18/20.
+13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1–17.4 (COUNT parse, block-first alloc, unmap empty 4 MB, `MEM_RESET` on free) are **Done**. Next QFork items if asked: jemalloc decay/purge; try `LG_PAGE` 18/20.
 
 1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
 
@@ -48,6 +48,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 17.1 | SCAN | Partial | COUNT parsed as `long long` (LLP64). Isolated COUNT overflow + `{foo}-*` MATCH green. Full `unit/scan` parked (LiveKernel 141) |
 | 17.2 | QFork | Done | Block-first alloc: search 4 MB blocks, then bit-run in `used[]`. No per-slot walk of the heap |
 | 17.3 | QFork | Done | Unmap a 4 MB block when all 64 slots are free; hold the VA with `MEM_RESERVE`. No unmap while a COW child is live (`QForkHoldUnmap`) |
+| 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 
 ---
 
@@ -97,7 +98,9 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 
 **17.2** Met: `AllocHeapBlock` searches **4 MB blocks** first (skip `used == ~0` in O(1)), then a bit-run inside the block. Cross-block seam and multi-block requests stay correct. Smoke: `qfork_heap_smoke` (burst + holes + 8 MB + seam) and `mapped_jemalloc_smoke`.
 
-**17.3** Met: last slot free → `UnmapViewOfFile` + `CloseHandle` + `MEM_RESERVE` hole so the VA stays ours. `QForkHoldUnmap(1)` after `PAGE_WRITECOPY` until `waitpid` reaps the payload-retaining QFork child (dummy `--QForkExit` has no retain). Hold release sweeps leftover `MAPPED_FREE` blocks. Next if asked: `MEM_RESET` on free, jemalloc decay.
+**17.3** Met: last slot free → `UnmapViewOfFile` + `CloseHandle` + `MEM_RESERVE` hole so the VA stays ours. `QForkHoldUnmap(1)` after `PAGE_WRITECOPY` until `waitpid` reaps the payload-retaining QFork child (dummy `--QForkExit` has no retain). Hold release sweeps leftover `MAPPED_FREE` blocks.
+
+**17.4** Met: `FreeHeapBlock` calls `PurgePages` before unmapping empty blocks. `MEM_RESET` on a pagefile `MapViewOfFile` does **not** demand-zero; `PurgePages` uses `DiscardVirtualMemory` first (Win 8.1+), then `MEM_RESET`. Hole recycle is demand-zero in `qfork_heap_smoke`. Skipped in the QFork child. Next if asked: jemalloc decay, `LG_PAGE` 18/20.
 
 ---
 
@@ -132,3 +135,4 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 | 17.1 | `fix: SCAN COUNT long long on LLP64` | 10.4 |
 | 17.2 | `perf: QFork block-first heap search` | 11.1 |
 | 17.3 | `perf: unmap empty QFork 4MB blocks` | 17.2 |
+| 17.4 | `perf: discard QFork slots on free` | 17.3 |

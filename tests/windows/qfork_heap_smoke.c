@@ -123,6 +123,38 @@ int main(void) {
         }
     }
 
+    /* Partial free: MEM_RESET the hole, block stays mapped (sibling slot). */
+    {
+        const size_t slot_sz = (size_t)1 << 16;
+        void *keep = AllocHeapBlock(NULL, slot_sz, 0);
+        void *hole = AllocHeapBlock(NULL, slot_sz, 0);
+        if (!keep || !hole) {
+            fprintf(stderr, "MEM_RESET pair alloc failed\n");
+            QForkShutdown();
+            return 7;
+        }
+        memset(hole, 0xAB, slot_sz);
+        if (!FreeHeapBlock(hole, slot_sz)) {
+            fprintf(stderr, "MEM_RESET hole free failed\n");
+            QForkShutdown();
+            return 7;
+        }
+        void *again = AllocHeapBlock(NULL, slot_sz, 0);
+        if (again != hole) {
+            fprintf(stderr, "MEM_RESET expected recycle %p got %p\n", hole, again);
+            QForkShutdown();
+            return 7;
+        }
+        if (((unsigned char *)again)[0] != 0 ||
+            ((unsigned char *)again)[slot_sz - 1] != 0) {
+            fprintf(stderr, "MEM_RESET hole was not demand-zero\n");
+            QForkShutdown();
+            return 7;
+        }
+        FreeHeapBlock(again, slot_sz);
+        FreeHeapBlock(keep, slot_sz);
+    }
+
     void *slot = AllocHeapBlock(NULL, (size_t)1 << 16, 1);
     if (slot == NULL) {
         fprintf(stderr, "64KB slot alloc failed\n");
