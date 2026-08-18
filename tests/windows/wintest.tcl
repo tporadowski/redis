@@ -68,12 +68,23 @@ if {![info exists ::env(QFORK_HEAP_BYTES)] || $::env(QFORK_HEAP_BYTES) eq ""} {
 }
 
 # SYNC / replica-stream / cluster stay denied until DEFERRED-TESTS.md says otherwise.
-set argv [list --clients 1 --timeout 180 --skipfile tests/windows/skip-list.txt \
-    --tags "-needs:repl -repl -cluster"]
+# unit/scan is ~3–4 min (write-load + issue #4906); 180s kills it mid-populate.
 set has_single 0
-foreach o $rest {
-    if {$o eq "--single"} { set has_single 1 }
+set singles {}
+for {set i 0} {$i < [llength $rest]} {incr i} {
+    if {[lindex $rest $i] eq "--single"} {
+        set has_single 1
+        incr i
+        lappend singles [lindex $rest $i]
+    }
 }
+set timeout_sec 180
+if {(!$has_single && [lsearch -exact $units unit/scan] >= 0) ||
+    [lsearch -exact $singles unit/scan] >= 0} {
+    set timeout_sec 900
+}
+set argv [list --clients 1 --timeout $timeout_sec --skipfile tests/windows/skip-list.txt \
+    --tags "-needs:repl -repl -cluster"]
 if {!$has_single} {
     foreach u $units {
         lappend argv --single $u
