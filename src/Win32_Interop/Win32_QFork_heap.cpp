@@ -661,6 +661,11 @@ int FreeHeapBlock(void *addr, size_t size) {
         int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
         c->heapBlockList[blk].used &= ~(1ull << bit);
     }
+    /* Tell the kernel these pages are trash so they drop from the working
+     * set. Skip in the QFork child (COW dataset). Ignore failure — the
+     * slot is still free. Empty blocks unmap next and do not need RESET. */
+    if (!g_BypassMemoryMapOnAlloc)
+        PurgePages(addr, size);
     for (int blk = first_blk; blk <= last_blk; blk++)
         unmap_block_if_empty(c, blk);
 
@@ -670,6 +675,21 @@ int FreeHeapBlock(void *addr, size_t size) {
 }
 
 int PurgePages(void *addr, size_t length) {
+    if (!addr || length == 0)
+        return FALSE;
+    /* DiscardVirtualMemory (Win8.1+) actually drops mapped views.
+     * MEM_RESET on a pagefile MapViewOfFile does not demand-zero (17.4 smoke). */
+    typedef DWORD (WINAPI *discard_fn)(PVOID, SIZE_T);
+    static discard_fn discard;
+    static int resolved;
+    if (!resolved) {
+        HMODULE k32 = GetModuleHandleW(L"kernel32.dll");
+        if (k32)
+            discard = (discard_fn)(void *)GetProcAddress(k32, "DiscardVirtualMemory");
+        resolved = 1;
+    }
+    if (discard && discard(addr, length) == ERROR_SUCCESS)
+        return TRUE;
     return VirtualAlloc(addr, length, MEM_RESET, PAGE_READWRITE) != NULL ? TRUE : FALSE;
 }
 
