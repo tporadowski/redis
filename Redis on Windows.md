@@ -115,7 +115,10 @@ the limit; leave headroom if you have replicas.
   replica. Windows `rename` overwrites (`MoveFileEx` replace); the replica
   closes the transfer fd before renaming `temp-*.rdb` to `dump.rdb`.
   The replica `$len` / `$EOF:` line is read with non-blocking `connRead`
-  (IOCP cannot block in `connSyncReadLine`).
+  (IOCP cannot block in `connSyncReadLine`). AUTH / REPLCONF handshake
+  replies use the same `connRead` path after cancelling the pending
+  0-byte `WSARecv` (`WSIOCP_CancelQueuedRead` does not drain IOCP, so
+  ConnectEx / AcceptEx stay). Binary `masterauth` is SDS-length-safe.
 
 ## Event Log
 
@@ -214,11 +217,13 @@ Tcl-spawned servers do **not** listen on AF_UNIX unless `REDIS_TEST_UNIXSOCKET=1
 `tests/windows/smoke_unix.ps1`.
 
 Skip-list: `tests/windows/skip-list.txt`. **Deferred** groups (SYNC stream,
-long `KEYS`/`RANDOMKEY`, 13.2 replica Tcl, 14.1 protocol `-ERR`) are listed
-in `tests/windows/DEFERRED-TESTS.md` so they can be turned back on later.
+long `KEYS`/`RANDOMKEY`, 14.1 protocol desync flood) are listed in
+`tests/windows/DEFERRED-TESTS.md` so they can be turned back on later.
 OS-impossible cases (abstract Unix, `/proc`, `setsid`, `taskset`, `daemonize`,
-`SIGSTOP`) stay skipped. Lifted 5.0 `tests/windows/regression.tcl` waits for
-13.2. Before a long run, `tests/windows/defender-exclude.ps1` (elevated).
+`SIGSTOP`) stay skipped. Lifted 5.0 `tests/windows/regression.tcl` (AUTH
+replica + AUTH-fail `maxclients`) and binary `MASTERAUTH` are in the
+default run (13.2). Before a long run, `tests/windows/defender-exclude.ps1`
+(elevated).
 
 ## Modules
 

@@ -115,10 +115,17 @@ start_server {tags {"auth_binary_password external:skip"}} {
 
                 # Test replica with the correct masterauth
                 $slave config set masterauth "abc\x00def"
-                wait_for_condition 50 100 {
-                    [s 0 master_link_status] eq {up}
+                # Windows IOCP: polling INFO here (master_link_status) keeps
+                # the test-client socket readable and starves the handshake.
+                if {$::tcl_platform(platform) eq "windows"} {
+                    wait_for_log_messages 0 {"*Finished with success*"} $loglines 100 100
+                    assert_equal {up} [s 0 master_link_status]
                 } else {
-                    fail "Can't turn the instance into a replica"
+                    wait_for_condition 50 100 {
+                        [s 0 master_link_status] eq {up}
+                    } else {
+                        fail "Can't turn the instance into a replica"
+                    }
                 }
             }
         }

@@ -81,6 +81,8 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp);
 int WSIOCP_QueueNextRead(int rfd);
 /* Cancel outstanding zero-byte WSARecv and drain its IOCP completion. */
 int WSIOCP_CancelAndDrainRead(int rfd);
+/* Cancel outstanding zero-byte WSARecv; do not drain IOCP (ConnectEx/AcceptEx). */
+void WSIOCP_CancelQueuedRead(int rfd);
 /* Re-arm zero-byte WSARecv if AE_READABLE and nothing is queued. */
 int WSIOCP_RearmRead(int rfd);
 int WSIOCP_QueueAccept(int listenfd);

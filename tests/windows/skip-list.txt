@@ -19,11 +19,6 @@
 /setsid
 /daemonize
 
-# --- DEFERRED 13.2 leftover ---
-MASTERAUTH test with binary password rdbchannel=yes
-MASTERAUTH test with binary password rdbchannel=no
-Master should release the connection after an AUTH failure from a Replica
-
 # --- DEFERRED: attach_to_replication_stream / SYNC (hangs; 0x133 risk) ---
 # Re-enable after SYNC + extra-client AcceptEx is safe on this port.
 # wintest also passes --tags "-needs:repl -repl". These names are only tagged

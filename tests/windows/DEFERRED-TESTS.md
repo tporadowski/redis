@@ -30,9 +30,8 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 |-------|---------------|---------|
 | OS-impossible: `SIGSTOP`, abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize` | skip-list | OS feature |
 | gcc `.so` moduleapi | not in `wintest.tcl` `--single` list | clang-cl `.dll` moduleapi suite |
-| **13.2** `windows/regression` AUTH replica | default `wintest.tcl` | keep if green |
-| **13.2 leftover** `MASTERAUTH` binary password | skip-list | replica + binary `masterauth` |
-| **13.2 leftover** AUTH-fail replica does not drop the client (`maxclients`) | skip-list | replica AUTH failure close |
+| **13.2** `windows/regression` AUTH replica + AUTH-fail `maxclients` | default `wintest.tcl` | green |
+| **13.2** `MASTERAUTH` binary password (rdbchannel yes/no) | default `unit/auth` | green (IOCP handshake + log wait) |
 | `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, plus three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
 | **14.1 leftover** protocol desync flood #1–#3 (raw Tcl `gets` empty) | skip-list | client still writing when we FIN |
 | Large payload / 10k SET / fuzz | skip-list | timed solo run |
