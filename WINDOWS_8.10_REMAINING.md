@@ -4,7 +4,7 @@
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
 | **Date** | 2026-08-18 |
-| **Status** | 13.x–14.x done; 17.1–17.5 QFork/SCAN heap |
+| **Status** | 13.x–14.x done; 17.1–17.6 QFork/SCAN heap |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -22,7 +22,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## Priority
 
-13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1–17.5 (COUNT parse, block-first alloc, unmap empty 4 MB, discard on free, jemalloc decay/purge) are **Done**. Next QFork item if asked: try `LG_PAGE` 18/20.
+13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1–17.6 QFork/SCAN heap items are **Done**.
 
 1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
 
@@ -50,6 +50,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 17.3 | QFork | Done | Unmap a 4 MB block when all 64 slots are free; hold the VA with `MEM_RESERVE`. No unmap while a COW child is live (`QForkHoldUnmap`) |
 | 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 | 17.5 | QFork | Done | `dirty_decay_ms:0,muzzy_decay_ms:0`; `CommitHeapBlock` decommit is `PurgePages` so `arena.purge` / decay actually discard |
+| 17.6 | QFork | Done | jemalloc `LG_PAGE=20` (1 MB); 4 slots per 4 MB map. 22 still OOM-risk; 16 was 64 slots |
 
 ---
 
@@ -103,7 +104,9 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 
 **17.4** Met: `FreeHeapBlock` calls `PurgePages` before unmapping empty blocks. `MEM_RESET` on a pagefile `MapViewOfFile` does **not** demand-zero; `PurgePages` uses `DiscardVirtualMemory` first (Win 8.1+), then `MEM_RESET`. Hole recycle is demand-zero in `qfork_heap_smoke`. Skipped in the QFork child.
 
-**17.5** Met: Windows `je_malloc_conf` adds `dirty_decay_ms:0,muzzy_decay_ms:0`. `CommitHeapBlock(decommit)` calls `PurgePages` so jemalloc decay and existing `jemalloc_purge()` / `arena.<n>.purge` (FLUSHDB/FLUSHALL) discard mapped pages instead of a no-op. Recommit is demand-zero. Next if asked: `LG_PAGE` 18/20.
+**17.5** Met: Windows `je_malloc_conf` adds `dirty_decay_ms:0,muzzy_decay_ms:0`. `CommitHeapBlock(decommit)` calls `PurgePages` so jemalloc decay and existing `jemalloc_purge()` / `arena.<n>.purge` (FLUSHDB/FLUSHALL) discard mapped pages instead of a no-op. Recommit is demand-zero.
+
+**17.6** Met: jemalloc `LG_PAGE=20` / `LG_HUGEPAGE=20` (1 MB). QFork slot matches (`QFORK_LG_SLOT` in `Win32_QFork.h`). 4 MB map has 4 slots. `used[]` mask is `2^n-1` when n<64. 22 (4 MB pages) previously OOMed 16-byte `zmalloc` at `aeCreate`.
 
 ---
 
@@ -140,3 +143,4 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 | 17.3 | `perf: unmap empty QFork 4MB blocks` | 17.2 |
 | 17.4 | `perf: discard QFork slots on free` | 17.3 |
 | 17.5 | `perf: jemalloc decay discards QFork pages` | 17.4 |
+| 17.6 | `perf: jemalloc LG_PAGE=20 QFork 1MB slots` | 17.2 |

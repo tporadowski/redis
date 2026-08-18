@@ -131,9 +131,8 @@ endif()
 add_subdirectory(deps/hiredis EXCLUDE_FROM_ALL)
 
 # ---------------------------------------------------------------------------
-# jemalloc 5.3 (page hooks; retain OFF; LG_PAGE=16). 4 MB QFork maps
-# are subdivided into 64 KB slots so jemalloc PAGE matches Windows
-# allocation granularity. No jemalloc_cpp.cpp.
+# jemalloc 5.3 (page hooks; retain OFF; LG_PAGE=20). 4 MB QFork maps
+# are 4× 1 MB slots so jemalloc PAGE matches the QFork slot. No jemalloc_cpp.cpp.
 # ---------------------------------------------------------------------------
 set(JEMALLOC_SRC
     deps/jemalloc/src/jemalloc.c

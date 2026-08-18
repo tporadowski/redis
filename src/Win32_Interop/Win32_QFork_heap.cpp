@@ -17,17 +17,11 @@
 #include "Win32_EventLog.h"
 
 /*
- * Mapping unit stays 4 MB (COW / CreateFileMapping). jemalloc 5.3 uses
- * LG_PAGE=16 (64 KB): a 4 MB PAGE made edata bitmaps ~66 KB and OOMed a
- * 16-byte zmalloc after ~10k successful ones (aeCreate). Each 4 MB block
- * is 64 slots of 64 KB. Alloc search is block-first (skip a full used[]
- * in O(1)), then a bit-run inside the block — not a walk of every slot.
+ * Mapping unit stays 4 MB (COW / CreateFileMapping). jemalloc LG_PAGE is
+ * QFORK_LG_SLOT (1 MB): 4 MB pages OOMed a 16-byte zmalloc (aeCreate).
+ * Alloc search is block-first (skip a full used[] in O(1)), then a bit-run
+ * inside the block.
  */
-#define QFORK_LG_BLOCK 22
-#define QFORK_BLOCK_SIZE ((size_t)1 << QFORK_LG_BLOCK)
-#define QFORK_LG_SLOT 16
-#define QFORK_SLOT_SIZE ((size_t)1 << QFORK_LG_SLOT)
-#define QFORK_SLOTS_PER_BLOCK (QFORK_BLOCK_SIZE / QFORK_SLOT_SIZE)
 #define QFORK_MAX_BLOCKS (1 << (40 - QFORK_LG_BLOCK)) /* 4 MB * 256K = 1 TB */
 
 enum BlockState : uint8_t {
@@ -265,7 +259,8 @@ static void heap_log(const char *what, void *addr, size_t size, void *got) {
     g_alloc_log_n++;
 }
 
-#define QFORK_SLOT_ALL_USED (~0ull)
+#define QFORK_SLOT_ALL_USED \
+    ((QFORK_SLOTS_PER_BLOCK >= 64) ? ~0ull : ((1ull << QFORK_SLOTS_PER_BLOCK) - 1))
 
 static int block_valid(QForkControl *c, int blk) {
     return blk >= 0 && blk < c->maxAvailableBlocks &&

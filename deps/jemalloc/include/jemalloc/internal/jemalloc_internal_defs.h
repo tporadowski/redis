@@ -63,11 +63,11 @@
 /* #undef JEMALLOC_LAZY_LOCK */
 
 #define LG_QUANTUM 3
-#define LG_PAGE 16
+#define LG_PAGE 20
 
 /* #undef CONFIG_LG_SLAB_MAXREGS */
 
-#define LG_HUGEPAGE 16
+#define LG_HUGEPAGE 20
 
 /* #undef JEMALLOC_MAPS_COALESCE */
 /* #undef JEMALLOC_RETAIN */
