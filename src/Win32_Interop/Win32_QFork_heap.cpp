@@ -20,7 +20,8 @@
  * Mapping unit stays 4 MB (COW / CreateFileMapping). jemalloc 5.3 uses
  * LG_PAGE=16 (64 KB): a 4 MB PAGE made edata bitmaps ~66 KB and OOMed a
  * 16-byte zmalloc after ~10k successful ones (aeCreate). Each 4 MB block
- * is 64 slots of 64 KB.
+ * is 64 slots of 64 KB. Alloc search is block-first (skip a full used[]
+ * in O(1)), then a bit-run inside the block — not a walk of every slot.
  */
 #define QFORK_LG_BLOCK 22
 #define QFORK_BLOCK_SIZE ((size_t)1 << QFORK_LG_BLOCK)
@@ -250,22 +251,216 @@ static void heap_log(const char *what, void *addr, size_t size, void *got) {
     g_alloc_log_n++;
 }
 
-static int slot_is_free(QForkControl *c, int slot) {
-    int blk = slot / (int)QFORK_SLOTS_PER_BLOCK;
-    int bit = slot % (int)QFORK_SLOTS_PER_BLOCK;
-    if (blk < 0 || blk >= c->maxAvailableBlocks)
-        return 0;
-    if (c->heapBlockList[blk].state == bsINVALID)
-        return 0;
-    return (c->heapBlockList[blk].used & (1ull << bit)) == 0;
+#define QFORK_SLOT_ALL_USED (~0ull)
+
+static int block_valid(QForkControl *c, int blk) {
+    return blk >= 0 && blk < c->maxAvailableBlocks &&
+           c->heapBlockList[blk].state != bsINVALID;
 }
 
+static int block_fully_used(QForkControl *c, int blk) {
+    if (!block_valid(c, blk))
+        return 1;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return 0;
+    return c->heapBlockList[blk].used == QFORK_SLOT_ALL_USED;
+}
+
+static int block_fully_free(QForkControl *c, int blk) {
+    if (!block_valid(c, blk))
+        return 0;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return 1;
+    return c->heapBlockList[blk].used == 0;
+}
+
+static int block_free_suffix(QForkControl *c, int blk) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (!block_valid(c, blk))
+        return 0;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return spb;
+    uint64_t used = c->heapBlockList[blk].used;
+    int n = 0;
+    for (int b = spb - 1; b >= 0 && (used & (1ull << b)) == 0; b--)
+        n++;
+    return n;
+}
+
+static int block_free_prefix(QForkControl *c, int blk, int want) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (want <= 0)
+        return 1;
+    if (!block_valid(c, blk))
+        return 0;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return want <= spb;
+    if (want > spb)
+        return 0;
+    uint64_t mask = (want == spb) ? QFORK_SLOT_ALL_USED : ((1ull << want) - 1);
+    return (c->heapBlockList[blk].used & mask) == 0;
+}
+
+/* First index of `need` consecutive 0-bits in `used`, or -1. */
+static int find_zero_run(uint64_t used, int need) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (need <= 0 || need > spb)
+        return -1;
+    if (need == spb)
+        return used == 0 ? 0 : -1;
+    uint64_t mask = (1ull << need) - 1;
+    int last = spb - need;
+    for (int b = 0; b <= last; b++) {
+        if ((used & (mask << b)) == 0)
+            return b;
+    }
+    return -1;
+}
+
+/* Block-first range check (not a per-slot walk). */
 static int slots_range_free(QForkControl *c, int start, int need) {
-    for (int i = 0; i < need; i++) {
-        if (!slot_is_free(c, start + i))
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    int total = c->maxAvailableBlocks * spb;
+    if (start < 0 || need <= 0 || start + need > total)
+        return 0;
+    int slot = start;
+    int left = need;
+    while (left > 0) {
+        int blk = slot / spb;
+        int bit = slot % spb;
+        if (!block_valid(c, blk))
             return 0;
+        int take = spb - bit;
+        if (take > left)
+            take = left;
+        if (c->heapBlockList[blk].state != bsUNMAPPED) {
+            uint64_t mask = (take == spb) ? QFORK_SLOT_ALL_USED : ((1ull << take) - 1);
+            if (c->heapBlockList[blk].used & (mask << bit))
+                return 0;
+        }
+        slot += take;
+        left -= take;
     }
     return 1;
+}
+
+static int find_in_block(QForkControl *c, int blk, int need) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (need <= 0 || need > spb || !block_valid(c, blk))
+        return -1;
+    if (c->heapBlockList[blk].state == bsUNMAPPED)
+        return blk * spb;
+    if (c->heapBlockList[blk].used == QFORK_SLOT_ALL_USED)
+        return -1;
+    int bit = find_zero_run(c->heapBlockList[blk].used, need);
+    if (bit < 0)
+        return -1;
+    return blk * spb + bit;
+}
+
+/* `need` slots starting at a block boundary: full blocks + prefix of the last. */
+static int find_multiblock(QForkControl *c, int lo, int hi, int need) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    int full = need / spb;
+    int rem = need % spb;
+    int nblk = full + (rem ? 1 : 0);
+    int last_start = c->maxAvailableBlocks - nblk;
+    if (last_start < 0)
+        return -1;
+    if (hi > last_start)
+        hi = last_start;
+    for (int blk = lo; blk <= hi; blk++) {
+        int ok = 1;
+        for (int i = 0; i < full; i++) {
+            if (!block_fully_free(c, blk + i)) {
+                ok = 0;
+                break;
+            }
+        }
+        if (!ok)
+            continue;
+        if (rem && !block_free_prefix(c, blk + full, rem))
+            continue;
+        return blk * spb;
+    }
+    return -1;
+}
+
+/* Suffix of blk + prefix of blk+1 (need fits in two blocks). */
+static int find_cross_block(QForkControl *c, int lo, int hi, int need) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (need < 2 || need > 2 * spb - 1)
+        return -1;
+    if (hi > c->maxAvailableBlocks - 2)
+        hi = c->maxAvailableBlocks - 2;
+    for (int blk = lo; blk <= hi; blk++) {
+        if (block_fully_used(c, blk) || block_fully_used(c, blk + 1))
+            continue;
+        int suffix = block_free_suffix(c, blk);
+        if (suffix == 0 || suffix >= need)
+            continue;
+        if (block_free_prefix(c, blk + 1, need - suffix))
+            return blk * spb + (spb - suffix);
+    }
+    return -1;
+}
+
+/* Large request that starts mid-block (free suffix + following blocks). */
+static int find_multiblock_mid(QForkControl *c, int lo, int hi, int need) {
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+    if (hi > c->maxAvailableBlocks - 1)
+        hi = c->maxAvailableBlocks - 1;
+    for (int blk = lo; blk <= hi; blk++) {
+        if (block_fully_used(c, blk))
+            continue;
+        int suffix = block_free_suffix(c, blk);
+        if (suffix == 0)
+            continue;
+        int start = blk * spb + (spb - suffix);
+        if (slots_range_free(c, start, need))
+            return start;
+    }
+    return -1;
+}
+
+/*
+ * 5.0 searched 4 MB blocks. We still allocate 64 KB slots, but the walk
+ * is per-block (skip full used[] in O(1)), then a bit-run inside the block.
+ */
+static int find_free_slots(QForkControl *c, int need) {
+    int nblk = c->maxAvailableBlocks;
+    int start = c->blockSearchStart;
+    if (start < 0 || start >= nblk)
+        start = 0;
+    int spb = (int)QFORK_SLOTS_PER_BLOCK;
+
+    if (need <= spb) {
+        for (int blk = start; blk < nblk; blk++) {
+            int at = find_in_block(c, blk, need);
+            if (at >= 0)
+                return at;
+        }
+        for (int blk = 0; blk < start; blk++) {
+            int at = find_in_block(c, blk, need);
+            if (at >= 0)
+                return at;
+        }
+        int at = find_cross_block(c, start, nblk - 1, need);
+        if (at >= 0)
+            return at;
+        return find_cross_block(c, 0, start - 1, need);
+    }
+
+    int at = find_multiblock(c, start, nblk - 1, need);
+    if (at >= 0)
+        return at;
+    at = find_multiblock(c, 0, start - 1, need);
+    if (at >= 0)
+        return at;
+    at = find_multiblock_mid(c, start, nblk - 1, need);
+    if (at >= 0)
+        return at;
+    return find_multiblock_mid(c, 0, start - 1, need);
 }
 
 static int map_block_if_needed(QForkControl *c, int blk) {
@@ -347,16 +542,7 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
             return NULL;
         }
     } else {
-        int endSearch = total_slots - need;
-        allocAt = -1;
-        int startIdx = c->blockSearchStart * (int)QFORK_SLOTS_PER_BLOCK;
-        if (startIdx < 0) startIdx = 0;
-        for (; startIdx <= endSearch; startIdx++) {
-            if (slots_range_free(c, startIdx, need)) {
-                allocAt = startIdx;
-                break;
-            }
-        }
+        allocAt = find_free_slots(c, need);
         if (allocAt < 0) {
             errno = ENOMEM;
             heap_log("search-fail", addr, size, NULL);
