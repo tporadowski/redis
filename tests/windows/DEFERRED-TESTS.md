@@ -4,7 +4,7 @@ Every entry in `skip-list.txt` and every `--tags` deny below is temporary
 unless marked **OS-impossible**. Re-run the group when its unblock item
 lands. Default Windows run: `tests/windows/runtest-win.ps1`.
 
-Three hard resets while `redis-server.exe` was under this suite:
+Hard resets while `redis-server.exe` was under this suite:
 
 - 2026-08-17 ~21:42 (12.x) and 2026-08-18 ~08:10 (13.x): `0x133`
   `DPC_WATCHDOG_VIOLATION` (no dump saved).
@@ -18,6 +18,13 @@ Three hard resets while `redis-server.exe` was under this suite:
   no Event 1001 bugcheck dump). `CrashControl\AutoReboot` is still **1**;
   `CrashDumpEnabled=3`. Defender exclude + AutoReboot=0 need an **elevated**
   PowerShell — this session got HRESULT 0xc0000142.
+- 2026-08-22 during a solo `unit/type/list` after an experimental AcceptEx
+  re-arm: BLPOP/BLMPOP extra-client cases were progressing (`BLMPOP_LEFT:
+  single existing list - quicklist` had already run ~107s) then the machine
+  rebooted (Kernel-Power 41 class). QFORK_HEAP_BYTES=512M, no AF_UNIX, and
+  the existing skip-list were already on. The AcceptEx re-arm is **reverted**.
+  `runtest-win.ps1` now refuses `unit/type/list`, `set`, `zset`, `stream`,
+  `scan`, `sort`, `multi`, `pubsub` unless `REDIS_TEST_UNSAFE=1`.
 
 Fences: no default AF_UNIX listen, `QFORK_HEAP_BYTES=512M`,
 `--tags -needs:repl -repl -cluster`, this skip-list, one unit per `tclsh`,
@@ -55,7 +62,8 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |
 | `unit/multi` (script timeout + remaining after WATCH) | not in default `wintest.tcl` | Lua `lua-time-limit` abort on Windows |
 | `unit/pubsub` | not in default `wintest.tcl` | hung after UNSUBSCRIBE-without-args (2026-08-22) |
-| `unit/type/list`, `set`, `zset`, `stream` | not yet solo-green | run `-Single` then add |
+| `unit/type/list` (BLPOP/BLMPOP extra-client) | skip-list + runner deny | **2026-08-22 reboot.** Do not `-Single` the full unit. Next attempt must be a tiny named subset, not the file |
+| `unit/type/set`, `zset`, `stream` | runner deny (`REDIS_TEST_UNSAFE`) | same watchdog class as list; not started |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |

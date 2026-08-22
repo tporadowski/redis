@@ -1196,7 +1196,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r debug set-active-expire 1
         # Restore server and client state
         r select 9
-    } {OK} {singledb:skip needs:debug}
+    } {OK} {singledb:skip needs:debug needs:repl}
 
     test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
         set repl [attach_to_replication_stream]
@@ -1238,7 +1238,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
-    } {OK} {singledb:skip needs:debug}
+    } {OK} {singledb:skip needs:debug needs:repl}
 
     test {BLPOP unblock but the key is expired and then block again - reprocessing command} {
         r flushall

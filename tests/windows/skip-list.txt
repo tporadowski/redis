@@ -63,6 +63,23 @@ SORT sorted set BY nosort works as expected from scripts
 # and the server dropped the client (MULTI and script timeout).
 /script timeout
 
+# list.tcl quicklist "plain nodes" pass: DEBUG RELOAD then LINDEX 71s
+# and LTRIM dropped the client. First start_server already covers
+# packed/plain compression. large-memory 4GB cases stay ignored.
+/on plain nodes
+/Test LSET with packed
+/Crash due to delete entry
+/Crash due to split quicklist
+/Check if list is still ok after a DEBUG RELOAD
+
+# 2026-08-22 Kernel-Power 41 reboot during unit/type/list BLPOP/BLMPOP
+# extra-client storm (AcceptEx + mapped heap). Do not re-run these.
+# Do not use /BLMOVE — that would skip green list-4 BLMOVEM.
+/BLPOP:
+/BLMPOP_
+/BRPOP:
+/BRPOPLPUSH
+
 # --- DEFERRED: TTL clock-skew flake (Tcl now+10000 vs pttl 10002) ---
 GETEX PXAT option
 

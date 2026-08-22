@@ -46,12 +46,34 @@ if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }
 Set-Location $Root
 $wintest = Join-Path $PSScriptRoot "wintest.tcl"
 
+# Units that have caused 0x133 / LiveKernel 141 / Kernel-Power 41 reboots
+# on this machine. Solo runs still need REDIS_TEST_UNSAFE=1.
+$watchdogDeny = @(
+    "unit/scan",
+    "unit/sort",
+    "unit/multi",
+    "unit/pubsub",
+    "unit/type/list",
+    "unit/type/set",
+    "unit/type/zset",
+    "unit/type/stream"
+)
+
 if ($Single) {
     $units = @($Single)
 } else {
     $units = @(& $tclsh $wintest --list-units)
     if ($LASTEXITCODE -ne 0 -or $units.Count -eq 0) {
         throw "wintest --list-units failed"
+    }
+}
+
+if ($env:REDIS_TEST_UNSAFE -ne "1") {
+    foreach ($u in $units) {
+        $name = "$u".Trim()
+        if ($watchdogDeny -contains $name) {
+            throw "refusing $name (watchdog/reboot history). Set REDIS_TEST_UNSAFE=1 only for a fenced subset, never a full unit."
+        }
     }
 }
 
