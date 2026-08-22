@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
-| **Date** | 2026-08-18 |
-| **Status** | 13.x–14.x done; 17.1–17.6 QFork/SCAN heap |
+| **Date** | 2026-08-22 |
+| **Status** | 18.1 widening default wintest |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -22,9 +22,10 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 
 ## Priority
 
-13.x (fenced Tcl + leftover replica AUTH) and 14.x (protocol close, HNSW AVX2, unixsocketperm) are **Done**. 17.1–17.6 QFork/SCAN heap items are **Done**.
+13.x–14.x and 17.1–17.6 are **Done**. **18.1** is in progress: more Linux `tests/unit` files on the default `wintest` list.
 
-1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
+1. **18.x** — widen the fenced Tcl suite (type/list, set, zset, stream, multi, pubsub, sort, scripting, …).
+2. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
 
 ---
 
@@ -51,6 +52,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 | 17.5 | QFork | Done | `dirty_decay_ms:0,muzzy_decay_ms:0`; `CommitHeapBlock` decommit is `PurgePages` so `arena.purge` / decay actually discard |
 | 17.6 | QFork | Done | jemalloc `LG_PAGE=20` (1 MB); 4 slots per 4 MB map. 22 still OOM-risk; 16 was 64 slots |
+| 18.1 | Tests | Partial | Default `wintest` now also runs increx, hash, list-2/3/4, bitops, bitfield, geo, hyperloglog, slowlog. SYNC rewrite / fuzz / FLUSHALL / script-timeout stay skipped. Next: list, set, zset, stream, multi, pubsub |
 
 ---
 
@@ -144,3 +146,4 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 | 17.4 | `perf: discard QFork slots on free` | 17.3 |
 | 17.5 | `perf: jemalloc decay discards QFork pages` | 17.4 |
 | 17.6 | `perf: jemalloc LG_PAGE=20 QFork 1MB slots` | 17.2 |
+| 18.1 | `test: widen wintest type and command units` | 13.1 |

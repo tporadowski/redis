@@ -24,17 +24,28 @@ for {set i 0} {$i < [llength $argv]} {incr i} {
     }
 }
 
-# 13.1 units that stay green with skip-list + --tags -needs:repl -repl -cluster.
+# Default units: skip-list + --tags -needs:repl -repl -cluster.
+# Add a unit here only after a solo runtest-win.ps1 -Single pass.
 # Deferred names: tests/windows/DEFERRED-TESTS.md
 set units {
     unit/printver
     unit/type/incr
     unit/type/string
+    unit/type/increx
+    unit/type/hash
+    unit/type/list-2
+    unit/type/list-3
+    unit/type/list-4
     unit/keyspace
     unit/expire
     unit/auth
     unit/protocol
     unit/quit
+    unit/bitops
+    unit/bitfield
+    unit/geo
+    unit/hyperloglog
+    unit/slowlog
     windows/regression
 }
 
@@ -68,7 +79,8 @@ if {![info exists ::env(QFORK_HEAP_BYTES)] || $::env(QFORK_HEAP_BYTES) eq ""} {
 }
 
 # SYNC / replica-stream / cluster stay denied until DEFERRED-TESTS.md says otherwise.
-# unit/scan is ~3–4 min (write-load + issue #4906); 180s kills it mid-populate.
+# Progress timeout is 600s so 10k-key SORT / list stress can finish on the
+# mapped heap. unit/scan still needs 900s (write-load + issue #4906).
 set has_single 0
 set singles {}
 for {set i 0} {$i < [llength $rest]} {incr i} {
@@ -78,7 +90,7 @@ for {set i 0} {$i < [llength $rest]} {incr i} {
         lappend singles [lindex $rest $i]
     }
 }
-set timeout_sec 180
+set timeout_sec 600
 if {(!$has_single && [lsearch -exact $units unit/scan] >= 0) ||
     [lsearch -exact $singles unit/scan] >= 0} {
     set timeout_sec 900
