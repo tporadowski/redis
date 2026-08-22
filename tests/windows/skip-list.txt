@@ -58,6 +58,11 @@ MSET spanning multiple prefetch batches (batch size 16)
 # SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
 # (script.c SCRIPT_READ_ONLY). Investigate with unit/scripting.
 SORT sorted set BY nosort works as expected from scripts
+# Also 1e6 SADD in EVAL — do not run even if scripting flags are fixed.
+LATENCY of expire events are correctly collected
+command stats for scripts
+HOTKEYS - nested commands
+HOTKEYS - EVAL inside MULTI/EXEC with nested calls
 
 # lua-time-limit + busy loop: Windows has no SIGALRM; hook did not abort
 # and the server dropped the client (MULTI and script timeout).
