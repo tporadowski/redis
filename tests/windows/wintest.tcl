@@ -50,6 +50,13 @@ set units {
     unit/geo
     unit/hyperloglog
     unit/slowlog
+    unit/info-command
+    unit/latency-monitor
+    unit/introspection-2
+    unit/hotkeys
+    integration/convert-zipmap-hash-on-load
+    integration/convert-ziplist-hash-on-load
+    integration/convert-ziplist-zset-on-load
     windows/regression
 }
 

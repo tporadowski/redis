@@ -68,6 +68,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
+| `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
 | Cluster Tcl | `--tags -cluster` | dedicated cluster runner |
 | AF_UNIX on every unit server | `server.tcl` default off | `REDIS_TEST_UNIXSOCKET=1`; 14.3 smoke is `smoke_unix.ps1` |
 
@@ -79,6 +80,11 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `windows/type_stream_nb`,
 `unit/keyspace`, `unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`,
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
+`unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
+`unit/hotkeys`,
+`integration/convert-zipmap-hash-on-load`,
+`integration/convert-ziplist-hash-on-load`,
+`integration/convert-ziplist-zset-on-load`,
 `windows/regression`.
 `unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.
