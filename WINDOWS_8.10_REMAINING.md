@@ -52,7 +52,7 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 | 17.5 | QFork | Done | `dirty_decay_ms:0,muzzy_decay_ms:0`; `CommitHeapBlock` decommit is `PurgePages` so `arena.purge` / decay actually discard |
 | 17.6 | QFork | Done | jemalloc `LG_PAGE=20` (1 MB); 4 slots per 4 MB map. 22 still OOM-risk; 16 was 64 slots |
-| 18.1 | Tests | Partial | Default `wintest` also runs increx, hash, list-2/3/4, bitops, bitfield, geo, hyperloglog, slowlog. **Stop:** do not solo-run `unit/type/list` / set / zset / stream / scan (2026-08-22 reboot during list BLPOP). Runner denies those unless `REDIS_TEST_UNSAFE=1` |
+| 18.1 | Tests | Partial | Default `wintest` also runs increx, hash, list-2/3/4, bitops, bitfield, geo, hyperloglog, slowlog, plus `windows/type_{list,set,zset,stream}_nb` (tiny non-blocking slices). Full `unit/type/list` is denied (2026-08-22 reboot). |
 
 ---
 
