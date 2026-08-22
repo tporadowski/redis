@@ -36,6 +36,10 @@ set units {
     unit/type/list-2
     unit/type/list-3
     unit/type/list-4
+    windows/type_list_nb
+    windows/type_set_nb
+    windows/type_zset_nb
+    windows/type_stream_nb
     unit/keyspace
     unit/expire
     unit/auth
