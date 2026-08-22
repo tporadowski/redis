@@ -590,7 +590,7 @@ start_server {tags {"increx"}} {
             {set mykey 15.5 KEEPTTL}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite with PERSIST on a key with TTL: SET key <result>} {
         r flushall
@@ -603,7 +603,7 @@ start_server {tags {"increx"}} {
             {set mykey 11}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite with EX/PX/EXAT/PXAT: SET key <result> PXAT *} {
         r flushall
@@ -622,7 +622,7 @@ start_server {tags {"increx"}} {
             {set mykey 14 PXAT *}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite with ENX on key that already has TTL: SET key <result> KEEPTTL} {
         r flushall
@@ -637,7 +637,7 @@ start_server {tags {"increx"}} {
             {set mykey 11 KEEPTTL}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite with ENX on key without TTL: SET key <result> PXAT *} {
         r flushall
@@ -651,7 +651,7 @@ start_server {tags {"increx"}} {
             {set mykey 11 PXAT *}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite when expiration already elapsed propagates as DEL} {
         r flushall
@@ -666,7 +666,7 @@ start_server {tags {"increx"}} {
             {del mykey}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite when expiration already elapsed propagates as UNLINK (lazyfree)} {
         r flushall
@@ -682,7 +682,7 @@ start_server {tags {"increx"}} {
         }
         close_replication_stream $repl
         r config set lazyfree-lazy-expire no
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite carries saturated value after UBOUND/LBOUND} {
         r flushall
@@ -701,7 +701,7 @@ start_server {tags {"increx"}} {
             {set myfloat 42.5 KEEPTTL}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - rewrite creates the key from zero when key did not exist} {
         r flushall
@@ -712,7 +712,7 @@ start_server {tags {"increx"}} {
             {set mykey 7 KEEPTTL}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {INCREX - keyspace notifications fire expected events in order} {
         r flushall

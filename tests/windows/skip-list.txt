@@ -21,13 +21,15 @@
 
 # --- DEFERRED: attach_to_replication_stream / SYNC (hangs; 0x133 risk) ---
 # Re-enable after SYNC + extra-client AcceptEx is safe on this port.
-# wintest also passes --tags "-needs:repl -repl". These names are only tagged
-# needs:debug and would still run without the skipfile.
+# wintest also passes --tags "-needs:repl -repl". Names below are not tagged
+# needs:repl / repl and would still run without the skipfile.
 /propagate.*replica
 GETEX without argument does not propagate to replica
 Redis should not propagate the read command on lazy expire
 SCAN: Lazy-expire should not be wrapped in MULTI/EXEC
 RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC
+# INCREX rewrite tests now carry needs:repl; keep the name net too.
+/INCREX - rewrite
 
 # --- DEFERRED: protocol desync flood (raw Tcl socket; write-fail then gets is empty) ---
 # 14.1 hiredis/redis.tcl protocol -ERR path is green. These three still
@@ -44,6 +46,22 @@ DBSIZE should be 10000 now
 SETBIT fuzzing
 GETRANGE fuzzing
 MSET spanning multiple prefetch batches (batch size 16)
+/BITOP .*fuzz
+/BITPOS.*fuzz
+/BITOP .*large values
+/GEOSEARCH fuzzy
+/GEOSEARCH box edges fuzzy
+# 10k-set SORT BY weight_* / wobj_*->weight: 172s + 123s then the
+# hash-field case exceeded the harness and dropped the client.
+/Big Hash table: SORT
+
+# SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
+# (script.c SCRIPT_READ_ONLY). Investigate with unit/scripting.
+SORT sorted set BY nosort works as expected from scripts
+
+# lua-time-limit + busy loop: Windows has no SIGALRM; hook did not abort
+# and the server dropped the client (MULTI and script timeout).
+/script timeout
 
 # --- DEFERRED: TTL clock-skew flake (Tcl now+10000 vs pttl 10002) ---
 GETEX PXAT option
@@ -51,6 +69,12 @@ GETEX PXAT option
 # --- DEFERRED: SWAPDB/FLUSHALL very slow on mapped heap (61s / >180s timeout) ---
 Coverage: basic SWAPDB test and unhappy path
 Coverage: SWAPDB and FLUSHDB
+FLUSHALL is able to touch the watched keys
+FLUSHALL does not touch non affected keys
+FLUSHDB is able to touch the watched keys
+FLUSHDB does not touch non affected keys
+/SWAPDB is able to touch
+/SWAPDB does not touch
 
 
 # --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---

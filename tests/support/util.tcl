@@ -741,6 +741,9 @@ proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {ra
 
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
+    if {$::tcl_platform(platform) eq "windows"} {
+        return [win32_child_pid $pid]
+    }
     if {[file exists "/usr/bin/pgrep"]} {
         set fd [open "|pgrep -P $pid" "r"]
         set child_pid [string trim [lindex [split [read $fd] \n] 0]]
@@ -754,6 +757,9 @@ proc get_child_pid {idx} {
 }
 
 proc process_is_alive pid {
+    if {$::tcl_platform(platform) eq "windows"} {
+        return [win32_pid_alive $pid]
+    }
     if {[catch {exec ps -p $pid -f} err]} {
         return 0
     } else {

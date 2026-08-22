@@ -46,11 +46,16 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | gcc `.so` moduleapi | not in `wintest.tcl` `--single` list | clang-cl `.dll` moduleapi suite |
 | **13.2** `windows/regression` AUTH replica + AUTH-fail `maxclients` | default `wintest.tcl` | green |
 | **13.2** `MASTERAUTH` binary password (rdbchannel yes/no) | default `unit/auth` | green (IOCP handshake + log wait) |
-| `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, plus three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
+| `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, INCREX rewrite, three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
 | **14.1 leftover** protocol desync flood #1–#3 (raw Tcl `gets` empty) | skip-list | client still writing when we FIN |
-| Large payload / 10k SET / fuzz | skip-list | timed solo run |
+| Large payload / 10k SET / BITOP+GEO+BITPOS fuzz / AVX-512 BITOP | skip-list | timed solo run; mapped-heap FLUSHALL inside BITOP fuzz drops the client |
 | `GETEX PXAT option` (pttl 10002 vs 5000–10000) | skip-list | clock-skew / loosen assert |
-| SWAPDB / FLUSHALL coverage (61s / >180s) | skip-list | faster FLUSHALL on mapped heap |
+| SWAPDB / FLUSHALL coverage + MULTI WATCH+FLUSH/SWAP | skip-list | faster FLUSHALL on mapped heap |
+| HINCRBYFLOAT 1.23 pretty-print | test gate (Windows `long double` is 64-bit) | 80-bit `long double` (Linux x86_64 only) |
+| `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |
+| `unit/multi` (script timeout + remaining after WATCH) | not in default `wintest.tcl` | Lua `lua-time-limit` abort on Windows |
+| `unit/pubsub` | not in default `wintest.tcl` | hung after UNSUBSCRIBE-without-args (2026-08-22) |
+| `unit/type/list`, `set`, `zset`, `stream` | not yet solo-green | run `-Single` then add |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
@@ -58,9 +63,12 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | Cluster Tcl | `--tags -cluster` | dedicated cluster runner |
 | AF_UNIX on every unit server | `server.tcl` default off | `REDIS_TEST_UNIXSOCKET=1`; 14.3 smoke is `smoke_unix.ps1` |
 
-## 13.1 default units
+## 18.1 default units
 
-`unit/printver`, `unit/type/incr`, `unit/type/string`, `unit/keyspace`,
-`unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`, `windows/regression`.
+`unit/printver`, `unit/type/incr`, `unit/type/string`, `unit/type/increx`,
+`unit/type/hash`, `unit/type/list-2`, `unit/type/list-3`, `unit/type/list-4`,
+`unit/keyspace`, `unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`,
+`unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
+`windows/regression`.
 `unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.

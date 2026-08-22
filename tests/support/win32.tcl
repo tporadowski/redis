@@ -45,3 +45,26 @@ proc win32_pid_alive {pid} {
 proc win32_kill_pid {pid} {
     catch {exec taskkill.exe /F /T /PID $pid}
 }
+
+# First child of $parent, or "" if none. Used by get_child_pid (QFork).
+proc win32_child_pid {parent} {
+    lindex [win32_child_pids $parent] 0
+}
+
+proc win32_child_pids {parent} {
+    if {![string is integer -strict $parent] || $parent <= 0} {
+        return {}
+    }
+    set script "(Get-CimInstance Win32_Process -Filter \"ParentProcessId=$parent\").ProcessId"
+    if {[catch {exec powershell.exe -NoProfile -Command $script} out]} {
+        return {}
+    }
+    set pids {}
+    foreach line [split $out \n] {
+        set line [string trim $line]
+        if {[string is integer -strict $line] && $line > 0} {
+            lappend pids $line
+        }
+    }
+    return $pids
+}
