@@ -54,6 +54,10 @@ set units {
     unit/latency-monitor
     unit/introspection-2
     unit/hotkeys
+    unit/dump
+    unit/replybufsize
+    unit/querybuf
+    unit/functions
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

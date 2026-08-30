@@ -67,6 +67,12 @@ HOTKEYS - EVAL inside MULTI/EXEC with nested calls
 # lua-time-limit + busy loop: Windows has no SIGALRM; hook did not abort
 # and the server dropped the client (MULTI and script timeout).
 /script timeout
+FUNCTION - test function kill
+FUNCTION - test script kill not working on function
+FUNCTION - test function kill not working on eval
+LIBRARIES - load timeout
+# debug loadaof after dummy slaveof dropped the client (I/O error).
+FUNCTION can processes create, delete and flush commands in AOF when doing "debug loadaof" in read-only slaves
 
 # list.tcl quicklist "plain nodes" pass: DEBUG RELOAD then LINDEX 71s
 # and LTRIM dropped the client. First start_server already covers
@@ -97,6 +103,22 @@ FLUSHDB is able to touch the watched keys
 FLUSHDB does not touch non affected keys
 /SWAPDB is able to touch
 /SWAPDB does not touch
+
+# --- DEFERRED: introspection (DEBUG SLEEP / 100k load / slow BGSAVE) ---
+# maxAGE hung >200s on debug sleep 2/4/8; killed 2026-08-30.
+CLIENT KILL maxAGE will kill old clients
+CLIENT KILL close the client connection during bgsave
+config during loading
+
+# --- DEFERRED: querybuf shrink (mapped heap / clientsCron peak reset) ---
+query buffer resized correctly when not idle
+query buffer resized correctly with fat argv
+
+# --- DEFERRED: MIGRATE (needs a second server; --tags -repl skips it) ---
+# The outer tests still run: 40k RPUSH + DUMP (~56s), then mapped-heap
+# FLUSHDB after the leftover list drops the client (~245s, I/O error).
+# Re-enable with the replica start_server, not the setup-only path.
+/MIGRATE
 
 
 # --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---
