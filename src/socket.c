@@ -156,6 +156,11 @@ static void connSocketShutdown(connection *conn) {
     shutdown(conn->fd, SHUT_RDWR);
 }
 
+static int connSocketShutdownWrite(connection *conn) {
+    if (conn->fd == -1) return C_OK;
+    return shutdown(conn->fd, SHUT_WR) == 0 ? C_OK : C_ERR;
+}
+
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
@@ -218,12 +223,6 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
         if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
-#ifdef _WIN32
-    /* Zero-byte WSARecv is readiness-only; re-arm after a consumed read. */
-    if (ret > 0 || (ret < 0 && errno == EAGAIN))
-        WSIOCP_QueueNextRead(conn->fd);
-#endif
-
     return ret;
 }
 
@@ -455,6 +454,7 @@ static ConnectionType CT_Socket = {
     .conn_create = connCreateSocket,
     .conn_create_accepted = connCreateAcceptedSocket,
     .shutdown = connSocketShutdown,
+    .shutdown_write = connSocketShutdownWrite,
     .close = connSocketClose,
 
     /* connect & accept */

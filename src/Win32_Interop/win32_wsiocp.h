@@ -38,6 +38,7 @@ extern "C" {
 #define CONNECT_PENDING 0x002000
 #define CLOSE_PENDING   0x004000
 #define UNIX_LISTEN     0x008000 /* AF_UNIX listen: accept(), not AcceptEx */
+#define WRITE_REARM_NEEDED 0x010000
 
 typedef struct WSIOCP_Request {
     void *client;
@@ -79,6 +80,8 @@ void WSIOCP_DelEvent(aeEventLoop *el, int fd, int mask);
 int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp);
 
 int WSIOCP_QueueNextRead(int rfd);
+/* Post a write completion only if Winsock reports the socket writable. */
+int WSIOCP_QueueWriteReady(int rfd);
 /* Cancel outstanding zero-byte WSARecv and drain its IOCP completion. */
 int WSIOCP_CancelAndDrainRead(int rfd);
 /* Cancel outstanding zero-byte WSARecv; do not drain IOCP (ConnectEx/AcceptEx). */

@@ -45,6 +45,7 @@ set units {
     unit/auth
     unit/protocol
     unit/quit
+    unit/limits
     unit/bitops
     unit/bitfield
     unit/geo

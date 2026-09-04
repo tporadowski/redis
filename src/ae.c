@@ -472,6 +472,17 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 }
             }
 
+#ifdef _WIN32
+            /* IOCP readiness is one-shot. Re-arm after the handler so a
+             * second WSARecv is not posted while the handler is still
+             * consuming the socket. */
+            fe = &eventLoop->events[fd];
+            if (fe->mask & AE_READABLE)
+                WSIOCP_RearmRead(fd);
+            if (fe->mask & AE_WRITABLE)
+                WSIOCP_QueueWriteReady(fd);
+#endif
+
             processed++;
         }
     }

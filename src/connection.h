@@ -64,6 +64,8 @@ typedef struct ConnectionType {
     connection* (*conn_create)(struct aeEventLoop *el);
     connection* (*conn_create_accepted)(struct aeEventLoop *el, int fd, void *priv);
     void (*shutdown)(struct connection *conn);
+    /* Shut down only the write side; keep the connection for a delayed close. */
+    int (*shutdown_write)(struct connection *conn);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -245,6 +247,11 @@ static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCal
 
 static inline void connShutdown(connection *conn) {
     conn->type->shutdown(conn);
+}
+
+static inline int connShutdownWrite(connection *conn) {
+    if (!conn || !conn->type->shutdown_write) return 0;
+    return conn->type->shutdown_write(conn);
 }
 
 static inline void connClose(connection *conn) {

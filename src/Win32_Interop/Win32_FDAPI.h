@@ -332,6 +332,8 @@ int FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen,
                     unsigned long *sent, void *overlapped);
 /* Native SOCKET as intptr_t; (intptr_t)-1 if rfd is not a socket. */
 intptr_t FDAPI_GetSocket(int rfd);
+/* 1 if send can make progress or an error is pending, 0 if not, -1 on error. */
+int FDAPI_IsSocketWritable(int rfd);
 /* CancelIoEx on the SOCKET. ov NULL cancels all. Returns 1 on success. */
 int FDAPI_CancelIoEx(int rfd, void *ov);
 void FDAPI_GetAcceptExSockaddrs(int rfd, void *buf, unsigned long rxlen,

@@ -861,6 +861,28 @@ void FDAPI_ClearSocketInfo(int rfd) {
     }
 }
 
+int FDAPI_IsSocketWritable(int rfd) {
+    SOCKET s = sock_of(rfd);
+    fd_set writefds, exceptfds;
+    struct timeval timeout = {0, 0};
+    int result;
+
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return -1;
+    }
+    FD_ZERO(&writefds);
+    FD_ZERO(&exceptfds);
+    FD_SET(s, &writefds);
+    FD_SET(s, &exceptfds);
+    result = select(0, NULL, &writefds, &exceptfds, &timeout);
+    if (result == SOCKET_ERROR) {
+        set_wsa_errno(0);
+        return -1;
+    }
+    return result > 0 ? 1 : 0;
+}
+
 intptr_t FDAPI_get_osfhandle(int fd) {
     int crt = RFDMap::getInstance().lookupCrtFD(fd);
     if (crt < 0) return -1;
