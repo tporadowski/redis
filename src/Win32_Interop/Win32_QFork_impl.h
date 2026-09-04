@@ -27,7 +27,8 @@ typedef struct Win32QForkJob {
 extern Win32QForkJob g_win32_qfork_job;
 
 void SetupRedisGlobals(void *redisData, size_t redisDataSize,
-                       unsigned char *dictHashSeed, int purpose);
+                       unsigned char *dictHashSeed, int purpose,
+                       void *sharedData, size_t sharedDataSize);
 int do_rdbSave(int req, char *filename, void *rsi, int rdbflags);
 int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
                         int use_conns, int rdb_pipe_write, int safe_to_exit);

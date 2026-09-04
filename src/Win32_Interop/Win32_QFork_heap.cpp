@@ -53,8 +53,19 @@ int g_PersistenceDisabled = 0;
 
 static HANDLE g_hQForkControlFileMap = NULL;
 static volatile long g_unmap_hold;
+static SRWLOCK g_heapLock = SRWLOCK_INIT;
 static int heap_log_on(void);
 static void unmap_block_if_empty(QForkControl *c, int blk);
+static int purge_pages_unlocked(void *addr, size_t length);
+
+class QForkHeapLockGuard {
+public:
+    QForkHeapLockGuard() { AcquireSRWLockExclusive(&g_heapLock); }
+    ~QForkHeapLockGuard() { ReleaseSRWLockExclusive(&g_heapLock); }
+private:
+    QForkHeapLockGuard(const QForkHeapLockGuard&);
+    QForkHeapLockGuard& operator=(const QForkHeapLockGuard&);
+};
 
 static QForkControl *ctrl(void) {
     return (QForkControl *)g_pQForkControl;
@@ -212,6 +223,7 @@ int QForkParentInit(size_t heap_bytes) {
 }
 
 void QForkShutdown(void) {
+    QForkHeapLockGuard lock;
     QForkControl *c = ctrl();
     if (c) {
         for (int i = 0; i < c->maxAvailableBlocks; i++) {
@@ -525,6 +537,7 @@ void *AllocHeapBlock(void *addr, size_t size, int zero) {
         return p;
     }
 
+    QForkHeapLockGuard lock;
     QForkControl *c = ctrl();
     int need = (int)(size / QFORK_SLOT_SIZE);
     int total_slots = c->maxAvailableBlocks * (int)QFORK_SLOTS_PER_BLOCK;
@@ -619,6 +632,7 @@ void QForkHoldUnmap(int hold) {
     }
     if (v != 0)
         return;
+    QForkHeapLockGuard lock;
     QForkControl *c = ctrl();
     if (!c || g_BypassMemoryMapOnAlloc)
         return;
@@ -630,8 +644,22 @@ int FreeHeapBlock(void *addr, size_t size) {
     if (size == 0)
         return FALSE;
 
+    QForkHeapLockGuard lock;
+
     if (!g_HasMemoryMappedHeap || !addr_in_heap(addr)) {
         return VirtualFree(addr, 0, MEM_RELEASE) ? TRUE : FALSE;
+    }
+
+    /* Child: new allocs are VirtualAlloc (bypass). jemalloc may still
+     * dallocx an inherited mapped pointer. Do not clear used[] or unmap
+     * the snapshot the child is serializing. */
+    if (g_BypassMemoryMapOnAlloc) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(addr, &mbi, sizeof(mbi)))
+            return FALSE;
+        if (mbi.Type != MEM_MAPPED)
+            return VirtualFree(addr, 0, MEM_RELEASE) ? TRUE : FALSE;
+        return TRUE;
     }
 
     QForkControl *c = ctrl();
@@ -660,7 +688,7 @@ int FreeHeapBlock(void *addr, size_t size) {
      * set. Skip in the QFork child (COW dataset). Ignore failure — the
      * slot is still free. Empty blocks unmap next and do not need RESET. */
     if (!g_BypassMemoryMapOnAlloc)
-        PurgePages(addr, size);
+        purge_pages_unlocked(addr, size);
     for (int blk = first_blk; blk <= last_blk; blk++)
         unmap_block_if_empty(c, blk);
 
@@ -669,7 +697,7 @@ int FreeHeapBlock(void *addr, size_t size) {
     return TRUE;
 }
 
-int PurgePages(void *addr, size_t length) {
+static int purge_pages_unlocked(void *addr, size_t length) {
     if (!addr || length == 0)
         return FALSE;
     /* DiscardVirtualMemory (Win8.1+) actually drops mapped views.
@@ -688,11 +716,17 @@ int PurgePages(void *addr, size_t length) {
     return VirtualAlloc(addr, length, MEM_RESET, PAGE_READWRITE) != NULL ? TRUE : FALSE;
 }
 
+int PurgePages(void *addr, size_t length) {
+    QForkHeapLockGuard lock;
+    return purge_pages_unlocked(addr, length);
+}
+
 void *QForkGetControlMap(void) {
     return (void *)g_hQForkControlFileMap;
 }
 
 int QForkProtectForFork(void) {
+    QForkHeapLockGuard lock;
     QForkControl *c = ctrl();
     if (!c)
         return 1;
@@ -754,40 +788,114 @@ int QForkChildAttach(void *parent_process, void *control_map) {
     return 1;
 }
 
+/* Copy dirtied WRITECOPY pages into a writable view of the section, then
+ * discard the private view and remap FILE_MAP_ALL_ACCESS at the same VA.
+ * A block protected while in use can be freed before the child exits; it
+ * still has private COW pages that must be merged. */
+static int RejoinCOWPages(HANDLE mmHandle, BYTE *mmStart, size_t mmSize) {
+    DWORD error = ERROR_SUCCESS;
+    const char *operation = NULL;
+
+    if (!mmHandle || !mmStart || mmSize == 0)
+        return 0;
+
+    BYTE *copyView = (BYTE *)MapViewOfFile(mmHandle, FILE_MAP_WRITE, 0, 0, mmSize);
+    if (!copyView) {
+        fprintf(stderr, "RejoinCOWPages: FILE_MAP_WRITE view gle=%lu\n",
+                GetLastError());
+        return 0;
+    }
+
+    for (BYTE *mmAddress = mmStart; mmAddress < mmStart + mmSize; ) {
+        MEMORY_BASIC_INFORMATION memInfo;
+        if (!VirtualQuery(mmAddress, &memInfo, sizeof(memInfo))) {
+            error = GetLastError();
+            operation = "VirtualQuery";
+            break;
+        }
+        BYTE *regionEnd = (BYTE *)memInfo.BaseAddress + memInfo.RegionSize;
+        if (regionEnd <= mmAddress) {
+            error = ERROR_INVALID_ADDRESS;
+            operation = "VirtualQuery region";
+            break;
+        }
+        if (memInfo.Protect != PAGE_WRITECOPY) {
+            BYTE *srcEnd = regionEnd < mmStart + mmSize ? regionEnd
+                                                        : mmStart + mmSize;
+            memcpy(copyView + (mmAddress - mmStart), mmAddress,
+                   (size_t)(srcEnd - mmAddress));
+        }
+        mmAddress = regionEnd;
+    }
+
+    if (error == ERROR_SUCCESS && !UnmapViewOfFile(mmStart)) {
+        error = GetLastError();
+        operation = "UnmapViewOfFile";
+    }
+
+    if (error == ERROR_SUCCESS) {
+        BYTE *remapped = (BYTE *)MapViewOfFileEx(mmHandle, FILE_MAP_ALL_ACCESS,
+                                                 0, 0, 0, mmStart);
+        if (remapped != mmStart) {
+            error = remapped ? ERROR_INVALID_ADDRESS : GetLastError();
+            operation = "MapViewOfFileEx";
+            if (remapped)
+                UnmapViewOfFile(remapped);
+        }
+    }
+
+    if (!UnmapViewOfFile(copyView) && error == ERROR_SUCCESS) {
+        error = GetLastError();
+        operation = "unmap copy view";
+    }
+
+    if (error != ERROR_SUCCESS) {
+        fprintf(stderr, "RejoinCOWPages: %s gle=%lu at %p size=%zu\n",
+                operation ? operation : "unknown", error, mmStart, mmSize);
+        return 0;
+    }
+    return 1;
+}
+
 int QForkRejoinAfterFork(void) {
+    QForkHeapLockGuard lock;
     QForkControl *c = ctrl();
     if (!c)
         return 1;
+    /* Merge every still-mapped block, including ones freed (MAPPED_FREE)
+     * while the child was alive. */
     for (int i = 0; i < c->maxAvailableBlocks; i++) {
-        if (c->heapBlockList[i].state != bsMAPPED_IN_USE ||
-            !c->heapBlockList[i].heapMap)
+        if (!c->heapBlockList[i].heapMap)
+            continue;
+        if (c->heapBlockList[i].state != bsMAPPED_IN_USE &&
+            c->heapBlockList[i].state != bsMAPPED_FREE)
             continue;
         LPVOID addr = (BYTE *)c->heapStart + (size_t)i * QFORK_BLOCK_SIZE;
-        UnmapViewOfFile(addr);
-        if (!MapViewOfFileEx(c->heapBlockList[i].heapMap, FILE_MAP_ALL_ACCESS,
-                             0, 0, 0, addr)) {
-            fprintf(stderr, "QForkRejoinAfterFork: remap %d gle=%lu\n",
-                    i, GetLastError());
+        if (!RejoinCOWPages(c->heapBlockList[i].heapMap, (BYTE *)addr,
+                            QFORK_BLOCK_SIZE)) {
+            fprintf(stderr, "QForkRejoinAfterFork: block %d failed\n", i);
             return 0;
         }
     }
     if (g_hQForkControlFileMap && c) {
-        UnmapViewOfFile(c);
-        g_pQForkControl = MapViewOfFile(g_hQForkControlFileMap, FILE_MAP_ALL_ACCESS,
-                                        0, 0, 0);
-        if (!g_pQForkControl)
+        if (!RejoinCOWPages(g_hQForkControlFileMap, (BYTE *)c,
+                            sizeof(QForkControl))) {
+            fprintf(stderr, "QForkRejoinAfterFork: control map failed\n");
             return 0;
+        }
+        /* Rejoin remaps at the same VA; g_pQForkControl is still valid. */
     }
     return 1;
 }
 
 int CommitHeapBlock(void *addr, size_t size, int commit) {
+    QForkHeapLockGuard lock;
     if (g_HasMemoryMappedHeap && addr_in_heap(addr)) {
         /* Cannot MEM_DECOMMIT a pagefile view. jemalloc still calls decommit
          * on decay/arena.purge — DiscardVirtualMemory so the working set
          * actually drops. Recommit is demand-zero on next touch. */
         if (!commit && !g_BypassMemoryMapOnAlloc)
-            PurgePages(addr, size);
+            purge_pages_unlocked(addr, size);
         return TRUE;
     }
     if (commit)

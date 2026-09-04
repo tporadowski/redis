@@ -279,12 +279,53 @@ int main(void) {
     }
     FreeHeapBlock(fixed, BLOCK);
 
+    /* Parent WRITECOPY dirtied pages must survive rejoin. */
+    {
+        void *cow = AllocHeapBlock(NULL, BLOCK, 1);
+        if (cow == NULL) {
+            fprintf(stderr, "cow alloc failed\n");
+            QForkShutdown();
+            return 12;
+        }
+        memset(cow, 0x11, 64);
+        if (!QForkProtectForFork()) {
+            fprintf(stderr, "QForkProtectForFork failed gle=%lu\n", GetLastError());
+            QForkShutdown();
+            return 12;
+        }
+        memset(cow, 0x22, 64);
+        ((unsigned char *)cow)[BLOCK - 1] = 0x33;
+        if (!QForkRejoinAfterFork()) {
+            fprintf(stderr, "QForkRejoinAfterFork failed\n");
+            QForkShutdown();
+            return 12;
+        }
+        if (((unsigned char *)cow)[0] != 0x22 ||
+            ((unsigned char *)cow)[63] != 0x22 ||
+            ((unsigned char *)cow)[BLOCK - 1] != 0x33) {
+            fprintf(stderr, "rejoin dropped parent COW writes\n");
+            QForkShutdown();
+            return 12;
+        }
+        {
+            MEMORY_BASIC_INFORMATION mbi;
+            if (!VirtualQuery(cow, &mbi, sizeof(mbi)) ||
+                mbi.Protect == PAGE_WRITECOPY) {
+                fprintf(stderr, "rejoin left PAGE_WRITECOPY protect=%lx\n",
+                        (unsigned long)mbi.Protect);
+                QForkShutdown();
+                return 12;
+            }
+        }
+        FreeHeapBlock(cow, BLOCK);
+    }
+
     QForkShutdown();
     if (g_pQForkControl != NULL) {
         fprintf(stderr, "g_pQForkControl not cleared\n");
         return 8;
     }
 
-    printf("ok qfork heap (NULL-safe, map, commit-in-place, recycle)\n");
+    printf("ok qfork heap (NULL-safe, map, commit-in-place, recycle, cow-rejoin)\n");
     return 0;
 }
