@@ -438,14 +438,22 @@ proc show_clients_state {} {
 
 proc kill_clients {} {
     foreach p $::clients_pids {
-        catch {exec kill $p}
+        if {$::tcl_platform(platform) eq "windows"} {
+            win32_kill_pid $p
+        } else {
+            catch {exec kill $p}
+        }
     }
 }
 
 proc force_kill_all_servers {} {
     foreach p $::active_servers {
         puts "Killing still running Redis server $p"
-        catch {exec kill -9 $p}
+        if {$::tcl_platform(platform) eq "windows"} {
+            win32_kill_pid $p
+        } else {
+            catch {exec kill -9 $p}
+        }
     }
 }
 
@@ -509,6 +517,10 @@ proc the_end {} {
     foreach {time name} $::clients_time_history {
         puts "  $time seconds - $name"
     }
+    # Worker Tcl clients stay alive after their last "ready". On Windows they
+    # can keep tests/tmp handles open, so recursive cleanup blocks after the
+    # success banner. Terminate them first, as failure/exception paths do.
+    kill_clients
     if {[llength $::failed_tests]} {
         puts "\n[colorstr bold-red {!!! WARNING}] The following tests failed:\n"
         foreach failed $::failed_tests {

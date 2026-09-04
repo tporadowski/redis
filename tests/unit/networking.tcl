@@ -130,25 +130,41 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         r CONFIG REWRITE
         assert_equal 1 [count_message_lines [srv 0 config_file] bind]
 
-        # Make sure we're able to restart
-        restart_server 0 0 0 0
+        if {$::tcl_platform(platform) eq "windows"} {
+            # Upstream keeps a Unix-domain socket available across this
+            # restart and uses it to restore the TCP listener. Default Windows
+            # test servers do not listen on AF_UNIX, so an empty bind leaves
+            # no listener and startup must fail.
+            set output [redis_server_startup_error [srv 0 config_file]]
+            assert_match {*Configured to not listen anywhere, exiting.*} $output
 
-        # Make sure bind parameter is as expected and server handles binding
-        # accordingly.
-        # (it seems that rediscli_exec behaves differently in RESP3, possibly
-        # because CONFIG GET returns a dict instead of a list so redis-cli emits
-        # it in a single line)
-        if {$::force_resp3} {
-            assert_equal {{bind }} [rediscli_exec 0 config get bind]
+            # Restore TCP through the existing connection, persist the default
+            # configuration, and prove that an ordinary restart succeeds.
+            assert_equal {OK} [r CONFIG SET bind *]
+            r CONFIG REWRITE
+            restart_server 0 1 0
+            r ping
         } else {
-            assert_equal {bind {}} [rediscli_exec 0 config get bind]
-        }
-        catch {reconnect 0} err
-        assert_match {*connection refused*} $err
+            # Make sure we're able to restart
+            restart_server 0 0 0 0
 
-        assert_equal {OK} [rediscli_exec 0 config set bind *]
-        reconnect 0
-        r ping
+            # Make sure bind parameter is as expected and server handles binding
+            # accordingly.
+            # (it seems that rediscli_exec behaves differently in RESP3, possibly
+            # because CONFIG GET returns a dict instead of a list so redis-cli emits
+            # it in a single line)
+            if {$::force_resp3} {
+                assert_equal {{bind }} [rediscli_exec 0 config get bind]
+            } else {
+                assert_equal {bind {}} [rediscli_exec 0 config get bind]
+            }
+            catch {reconnect 0} err
+            assert_match {*connection refused*} $err
+
+            assert_equal {OK} [rediscli_exec 0 config set bind *]
+            reconnect 0
+            r ping
+        }
     } {PONG}
 
     test {Protected mode works as expected} {

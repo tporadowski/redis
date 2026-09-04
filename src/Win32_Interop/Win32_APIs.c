@@ -2,6 +2,7 @@
 #include "win32_pre.h"
 #include "Win32_Time.h"
 #include "Win32_FDAPI.h"
+#include "Win32_Error.h"
 #include "posix/sys/utsname.h"
 #include "posix/sys/uio.h"
 #include "posix/dirent.h"
@@ -250,33 +251,35 @@ static void dl_set_error(const char *what) {
 
 void *dlopen(const char *filename, int flags) {
     HMODULE h;
-    char path[MAX_PATH];
-    size_t i;
+    wchar_t *wide;
+    const char *p;
     int abs_path = 0;
 
     UNUSED(flags);
     g_dlerror_pending = 0;
 
     if (!filename)
-        return (void *)GetModuleHandleA(NULL);
+        return (void *)GetModuleHandleW(NULL);
 
-    for (i = 0; i < MAX_PATH - 1 && filename[i]; i++) {
-        char c = filename[i];
-        if (c == '/')
-            c = '\\';
-        if (c == '\\' || c == ':')
+    for (p = filename; *p; p++) {
+        if (*p == '/' || *p == '\\' || *p == ':')
             abs_path = 1;
-        path[i] = c;
     }
-    path[i] = '\0';
+
+    wide = win32_utf8_path_to_wide(filename);
+    if (!wide) {
+        dl_set_error(filename);
+        return NULL;
+    }
 
     /* LOAD_WITH_ALTERED_SEARCH_PATH requires a path component. */
     if (abs_path)
-        h = LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+        h = LoadLibraryExW(wide, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
     else
-        h = LoadLibraryA(path);
+        h = LoadLibraryW(wide);
+    win32_free(wide);
     if (!h) {
-        dl_set_error(path);
+        dl_set_error(filename);
         return NULL;
     }
     return (void *)h;

@@ -23,20 +23,34 @@
 #ifndef WIN32_INTEROP_ERROR_H
 #define WIN32_INTEROP_ERROR_H
 
+#include <stddef.h>
 #include <stdint.h>
+#include <wchar.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
+#ifndef ESOCKTNOSUPPORT
 #define ESOCKTNOSUPPORT WSAESOCKTNOSUPPORT /* Socket type not supported */
+#endif
+#ifndef EPFNOSUPPORT
 #define EPFNOSUPPORT    WSAEPFNOSUPPORT    /* Protocol family not supported */
+#endif
 
 
 /* Converts error codes returned by GetLastError/WSAGetLastError to errno codes */
 int translate_sys_error(int sys_error);
 void set_errno_from_last_error();
+
+/* Redis keeps text and paths as UTF-8. These helpers convert at the Windows
+ * Unicode API boundary. Returned buffers are malloc'd; free with win32_free. */
+void win32_free(void *value);
+wchar_t *win32_utf8_to_wide(const char *value);
+char *win32_wide_to_utf8(const wchar_t *value);
+wchar_t *win32_utf8_path_to_wide(const char *path);
+wchar_t *win32_utf8_directory_path_to_wide(const char *path);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);

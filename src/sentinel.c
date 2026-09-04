@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #ifdef _WIN32
 #include "Win32_Interop/Win32_ProcessTable.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 extern char **environ;
@@ -847,8 +848,9 @@ void sentinelRunPendingScripts(void) {
             char cmdline[4096];
             size_t pos = 0;
             int j;
-            STARTUPINFOA si;
+            STARTUPINFOW si;
             PROCESS_INFORMATION pi;
+            wchar_t *wcmd;
 
             cmdline[0] = '\0';
             for (j = 0; sj->argv[j]; j++) {
@@ -878,8 +880,9 @@ void sentinelRunPendingScripts(void) {
             memset(&si, 0, sizeof(si));
             si.cb = sizeof(si);
             memset(&pi, 0, sizeof(pi));
-            if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE,
-                               CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            wcmd = win32_utf8_to_wide(cmdline);
+            if (wcmd && CreateProcessW(NULL, wcmd, NULL, NULL, FALSE,
+                                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
                 CloseHandle(pi.hThread);
                 sj->pid = (pid_t)pi.dwProcessId;
                 winpid_register(sj->pid, pi.hProcess, WP_SENTINEL_SCRIPT, NULL);
@@ -891,6 +894,7 @@ void sentinelRunPendingScripts(void) {
                 sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
                 sj->pid = 0;
             }
+            win32_free(wcmd);
         }
         (void)pid;
 #else

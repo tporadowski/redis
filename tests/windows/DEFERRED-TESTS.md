@@ -54,9 +54,9 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | **13.2** `windows/regression` AUTH replica + AUTH-fail `maxclients` | default `wintest.tcl` | green |
 | **13.2** `MASTERAUTH` binary password (rdbchannel yes/no) | default `unit/auth` | green (IOCP handshake + log wait) |
 | `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, INCREX rewrite, three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
-| **14.1 leftover** protocol desync flood #1–#3 (raw Tcl `gets` empty) | skip-list | client still writing when we FIN |
+| Protocol desync flood #1–#3 | default `unit/protocol` | green (non-blocking Tcl read) |
 | Large payload / 10k SET / BITOP+GEO+BITPOS fuzz / AVX-512 BITOP | skip-list | timed solo run; mapped-heap FLUSHALL inside BITOP fuzz drops the client |
-| `GETEX PXAT option` (pttl 10002 vs 5000–10000) | skip-list | clock-skew / loosen assert |
+| `GETEX PXAT option` | default `unit/type/string` | green (server `TIME` timestamp) |
 | SWAPDB / FLUSHALL coverage + MULTI WATCH+FLUSH/SWAP | skip-list | faster FLUSHALL on mapped heap |
 | HINCRBYFLOAT 1.23 pretty-print | test gate (Windows `long double` is 64-bit) | 80-bit `long double` (Linux x86_64 only) |
 | `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |

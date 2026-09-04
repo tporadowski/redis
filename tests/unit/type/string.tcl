@@ -126,7 +126,13 @@ start_server {tags {"string"}} {
     test "GETEX PXAT option" {
         r del foo
         r set foo bar
-        r getex foo pxat [expr [clock milliseconds] + 10000]
+        # Use the server clock for the absolute timestamp. A client-side
+        # clock can be a millisecond ahead of the server on Windows, making a
+        # freshly assigned 10-second TTL read back as 10001ms.
+        set now [r time]
+        set expireat [expr {[lindex $now 0] * 1000 +
+                            [lindex $now 1] / 1000 + 10000}]
+        r getex foo pxat $expireat
         assert_range [r pttl foo] 5000 10000
     }
 

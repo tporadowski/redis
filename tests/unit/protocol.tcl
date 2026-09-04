@@ -81,20 +81,43 @@ start_server {tags {"protocol network"}} {
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
             set test_time_limit 30
-            while 1 {
-                if {[catch {
-                    puts -nonewline $s payload
+            if {$::tcl_platform(platform) eq "windows"} {
+                catch {
+                    puts -nonewline $s [string repeat $payload 67]
                     flush $s
-                    incr payload_size [string length $payload]
-                }]} {
-                    set retval [gets $s]
-                    close $s
-                    break
-                } else {
+                }
+                fconfigure $s -blocking false
+                set response ""
+                while 1 {
+                    append response [read $s]
+                    if {[string first "\n" $response] != -1 || [eof $s]} {
+                        set retval [string trimright $response "\r\n"]
+                        close $s
+                        break
+                    }
                     set elapsed [expr {[clock seconds]-$test_start}]
                     if {$elapsed > $test_time_limit} {
                         close $s
                         error "assertion:Redis did not closed connection after protocol desync"
+                    }
+                    after 1
+                }
+            } else {
+                while 1 {
+                    if {[catch {
+                        puts -nonewline $s payload
+                        flush $s
+                        incr payload_size [string length $payload]
+                    }]} {
+                        set retval [gets $s]
+                        close $s
+                        break
+                    } else {
+                        set elapsed [expr {[clock seconds]-$test_start}]
+                        if {$elapsed > $test_time_limit} {
+                            close $s
+                            error "assertion:Redis did not closed connection after protocol desync"
+                        }
                     }
                 }
             }

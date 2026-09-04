@@ -21,7 +21,12 @@
  */
 
 #include <Windows.h>
+#include "Win32_Error.h"
 #include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
 
 #ifndef EINPROGRESS
 #define EINPROGRESS 112
@@ -184,6 +189,190 @@ char *wsa_strerror(int err) {
         wsa_strerror_buf[size - 2] = '\0';
     }
     return wsa_strerror_buf;
+}
+
+void win32_free(void *value) {
+    free(value);
+}
+
+static void set_errno_from_win32_error(DWORD error) {
+    errno = translate_sys_error((int)error);
+    if (errno == -9999)
+        errno = EIO;
+}
+
+wchar_t *win32_utf8_to_wide(const char *value) {
+    int length;
+    wchar_t *wide;
+
+    if (value == NULL) {
+        errno = EINVAL;
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return NULL;
+    }
+
+    length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                 value, -1, NULL, 0);
+    if (length == 0) {
+        set_errno_from_win32_error(GetLastError());
+        return NULL;
+    }
+
+    wide = (wchar_t *)malloc((size_t)length * sizeof(*wide));
+    if (wide == NULL) {
+        errno = ENOMEM;
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return NULL;
+    }
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                            value, -1, wide, length) == 0) {
+        DWORD error = GetLastError();
+        free(wide);
+        set_errno_from_win32_error(error);
+        SetLastError(error);
+        return NULL;
+    }
+    return wide;
+}
+
+char *win32_wide_to_utf8(const wchar_t *value) {
+    int length;
+    char *utf8;
+
+    if (value == NULL) {
+        errno = EINVAL;
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return NULL;
+    }
+
+    length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                                 value, -1, NULL, 0, NULL, NULL);
+    if (length == 0) {
+        set_errno_from_win32_error(GetLastError());
+        return NULL;
+    }
+
+    utf8 = (char *)malloc((size_t)length);
+    if (utf8 == NULL) {
+        errno = ENOMEM;
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return NULL;
+    }
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                            value, -1, utf8, length, NULL, NULL) == 0) {
+        DWORD error = GetLastError();
+        free(utf8);
+        set_errno_from_win32_error(error);
+        SetLastError(error);
+        return NULL;
+    }
+    return utf8;
+}
+
+static wchar_t *win32_get_full_path_wide(const wchar_t *path) {
+    DWORD size = 256;
+
+    for (;;) {
+        wchar_t *full = (wchar_t *)malloc((size_t)size * sizeof(*full));
+        DWORD length;
+        if (full == NULL) {
+            errno = ENOMEM;
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+            return NULL;
+        }
+
+        length = GetFullPathNameW(path, size, full, NULL);
+        if (length == 0) {
+            DWORD error = GetLastError();
+            free(full);
+            set_errno_from_win32_error(error);
+            SetLastError(error);
+            return NULL;
+        }
+        if (length < size) return full;
+
+        free(full);
+        if (length == UINT32_MAX || length + 1 <= length) {
+            errno = ENAMETOOLONG;
+            SetLastError(ERROR_FILENAME_EXCED_RANGE);
+            return NULL;
+        }
+        size = length + 1;
+    }
+}
+
+static wchar_t *win32_make_extended_path(wchar_t *full) {
+    size_t length = wcslen(full);
+
+    if (wcsncmp(full, L"\\\\", 2) == 0) {
+        const wchar_t prefix[] = L"\\\\?\\UNC\\";
+        size_t prefix_length = (sizeof(prefix) / sizeof(prefix[0])) - 1;
+        wchar_t *extended = (wchar_t *)malloc(
+            (prefix_length + length - 2 + 1) * sizeof(*extended));
+        if (extended == NULL) {
+            free(full);
+            errno = ENOMEM;
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+            return NULL;
+        }
+        memcpy(extended, prefix, prefix_length * sizeof(*extended));
+        memcpy(extended + prefix_length, full + 2,
+               (length - 2 + 1) * sizeof(*extended));
+        free(full);
+        return extended;
+    } else {
+        const wchar_t prefix[] = L"\\\\?\\";
+        size_t prefix_length = (sizeof(prefix) / sizeof(prefix[0])) - 1;
+        wchar_t *extended = (wchar_t *)malloc(
+            (prefix_length + length + 1) * sizeof(*extended));
+        if (extended == NULL) {
+            free(full);
+            errno = ENOMEM;
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+            return NULL;
+        }
+        memcpy(extended, prefix, prefix_length * sizeof(*extended));
+        memcpy(extended + prefix_length, full,
+               (length + 1) * sizeof(*extended));
+        free(full);
+        return extended;
+    }
+}
+
+static wchar_t *win32_utf8_path_to_wide_with_threshold(const char *path,
+                                                        size_t threshold) {
+    wchar_t *wide = win32_utf8_to_wide(path);
+    wchar_t *full;
+    size_t length;
+
+    if (wide == NULL) return NULL;
+    if (wcsncmp(wide, L"\\\\?\\", 4) == 0 ||
+        wcsncmp(wide, L"\\\\.\\", 4) == 0) {
+        return wide;
+    }
+
+    full = win32_get_full_path_wide(wide);
+    if (full == NULL) {
+        free(wide);
+        return NULL;
+    }
+    length = wcslen(full);
+
+    if (length < threshold) {
+        free(full);
+        return wide;
+    }
+
+    free(wide);
+    return win32_make_extended_path(full);
+}
+
+wchar_t *win32_utf8_path_to_wide(const char *path) {
+    return win32_utf8_path_to_wide_with_threshold(path, MAX_PATH);
+}
+
+wchar_t *win32_utf8_directory_path_to_wide(const char *path) {
+    return win32_utf8_path_to_wide_with_threshold(path, MAX_PATH - 12);
 }
 
 #ifdef __cplusplus

@@ -3490,7 +3490,7 @@ standardConfig static_configs[] = {
     createULongConfig("acllog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.acllog_max_len, 128, INTEGER_CONFIG, NULL, NULL),
 
     /* Long Long configs */
-    createLongLongConfig("busy-reply-threshold", "lua-time-limit", MODIFIABLE_CONFIG, 0, LONG_MAX, server.busy_reply_threshold, 5000, INTEGER_CONFIG, NULL, NULL),/* milliseconds */
+    createLongLongConfig("busy-reply-threshold", "lua-time-limit", MODIFIABLE_CONFIG, 0, LLONG_MAX, server.busy_reply_threshold, 5000, INTEGER_CONFIG, NULL, NULL),/* milliseconds */
     createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, 15000, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("cluster-ping-interval", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, LLONG_MAX, server.cluster_ping_interval, 0, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("cluster-slot-migration-handoff-max-lag-bytes", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.asm_handoff_max_lag_bytes, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* 1MB */
@@ -3498,7 +3498,7 @@ standardConfig static_configs[] = {
     createLongLongConfig("cluster-slot-migration-sync-buffer-drain-timeout", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, LLONG_MAX, server.asm_sync_buffer_drain_timeout, 60000, INTEGER_CONFIG, NULL, NULL), /* 60 seconds */
     createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, 10000, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
-    createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
+    createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LLONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("stream-idmp-duration", NULL, MODIFIABLE_CONFIG, CONFIG_STREAM_IDMP_MIN_DURATION, CONFIG_STREAM_IDMP_MAX_DURATION, server.stream_idmp_duration, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("stream-idmp-maxsize", NULL, MODIFIABLE_CONFIG, CONFIG_STREAM_IDMP_MIN_MAXSIZE, CONFIG_STREAM_IDMP_MAX_MAXSIZE, server.stream_idmp_maxsize, 100, INTEGER_CONFIG, NULL, NULL),
@@ -3510,32 +3510,32 @@ standardConfig static_configs[] = {
     createULongLongConfig("cluster-link-sendbuf-limit", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.cluster_link_msg_queue_limit_bytes, 0, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */
-    createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_entries, 512, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("hash-min-template-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_min_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("hash-max-template-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("hash-rdb-load-min-template-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_rdb_load_min_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("hash-rdb-load-max-template-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_rdb_load_max_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("hash-rdb-load-template-disassembly-threshold", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_rdb_load_template_disassembly_threshold, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_max_listpack_entries, 512, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-min-template-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_min_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-max-template-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_max_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-rdb-load-min-template-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_rdb_load_min_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-rdb-load-max-template-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_rdb_load_max_template_entries, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-rdb-load-template-disassembly-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_rdb_load_template_disassembly_threshold, 0, INTEGER_CONFIG, NULL, NULL),
 
-    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("set-max-listpack-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("set-max-listpack-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_value, 64, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("set-max-listpack-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.set_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("set-max-listpack-value", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.set_max_listpack_value, 64, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LLONG_MAX, server.zset_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.active_defrag_ignore_bytes, 100<<20, MEMORY_CONFIG, NULL, NULL), /* Default: don't defrag if frag overhead is below 100mb */
-    createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, 4096, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("zset-max-listpack-value", "zset-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
-    createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hash_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_bytes, 4096, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("zset-max-listpack-value", "zset-max-ziplist-value", MODIFIABLE_CONFIG, 0, LLONG_MAX, server.zset_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
+    createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LLONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
     createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG | PERCENT_CONFIG, NULL, applyClientMaxMemoryUsage),
 
     /* Other configs */
-    createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
-    createTimeTConfig("backup-sealed-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.backup_sealed_ttl, 0, INTEGER_CONFIG, NULL, NULL), /* Default: disabled */
+    createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
+    createTimeTConfig("backup-sealed-ttl", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.backup_sealed_ttl, 0, INTEGER_CONFIG, NULL, NULL), /* Default: disabled */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*512, INTEGER_CONFIG, NULL, NULL),
-    createOffTConfig("aof-load-corrupt-tail-max-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_load_corrupt_tail_max_size, 0, INTEGER_CONFIG, NULL, NULL),
+    createOffTConfig("aof-load-corrupt-tail-max-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_load_corrupt_tail_max_size, 0, INTEGER_CONFIG, NULL, NULL),
 
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, applyTlsCfg),

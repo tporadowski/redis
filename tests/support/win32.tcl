@@ -46,6 +46,20 @@ proc win32_kill_pid {pid} {
     catch {exec taskkill.exe /F /T /PID $pid}
 }
 
+# Start redis-server with args that must fail during startup and return the
+# combined diagnostics. Used by Windows branches of official tests that
+# cannot fall back on a Unix socket (empty bind, bad config, …).
+proc redis_server_startup_error {args} {
+    set srv [redis_server_bin]
+    set failed [catch {
+        exec $srv {*}$args 2>@1
+    } output]
+    if {!$failed} {
+        error "redis-server unexpectedly accepted startup arguments: $args"
+    }
+    return $output
+}
+
 # First child of $parent, or "" if none. Used by get_child_pid (QFork).
 proc win32_child_pid {parent} {
     lindex [win32_child_pids $parent] 0
