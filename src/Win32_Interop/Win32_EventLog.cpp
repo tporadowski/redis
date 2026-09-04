@@ -14,6 +14,7 @@
 
 #include "Win32_EventLog.h"
 #include "Win32_Service.h"
+#include "Win32_Error.h"
 #include "EventLog.h"
 #include <system_error>
 
@@ -60,16 +61,34 @@ static void log_message(const char *msg, WORD type) {
         break;
     }
 
-    HANDLE hEventLog = RegisterEventSourceA(NULL, kRedis);
-    if (!hEventLog) {
-        fprintf(stderr, "EventLog: RegisterEventSource failed gle=%lu\n",
+    wchar_t *wideSource = win32_utf8_to_wide(kRedis);
+    wchar_t *wideMsg = win32_utf8_to_wide(msg ? msg : "");
+    LPCWSTR strings[1];
+    HANDLE hEventLog;
+
+    if (!wideSource || !wideMsg) {
+        win32_free(wideSource);
+        win32_free(wideMsg);
+        fprintf(stderr, "EventLog: UTF-8 conversion failed gle=%lu\n",
                 GetLastError());
         return;
     }
-    if (!ReportEventA(hEventLog, type, 0, eventID, NULL, 1, 0, &msg, NULL)) {
+
+    hEventLog = RegisterEventSourceW(NULL, wideSource);
+    if (!hEventLog) {
+        fprintf(stderr, "EventLog: RegisterEventSource failed gle=%lu\n",
+                GetLastError());
+        win32_free(wideSource);
+        win32_free(wideMsg);
+        return;
+    }
+    strings[0] = wideMsg;
+    if (!ReportEventW(hEventLog, type, 0, eventID, NULL, 1, 0, strings, NULL)) {
         fprintf(stderr, "EventLog: ReportEvent failed gle=%lu\n", GetLastError());
     }
     DeregisterEventSource(hEventLog);
+    win32_free(wideSource);
+    win32_free(wideMsg);
 }
 
 static std::string prefixed(const char *msg) {
@@ -121,10 +140,24 @@ void WriteEventLogSuccess(const char *msg) {
 static LONG set_sz_if_missing(HKEY key, const char *name, const char *value) {
     DWORD type = 0, size = 0;
     LONG rc = RegQueryValueExA(key, name, NULL, &type, NULL, &size);
+    wchar_t *wideName;
+    wchar_t *wideValue;
+    LONG set_rc;
+
     if (rc == ERROR_SUCCESS)
         return ERROR_SUCCESS;
-    return RegSetValueExA(key, name, 0, REG_SZ, (const BYTE *)value,
-                          (DWORD)strlen(value) + 1);
+    wideName = win32_utf8_to_wide(name);
+    wideValue = win32_utf8_to_wide(value);
+    if (!wideName || !wideValue) {
+        win32_free(wideName);
+        win32_free(wideValue);
+        return ERROR_INVALID_PARAMETER;
+    }
+    set_rc = RegSetValueExW(key, wideName, 0, REG_SZ, (const BYTE *)wideValue,
+                            (DWORD)((wcslen(wideValue) + 1) * sizeof(wchar_t)));
+    win32_free(wideName);
+    win32_free(wideValue);
+    return set_rc;
 }
 
 static LONG set_dword_if_missing(HKEY key, const char *name, DWORD value) {

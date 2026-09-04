@@ -29,6 +29,7 @@
 
 #include "Win32_Service.h"
 #include "Win32_EventLog.h"
+#include "Win32_Error.h"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -42,6 +43,13 @@ int RedisWindowsParentMain(int argc, char **argv);
 #define MAX_SERVICE_NAME_LENGTH 256
 
 static char g_serviceName[MAX_SERVICE_NAME_LENGTH + 1] = DEFAULT_SERVICE_NAME;
+
+static wchar_t *service_wide(const char *utf8, const char *what) {
+    wchar_t *wide = win32_utf8_to_wide(utf8);
+    if (!wide)
+        throw std::system_error(GetLastError(), std::system_category(), what);
+    return wide;
+}
 static SERVICE_STATUS g_ServiceStatus = {0};
 static HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 static HANDLE g_ServiceStoppedEvent = INVALID_HANDLE_VALUE;
@@ -297,10 +305,25 @@ static void service_install(int argc, char **argv) {
                                 "OpenSCManager failed");
 
     ScHandle svc;
-    svc = CreateServiceA(scm, g_serviceName, g_serviceName, SERVICE_ALL_ACCESS,
-                         SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START,
-                         SERVICE_ERROR_NORMAL, args.str().c_str(), NULL, NULL,
-                         NULL, userName, NULL);
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    wchar_t *wbin = NULL;
+    wchar_t *wuser = NULL;
+    try {
+        wbin = service_wide(args.str().c_str(), "UTF-8 service ImagePath");
+        wuser = service_wide(userName, "UTF-8 service account");
+        svc = CreateServiceW(scm, wname, wname, SERVICE_ALL_ACCESS,
+                             SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START,
+                             SERVICE_ERROR_NORMAL, wbin, NULL, NULL,
+                             NULL, wuser, NULL);
+    } catch (...) {
+        win32_free(wname);
+        win32_free(wbin);
+        win32_free(wuser);
+        throw;
+    }
+    win32_free(wname);
+    win32_free(wbin);
+    win32_free(wuser);
     if (svc.invalid())
         throw std::system_error(GetLastError(), std::system_category(),
                                 "CreateService failed");
@@ -342,11 +365,13 @@ static void service_start(int argc, char **argv) {
         throw std::system_error(GetLastError(), std::system_category(),
                                 "OpenSCManager failed");
     ScHandle svc;
-    svc = OpenServiceA(scm, g_serviceName, SERVICE_ALL_ACCESS);
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    svc = OpenServiceW(scm, wname, SERVICE_ALL_ACCESS);
+    win32_free(wname);
     if (svc.invalid())
         throw std::system_error(GetLastError(), std::system_category(),
                                 "OpenService failed");
-    if (!StartServiceA(svc, 0, NULL))
+    if (!StartServiceW(svc, 0, NULL))
         throw std::system_error(GetLastError(), std::system_category(),
                                 "StartService failed");
 
@@ -378,7 +403,9 @@ static void service_stop(int argc, char **argv) {
         throw std::system_error(GetLastError(), std::system_category(),
                                 "OpenSCManager failed");
     ScHandle svc;
-    svc = OpenServiceA(scm, g_serviceName, SERVICE_ALL_ACCESS);
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    svc = OpenServiceW(scm, wname, SERVICE_ALL_ACCESS);
+    win32_free(wname);
     if (svc.invalid())
         throw std::system_error(GetLastError(), std::system_category(),
                                 "OpenService failed");
@@ -409,7 +436,9 @@ static void service_uninstall(int argc, char **argv) {
         throw std::system_error(GetLastError(), std::system_category(),
                                 "OpenSCManager failed");
     ScHandle svc;
-    svc = OpenServiceA(scm, g_serviceName, SERVICE_ALL_ACCESS);
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    svc = OpenServiceW(scm, wname, SERVICE_ALL_ACCESS);
+    win32_free(wname);
     if (svc.valid()) {
         if (!DeleteService(svc))
             throw std::system_error(GetLastError(), std::system_category(),
@@ -484,9 +513,11 @@ static DWORD WINAPI ServiceCtrlHandler(DWORD dwControl, DWORD, LPVOID, LPVOID) {
     return NO_ERROR;
 }
 
-static VOID WINAPI ServiceMain(DWORD, LPTSTR *) {
-    g_StatusHandle = RegisterServiceCtrlHandlerExA(g_serviceName,
+static VOID WINAPI ServiceMain(DWORD, LPWSTR *) {
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    g_StatusHandle = RegisterServiceCtrlHandlerExW(wname,
                                                    ServiceCtrlHandler, NULL);
+    win32_free(wname);
     if (!g_StatusHandle)
         return;
 
@@ -523,12 +554,15 @@ static VOID WINAPI ServiceMain(DWORD, LPTSTR *) {
 }
 
 static void service_run(void) {
-    SERVICE_TABLE_ENTRYA table[] = {
-        {g_serviceName, (LPSERVICE_MAIN_FUNCTIONA)ServiceMain},
+    wchar_t *wname = service_wide(g_serviceName, "UTF-8 service name");
+    SERVICE_TABLE_ENTRYW table[] = {
+        {wname, (LPSERVICE_MAIN_FUNCTIONW)ServiceMain},
         {NULL, NULL}};
-    if (!StartServiceCtrlDispatcherA(table))
+    BOOL ok = StartServiceCtrlDispatcherW(table);
+    win32_free(wname);
+    if (!ok)
         throw std::system_error(GetLastError(), std::system_category(),
-                                "StartServiceCtrlDispatcherA failed");
+                                "StartServiceCtrlDispatcherW failed");
 }
 
 static void build_service_run_arguments(int argc, char **argv) {
