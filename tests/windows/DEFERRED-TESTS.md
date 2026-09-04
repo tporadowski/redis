@@ -62,7 +62,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |
 | `unit/multi` (script timeout + remaining after WATCH) | not in default `wintest.tcl` | Lua `lua-time-limit` abort on Windows |
 | `unit/pubsub` | default `wintest.tcl` | green after write rearm; EVAL-write “publish to self inside script” skipped |
-| `unit/type/list` (BLPOP/BLMPOP extra-client) | skip-list + runner deny | **2026-08-22 reboot.** Do not `-Single` the full unit. Next attempt must be a tiny named subset, not the file |
+| `unit/type/list` (BLPOP/BLMPOP extra-client) | skip-list + runner deny | **2026-08-22 reboot.** One-shot AcceptEx is in; `windows/blpop_one` (1–2 extra clients) is green. Do not `-Single` the full official unit |
 | `unit/type/set`, `zset`, `stream` | runner deny (`REDIS_TEST_UNSAFE`) | same watchdog class as list; not started |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |

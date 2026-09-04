@@ -89,6 +89,8 @@ void WSIOCP_CancelQueuedRead(int rfd);
 /* Re-arm zero-byte WSARecv if AE_READABLE and nothing is queued. */
 int WSIOCP_RearmRead(int rfd);
 int WSIOCP_QueueAccept(int listenfd);
+/* Post the next AcceptEx only if none is already in flight. */
+int WSIOCP_EnsureAcceptQueued(int listenfd);
 int WSIOCP_Listen(int rfd, int backlog);
 int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
 int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop,
