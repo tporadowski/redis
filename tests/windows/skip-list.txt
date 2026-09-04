@@ -51,6 +51,9 @@ MSET spanning multiple prefetch batches (batch size 16)
 # SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
 # (script.c SCRIPT_READ_ONLY). Investigate with unit/scripting.
 SORT sorted set BY nosort works as expected from scripts
+publish to self inside script
+MONITOR can log commands issued by the scripting engine
+MONITOR can log commands issued by functions
 # Also 1e6 SADD in EVAL — do not run even if scripting flags are fixed.
 LATENCY of expire events are correctly collected
 command stats for scripts
@@ -94,11 +97,13 @@ FLUSHDB does not touch non affected keys
 /SWAPDB is able to touch
 /SWAPDB does not touch
 
-# --- DEFERRED: introspection (DEBUG SLEEP / 100k load / slow BGSAVE) ---
-# maxAGE hung >200s on debug sleep 2/4/8; killed 2026-08-30.
-CLIENT KILL maxAGE will kill old clients
+# --- DEFERRED: introspection (100k load / slow BGSAVE) ---
+# maxAGE is green after one-shot write rearm (DEBUG SLEEP 2s).
 CLIENT KILL close the client connection during bgsave
 config during loading
+# io-threads 2/4 start_server hung after alias-rewrite (2026-09-04).
+IO threads client number
+Clients are evenly distributed among io threads
 
 # --- DEFERRED: querybuf shrink (mapped heap / clientsCron peak reset) ---
 query buffer resized correctly when not idle

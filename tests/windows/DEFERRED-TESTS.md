@@ -61,7 +61,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | HINCRBYFLOAT 1.23 pretty-print | test gate (Windows `long double` is 64-bit) | 80-bit `long double` (Linux x86_64 only) |
 | `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |
 | `unit/multi` (script timeout + remaining after WATCH) | not in default `wintest.tcl` | Lua `lua-time-limit` abort on Windows |
-| `unit/pubsub` | not in default `wintest.tcl` | hung after UNSUBSCRIBE-without-args (2026-08-22) |
+| `unit/pubsub` | default `wintest.tcl` | green after write rearm; EVAL-write “publish to self inside script” skipped |
 | `unit/type/list` (BLPOP/BLMPOP extra-client) | skip-list + runner deny | **2026-08-22 reboot.** Do not `-Single` the full unit. Next attempt must be a tiny named subset, not the file |
 | `unit/type/set`, `zset`, `stream` | runner deny (`REDIS_TEST_UNSAFE`) | same watchdog class as list; not started |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
@@ -70,7 +70,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
 | `unit/limits` maxclients refuse | default `wintest` | green (`rejectConnection` + delayed close) |
-| `unit/introspection` (full) | skip-list + not default | `CLIENT KILL maxAGE` hung >200s on `DEBUG SLEEP` 2/4/8 (killed 2026-08-30). 100k `debug populate` + slow-BGSAVE stay skipped |
+| `unit/introspection` (full) | default `wintest.tcl` | maxAGE green. Still skipped: bgsave kill, config-during-loading, io-threads 2/4 start hang, EVAL/FUNCTION MONITOR writes |
 | `unit/dump` MIGRATE | skip-list; DUMP/RESTORE is default | `--tags -repl` skips the second server but the outer test still 40k-RPUSH + mapped-heap FLUSHDB (I/O error) |
 | `unit/functions` kill / load-timeout / `debug loadaof` | skip-list; rest is default | no SIGALRM Lua abort; dummy-slave `debug loadaof` dropped the client |
 | `unit/querybuf` peak-shrink + fat argv | skip-list; idle/reusable cases are default | mapped-heap / clientsCron peak reset does not shrink |
@@ -84,6 +84,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `windows/type_list_nb`, `windows/type_set_nb`, `windows/type_zset_nb`,
 `windows/type_stream_nb`,
 `unit/keyspace`, `unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`,
+`unit/limits`, `unit/pubsub`, `unit/introspection`,
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
