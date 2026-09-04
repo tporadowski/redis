@@ -1505,6 +1505,9 @@ typedef struct {
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
+#ifdef _WIN32
+    mstime_t close_after_reply_time; /* Delay closesocket so the last reply FINs. */
+#endif
     connection *conn;
     uint8_t tid;            /* Thread assigned ID this client is bound to. */
     uint8_t running_tid;    /* Thread assigned ID this client is running on. */

@@ -78,6 +78,27 @@ static int close_hook_set;
 #define UNIX_LISTEN_MAX 16
 static int unix_listen_rfds[UNIX_LISTEN_MAX];
 static int unix_listen_n;
+#define WRITE_REARM_MAX 256
+static int write_rearm_fds[WRITE_REARM_MAX];
+static int write_rearm_n;
+
+static void write_rearm_add(int fd) {
+    int i;
+    for (i = 0; i < write_rearm_n; i++)
+        if (write_rearm_fds[i] == fd) return;
+    if (write_rearm_n < WRITE_REARM_MAX)
+        write_rearm_fds[write_rearm_n++] = fd;
+}
+
+static void write_rearm_del(int fd) {
+    int i;
+    for (i = 0; i < write_rearm_n; i++) {
+        if (write_rearm_fds[i] == fd) {
+            write_rearm_fds[i] = write_rearm_fds[--write_rearm_n];
+            return;
+        }
+    }
+}
 
 static void unix_listen_add(int rfd) {
     int i;
@@ -142,6 +163,7 @@ static int WSIOCP_CloseSocketState(iocpSockState *ss) {
 
 int WSIOCP_CloseSocketStateRFD(int rfd) {
     unix_listen_del(rfd);
+    write_rearm_del(rfd);
     return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
 }
 
@@ -354,7 +376,10 @@ int WSIOCP_QueueNextRead(int fd) {
         errno = EINVAL;
         return -1;
     }
-    if ((ss->masks & SOCKET_ATTACHED) == 0)
+    /* ConnectEx and read readiness share ov_read. Never reuse it while an
+     * overlapped operation is still pending. */
+    if ((ss->masks & SOCKET_ATTACHED) == 0 ||
+        (ss->masks & (READ_QUEUED | CONNECT_PENDING | CLOSE_PENDING)) != 0)
         return 0;
 
     memset(&ss->ov_read, 0, sizeof(ss->ov_read));
@@ -368,6 +393,68 @@ int WSIOCP_QueueNextRead(int fd) {
     errno = FDAPI_WSAGetLastError();
     ss->masks &= ~READ_QUEUED;
     return -1;
+}
+
+int WSIOCP_QueueWriteReady(int fd) {
+    iocpSockState *ss;
+    asendreq *areq;
+    int writable;
+    void *iocp;
+
+    ss = WSIOCP_GetExistingSocketState(fd);
+    if (!ss) {
+        errno = EINVAL;
+        return -1;
+    }
+    if ((ss->masks & SOCKET_ATTACHED) == 0 ||
+        (ss->masks & AE_WRITABLE) == 0 ||
+        (ss->masks & (CONNECT_PENDING | CLOSE_PENDING)) != 0 ||
+        ss->wreqs != 0) {
+        ss->masks &= ~WRITE_REARM_NEEDED;
+        write_rearm_del(fd);
+        return 0;
+    }
+    iocp = ss->iocp;
+    if (!iocp) {
+        ss->masks &= ~WRITE_REARM_NEEDED;
+        write_rearm_del(fd);
+        errno = EINVAL;
+        return -1;
+    }
+
+    writable = FDAPI_IsSocketWritable(fd);
+    if (writable < 0) {
+        ss->masks &= ~WRITE_REARM_NEEDED;
+        write_rearm_del(fd);
+        return -1;
+    }
+    if (!writable) {
+        ss->masks |= WRITE_REARM_NEEDED;
+        write_rearm_add(fd);
+        return 0;
+    }
+
+    areq = (asendreq *)walloc(sizeof(*areq));
+    if (!areq) {
+        ss->masks &= ~WRITE_REARM_NEEDED;
+        write_rearm_del(fd);
+        errno = ENOMEM;
+        return -1;
+    }
+    if (!PostQueuedCompletionStatus((HANDLE)iocp, 0,
+                                    (ULONG_PTR)(intptr_t)fd, &areq->ov)) {
+        errno = GetLastError();
+        wfree(areq);
+        ss->masks &= ~WRITE_REARM_NEEDED;
+        write_rearm_del(fd);
+        return -1;
+    }
+    ss->wreqs++;
+    areq->next = ss->wreqlist;
+    ss->wreqlist = areq;
+    ss->masks &= ~WRITE_REARM_NEEDED;
+    write_rearm_del(fd);
+    return 0;
 }
 
 int WSIOCP_CancelAndDrainRead(int rfd) {
@@ -668,19 +755,9 @@ int WSIOCP_AddEvent(aeEventLoop *el, int fd, int mask) {
     }
     if (mask & AE_WRITABLE) {
         ss->masks |= AE_WRITABLE;
-        if ((ss->masks & CONNECT_PENDING) == 0 && ss->wreqs == 0) {
-            asendreq *areq = (asendreq *)walloc(sizeof(*areq));
-            if (!PostQueuedCompletionStatus((HANDLE)state->iocp, 0,
-                                            (ULONG_PTR)(intptr_t)fd,
-                                            &areq->ov)) {
-                errno = GetLastError();
-                wfree(areq);
-                return -1;
-            }
-            ss->wreqs++;
-            areq->next = ss->wreqlist;
-            ss->wreqlist = areq;
-        }
+        if ((ss->masks & CONNECT_PENDING) == 0 &&
+            WSIOCP_QueueWriteReady(fd) != 0)
+            return -1;
     }
     return 0;
 }
@@ -690,7 +767,10 @@ void WSIOCP_DelEvent(aeEventLoop *el, int fd, int mask) {
     (void)el;
     if (!ss) return;
     if (mask & AE_READABLE) ss->masks &= ~AE_READABLE;
-    if (mask & AE_WRITABLE) ss->masks &= ~AE_WRITABLE;
+    if (mask & AE_WRITABLE) {
+        ss->masks &= ~(AE_WRITABLE | WRITE_REARM_NEEDED);
+        write_rearm_del(fd);
+    }
 }
 
 int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
@@ -704,6 +784,9 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
     if (mswait > 250)
         mswait = 250;
+    /* Backpressured writes retry on a short cadence, not a busy loop. */
+    if (write_rearm_n > 0 && mswait > 10)
+        mswait = 10;
 
     rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, entries,
                                      MAX_COMPLETE_PER_POLL, &numComplete,
@@ -761,10 +844,7 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                         (LONG)entries[j].Internal >= 0)
                         numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
                                                     numevents);
-                    /* Zero-byte WSARecv is edge-triggered. Client sockets
-                     * re-arm in connSocketRead; notifier/forward pipes do
-                     * not — re-arm here or the loop never wakes again. */
-                    WSIOCP_RearmRead(rfd);
+                    /* One-shot: the event loop rearms after the handler. */
                 } else if (ss->wreqs > 0 && ov != NULL) {
                     asendreq *areq = (asendreq *)ov;
                     if (unlink_wreq(ss, areq)) {
@@ -808,6 +888,15 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                     FDAPI_ClearSocketInfo(rfd);
             }
         }
+    }
+
+    if (write_rearm_n > 0) {
+        int pending[WRITE_REARM_MAX];
+        int n = write_rearm_n;
+        int i;
+        memcpy(pending, write_rearm_fds, (size_t)n * sizeof(int));
+        for (i = 0; i < n; i++)
+            (void)WSIOCP_QueueWriteReady(pending[i]);
     }
 
     /* AF_UNIX listen sockets cannot use AcceptEx; poll for FD_ACCEPT. */

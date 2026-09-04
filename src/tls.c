@@ -912,6 +912,30 @@ static void connTLSShutdown(connection *conn_) {
     connectionTypeTcp()->shutdown(conn_);
 }
 
+#ifdef _WIN32
+static int connTLSShutdownWrite(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+
+    if (!conn->ssl || conn->c.state != CONN_STATE_CONNECTED)
+        return C_OK;
+
+    tlsWin32EnterSsl(conn->c.fd);
+    {
+        int rc = SSL_shutdown(conn->ssl);
+        tlsWin32LeaveSsl(conn->c.fd);
+        return rc < 0 ? C_ERR : C_OK;
+    }
+}
+#else
+static int connTLSShutdownWrite(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+
+    if (!conn->ssl || conn->c.state != CONN_STATE_CONNECTED)
+        return C_OK;
+    return SSL_shutdown(conn->ssl) < 0 ? C_ERR : C_OK;
+}
+#endif
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -1389,6 +1413,7 @@ static ConnectionType CT_TLS = {
     .conn_create = connCreateTLS,
     .conn_create_accepted = connCreateAcceptedTLS,
     .shutdown = connTLSShutdown,
+    .shutdown_write = connTLSShutdownWrite,
     .close = connTLSClose,
 
     /* connect & accept */

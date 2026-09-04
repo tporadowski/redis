@@ -69,7 +69,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
-| `unit/limits` maxclients refuse | not in default `wintest` | Windows returns `I/O error reading reply` instead of `-ERR max number of clients reached` |
+| `unit/limits` maxclients refuse | default `wintest` | green (`rejectConnection` + delayed close) |
 | `unit/introspection` (full) | skip-list + not default | `CLIENT KILL maxAGE` hung >200s on `DEBUG SLEEP` 2/4/8 (killed 2026-08-30). 100k `debug populate` + slow-BGSAVE stay skipped |
 | `unit/dump` MIGRATE | skip-list; DUMP/RESTORE is default | `--tags -repl` skips the second server but the outer test still 40k-RPUSH + mapped-heap FLUSHDB (I/O error) |
 | `unit/functions` kill / load-timeout / `debug loadaof` | skip-list; rest is default | no SIGALRM Lua abort; dummy-slave `debug loadaof` dropped the client |
