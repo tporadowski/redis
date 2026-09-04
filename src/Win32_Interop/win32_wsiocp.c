@@ -35,6 +35,9 @@
 #ifndef EINVAL
 #define EINVAL 22
 #endif
+#ifndef EALREADY
+#define EALREADY 114
+#endif
 #ifndef UNUSED
 #define UNUSED(x) ((void)(x))
 #endif
@@ -66,6 +69,7 @@ typedef struct iocpSockState {
     void *iocp;
     aeEventLoop *dest_el;
     aacceptreq *reqs;
+    aacceptreq *accept_pending;
     int wreqs;
     OVERLAPPED ov_read;
     asendreq *wreqlist;
@@ -149,11 +153,23 @@ static iocpSockState *WSIOCP_GetSocketState(int fd) {
     return *slot;
 }
 
+static void dispose_accept_req(aacceptreq *areq) {
+    if (!areq) return;
+    if (areq->accept >= 0) {
+        int afd = areq->accept;
+        areq->accept = -1;
+        fdapi_close(afd);
+    }
+    wfree(areq->buf);
+    wfree(areq);
+}
+
 static int WSIOCP_CloseSocketState(iocpSockState *ss) {
     if (!ss) return 1;
     ss->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
     if (ss->wreqs == 0 &&
-        (ss->masks & (READ_QUEUED | CONNECT_PENDING)) == 0) {
+        (ss->masks & (READ_QUEUED | CONNECT_PENDING)) == 0 &&
+        ss->accept_pending == NULL) {
         wfree(ss);
         return 1;
     }
@@ -162,9 +178,15 @@ static int WSIOCP_CloseSocketState(iocpSockState *ss) {
 }
 
 int WSIOCP_CloseSocketStateRFD(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
     unix_listen_del(rfd);
     write_rearm_del(rfd);
-    return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
+    if (ss && ss->accept_pending && ss->accept_pending->accept >= 0) {
+        int afd = ss->accept_pending->accept;
+        ss->accept_pending->accept = -1;
+        fdapi_close(afd);
+    }
+    return WSIOCP_CloseSocketState(ss);
 }
 
 void *WSIOCP_CreateIocp(void) {
@@ -524,6 +546,10 @@ int WSIOCP_QueueAccept(int listenfd) {
         errno = EINVAL;
         return -1;
     }
+    if (lss->accept_pending != NULL) {
+        errno = EALREADY;
+        return -1;
+    }
     if (fdapi_getsockname(listenfd, (struct sockaddr *)&name, &namelen) == 0)
         family = name.ss_family;
 
@@ -545,8 +571,21 @@ int WSIOCP_QueueAccept(int listenfd) {
     }
 
     areq = (aacceptreq *)walloc(sizeof(*areq));
+    if (!areq) {
+        fdapi_close(acceptfd);
+        errno = ENOMEM;
+        return -1;
+    }
     areq->buf = walloc(ACCEPTEX_ADDR_BUF * 2);
+    if (!areq->buf) {
+        fdapi_close(acceptfd);
+        wfree(areq);
+        errno = ENOMEM;
+        return -1;
+    }
     areq->accept = acceptfd;
+    areq->next = NULL;
+    lss->accept_pending = areq;
 
     rc = FDAPI_AcceptEx(listenfd, acceptfd, areq->buf, 0,
                         ACCEPTEX_ADDR_BUF, ACCEPTEX_ADDR_BUF,
@@ -556,11 +595,25 @@ int WSIOCP_QueueAccept(int listenfd) {
         return 0;
     }
     errno = FDAPI_WSAGetLastError();
+    lss->accept_pending = NULL;
     lss->masks &= ~ACCEPT_PENDING;
+    areq->accept = -1;
     fdapi_close(acceptfd);
     wfree(areq->buf);
     wfree(areq);
     return -1;
+}
+
+int WSIOCP_EnsureAcceptQueued(int listenfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(listenfd);
+
+    if (!ss) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (ss->masks & (CLOSE_PENDING | UNIX_LISTEN)) return 0;
+    if (ss->accept_pending != NULL) return 0;
+    return WSIOCP_QueueAccept(listenfd);
 }
 
 int WSIOCP_Listen(int rfd, int backlog) {
@@ -602,8 +655,13 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     acceptfd = areq->accept;
 
     if (FDAPI_UpdateAcceptContext(acceptfd, fd) != 0) {
+        int saved = errno;
+        areq->accept = -1;
+        fdapi_close(acceptfd);
         wfree(areq->buf);
         wfree(areq);
+        WSIOCP_EnsureAcceptQueued(fd);
+        errno = saved;
         return -1;
     }
     FDAPI_GetAcceptExSockaddrs(acceptfd, areq->buf, 0,
@@ -619,7 +677,8 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     }
     wfree(areq->buf);
     wfree(areq);
-    WSIOCP_QueueAccept(fd);
+    /* Exactly one AcceptEx in flight: re-arm after this socket is handed off. */
+    WSIOCP_EnsureAcceptQueued(fd);
     return acceptfd;
 }
 
@@ -746,8 +805,7 @@ int WSIOCP_AddEvent(aeEventLoop *el, int fd, int mask) {
         ss->masks |= AE_READABLE;
         if ((ss->masks & CONNECT_PENDING) == 0) {
             if (ss->masks & LISTEN_SOCK) {
-                if ((ss->masks & ACCEPT_PENDING) == 0)
-                    WSIOCP_QueueAccept(fd);
+                WSIOCP_EnsureAcceptQueued(fd);
             } else if ((ss->masks & READ_QUEUED) == 0) {
                 WSIOCP_QueueNextRead(fd);
             }
@@ -806,20 +864,15 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
         if (!ss) continue;
 
         if ((ss->masks & CLOSE_PENDING) == 0) {
-            if ((ss->masks & LISTEN_SOCK) && ov != NULL) {
-                aacceptreq *areq = (aacceptreq *)ov;
+            if (ss->accept_pending && ov == &ss->accept_pending->ov) {
+                aacceptreq *areq = ss->accept_pending;
+                ss->accept_pending = NULL;
+                ss->masks &= ~ACCEPT_PENDING;
                 areq->next = ss->reqs;
                 ss->reqs = areq;
-                ss->masks &= ~ACCEPT_PENDING;
-                if (ss->masks & AE_READABLE) {
-                    if (ss->dest_el && ss->dest_el != el)
-                        wsiocp_forward(ss->dest_el, rfd, AE_READABLE);
-                    else {
-                        el->fired[numevents].fd = rfd;
-                        el->fired[numevents].mask = AE_READABLE;
-                        numevents++;
-                    }
-                }
+                if (ss->masks & AE_READABLE)
+                    numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
+                                                numevents);
             } else if (ss->masks & CONNECT_PENDING) {
                 if (ov == &ss->ov_read) {
                     unsigned long xfer = 0, flags = 0;
@@ -869,7 +922,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 }
             }
         } else {
-            if (ss->masks & CONNECT_PENDING) {
+            if (ss->accept_pending && ov == &ss->accept_pending->ov) {
+                dispose_accept_req(ss->accept_pending);
+                ss->accept_pending = NULL;
+                ss->masks &= ~ACCEPT_PENDING;
+            } else if (ss->masks & CONNECT_PENDING) {
                 if (ov == &ss->ov_read)
                     ss->masks &= ~CONNECT_PENDING;
             } else if (ov == &ss->ov_read) {
@@ -881,7 +938,7 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                     wfree(areq);
                 }
             }
-            if (ss->wreqs == 0 &&
+            if (ss->wreqs == 0 && ss->accept_pending == NULL &&
                 (ss->masks & (CONNECT_PENDING | READ_QUEUED | SOCKET_ATTACHED)) == 0) {
                 ss->masks &= ~CLOSE_PENDING;
                 if (WSIOCP_CloseSocketState(ss))
