@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
 #include "server.h"
 #include "rdb.h"
+#include "monotonic.h"
 #include "Win32_QFork.h"
 #include "Win32_QFork_impl.h"
 #include "Win32_ThreadControl.h"
@@ -44,6 +45,17 @@ static void win32FreezeForSnapshot(void) {
 static void win32ThawAfterSnapshot(void) {
     ResumeFromSuspension();
     resumeAllIOThreads();
+}
+
+void QForkOnChildReaped(void) {
+    win32FreezeForSnapshot();
+    if (!QForkRejoinAfterFork()) {
+        serverLog(LL_WARNING,
+                  "QFork: rejoin after child exit failed; heap is not reusable");
+        exit(1);
+    }
+    QForkHoldUnmap(0);
+    win32ThawAfterSnapshot();
 }
 
 int rewriteAppendOnlyFile(char *filename);
@@ -129,15 +141,28 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
 }
 
 void SetupRedisGlobals(void *redisData, size_t redisDataSize,
-                       unsigned char *dictHashSeed, int purpose) {
+                       unsigned char *dictHashSeed, int purpose,
+                       void *sharedData, size_t sharedDataSize) {
     if (redisData && redisDataSize == sizeof(server)) {
         memcpy(&server, redisData, redisDataSize);
     } else {
         fprintf(stderr, "SetupRedisGlobals: size mismatch payload=%zu server=%zu\n",
                 redisDataSize, sizeof(server));
     }
+    if (sharedData && sharedDataSize == sizeof(shared)) {
+        memcpy(&shared, sharedData, sharedDataSize);
+    } else {
+        fprintf(stderr, "SetupRedisGlobals: shared mismatch payload=%zu shared=%zu\n",
+                sharedDataSize, sizeof(shared));
+    }
     if (dictHashSeed)
         dictSetHashFunctionSeed(dictHashSeed);
+    /* Fresh process: executable-image roots are not inherited with the map. */
+    monotonicInit();
+    R_Zero = 0.0;
+    R_PosInf = 1.0 / R_Zero;
+    R_NegInf = -1.0 / R_Zero;
+    R_Nan = R_Zero / R_Zero;
     server.el = NULL;
     server.pid = (int)GetCurrentProcessId();
     server.main_thread_id = pthread_self();
@@ -148,6 +173,31 @@ void SetupRedisGlobals(void *redisData, size_t redisDataSize,
     server.child_info_pipe[1] = -1;
     server.module_pipe[0] = -1;
     server.module_pipe[1] = -1;
+    server.aof_fd = -1;
+    server.cluster_config_file_lock_fd = -1;
+    /* Parent clients and their FDs are process-local. Persistence must not
+     * walk the copied registries. */
+    server.current_client = NULL;
+    server.executing_client = NULL;
+    server.master = NULL;
+    server.cached_master = NULL;
+    server.repl_transfer_s = NULL;
+    server.repl_rdb_transfer_s = NULL;
+    server.clients = listCreate();
+    server.clients_index = raxNew();
+    server.clients_to_close = listCreate();
+    server.clients_pending_write = listCreate();
+    server.clients_pending_read = listCreate();
+    server.clients_with_pending_ref_reply = listCreate();
+    server.clients_timeout_table = raxNew();
+    server.slaves = listCreate();
+    server.monitors = listCreate();
+    server.unblocked_clients = listCreate();
+    server.ready_keys = listCreate();
+    server.tracking_pending_keys = listCreate();
+    server.pending_push_messages = listCreate();
+    server.clients_waiting_acks = listCreate();
+    server.postponed_clients = listCreate();
 }
 
 int do_rdbSave(int req, char *filename, void *rsi, int rdbflags) {
@@ -393,6 +443,7 @@ int win32RedisFork(int purpose) {
     int socket_job = (purpose == CHILD_TYPE_RDB &&
                       g_win32_qfork_job.rdb_subtype != QFORK_RDB_DISK);
     size_t payload_size = sizeof(QForkPayloadHeader) + sizeof(server) +
+                          sizeof(shared) +
                           (socket_job ? (size_t)nconns * QFORK_PROTO_INFO_SIZE : 0);
     HANDLE hPayload = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,
                                          PAGE_READWRITE, 0,
@@ -417,6 +468,7 @@ int win32RedisFork(int purpose) {
     hdr->magic = QFORK_MAGIC;
     hdr->purpose = (uint32_t)purpose;
     hdr->redisDataSize = sizeof(server);
+    hdr->sharedDataSize = sizeof(shared);
     dictGetHashFunctionSeed(hdr->dictHashSeed);
     hdr->parent_pid = GetCurrentProcessId();
     hdr->rdb_req = g_win32_qfork_job.rdb_req;
@@ -433,6 +485,7 @@ int win32RedisFork(int purpose) {
            sizeof(hdr->module_symbol));
     hdr->module_user_data = (uint64_t)(uintptr_t)g_win32_qfork_job.module_user_data;
     memcpy(hdr + 1, &server, sizeof(server));
+    memcpy((char *)(hdr + 1) + sizeof(server), &shared, sizeof(shared));
 
     HANDLE abort_ev = CreateEvent(NULL, TRUE, FALSE, NULL);
 
@@ -441,6 +494,7 @@ int win32RedisFork(int purpose) {
     if (!QForkProtectForFork()) {
         serverLog(LL_WARNING, "QFork: PAGE_WRITECOPY failed gle=%lu",
                   GetLastError());
+        QForkRejoinAfterFork();
         win32ThawAfterSnapshot();
         UnmapViewOfFile(hdr);
         CloseHandle(hPayload);
@@ -469,7 +523,8 @@ int win32RedisFork(int purpose) {
     }
 
     if (socket_job && hThread) {
-        unsigned char *proto = (unsigned char *)(hdr + 1) + sizeof(server);
+        unsigned char *proto = (unsigned char *)(hdr + 1) + sizeof(server) +
+                               sizeof(shared);
         int i;
         for (i = 0; i < nconns; i++) {
             connection *c = (connection *)g_win32_qfork_job.conns[i];
@@ -493,20 +548,9 @@ int win32RedisFork(int purpose) {
         CloseHandle(hThread);
     }
 
+    /* Stay PAGE_WRITECOPY until waitpid rejoins. Remapping ALL_ACCESS
+     * here would let parent writes into the section the child is reading. */
     win32ThawAfterSnapshot();
-
-    if (!QForkRejoinAfterFork()) {
-        serverLog(LL_WARNING, "QFork: rejoin after CreateProcess failed");
-        TerminateProcess(hProcess, 1);
-        CloseHandle(hProcess);
-        QForkHoldUnmap(0);
-        UnmapViewOfFile(hdr);
-        CloseHandle(hPayload);
-        if (abort_ev)
-            CloseHandle(abort_ev);
-        errno = EIO;
-        return -1;
-    }
 
     UnmapViewOfFile(hdr);
     /* Keep the payload mapping open until waitpid reaps so the child can

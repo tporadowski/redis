@@ -242,14 +242,15 @@ int QForkChildMain(void *control_handle, void *payload_handle,
 
     crc64_init();
     void *redisData = (char *)hdr + sizeof(QForkPayloadHeader);
+    void *sharedData = (char *)redisData + hdr->redisDataSize;
     SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed,
-                      (int)hdr->purpose);
+                      (int)hdr->purpose, sharedData, hdr->sharedDataSize);
 
     int rc = 1;
     if (hdr->purpose == CHILD_TYPE_RDB) {
         void *rsi = hdr->rsi_valid ? (void *)hdr->rsi : NULL;
         if (hdr->rdb_subtype != QFORK_RDB_DISK) {
-            void *proto = (char *)redisData + hdr->redisDataSize;
+            void *proto = (char *)sharedData + hdr->sharedDataSize;
             if (do_rdbSaveToSocketsChild(hdr, proto) == 0)
                 rc = 0;
         } else if (do_rdbSave(hdr->rdb_req, hdr->filename, rsi, hdr->rdb_flags) == 0) {

@@ -8,8 +8,8 @@
 #include "win32_types.h"
 #include "Win32_Signal.h"
 
-/* Heap hold: do not include Win32_QFork.h (it remaps main). */
-void QForkHoldUnmap(int hold);
+/* Do not include Win32_QFork.h (it remaps main). */
+void QForkOnChildReaped(void);
 
 #ifndef WNOHANG
 #define WNOHANG 1
@@ -62,12 +62,14 @@ void winpid_register_retain(pid_t pid, HANDLE process, WinPidKind kind,
 }
 
 void winpid_unregister(pid_t pid) {
+    int need_rejoin = 0;
+
     wp_init();
     EnterCriticalSection(&g_lock);
     for (int i = 0; i < WP_MAX; i++) {
         if (g_pids[i].used && g_pids[i].pid == pid) {
             if (g_pids[i].kind == WP_QFORK && g_pids[i].retain)
-                QForkHoldUnmap(0);
+                need_rejoin = 1;
             if (g_pids[i].retain) {
                 CloseHandle(g_pids[i].retain);
                 g_pids[i].retain = NULL;
@@ -79,6 +81,9 @@ void winpid_unregister(pid_t pid) {
         }
     }
     LeaveCriticalSection(&g_lock);
+    /* Rejoin unmaps/remaps the heap; do not hold the pid table lock. */
+    if (need_rejoin)
+        QForkOnChildReaped();
 }
 
 static int status_from_exit(DWORD code) {

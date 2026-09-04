@@ -39,6 +39,7 @@ try {
         "--protected-mode", "no",
         "--dir", $work,
         "--dbfilename", "dump.rdb",
+        "--enable-debug-command", "yes",
         "--logfile", $log
     ) -PassThru -WindowStyle Hidden
 
@@ -82,7 +83,81 @@ try {
         throw "redis-check-rdb failed:`n$checkOut"
     }
 
-    Write-Host "ok smoke_bgsave (SET/GET + BGSAVE + redis-check-rdb)"
+    if ((Invoke-Redis @("SET", "iso:key", "before")) -ne "OK") {
+        throw "iso SET before failed"
+    }
+    $pop = Invoke-Redis @("DEBUG", "POPULATE", "20000")
+    if ($pop -notmatch "OK") { throw "DEBUG POPULATE failed: $pop" }
+    $beforeInfo = Invoke-Redis @("INFO", "persistence")
+    $lastSave0 = 0
+    if ($beforeInfo -match "rdb_last_save_time:(\d+)") { $lastSave0 = [int64]$Matches[1] }
+    $started = Invoke-Redis @("BGSAVE")
+    if ($started -notmatch "Background saving started") {
+        throw "iso BGSAVE: $started"
+    }
+    $sawProgress = $false
+    for ($i = 0; $i -lt 200; $i++) {
+        $info = Invoke-Redis @("INFO", "persistence")
+        if ($info -match "rdb_bgsave_in_progress:1") {
+            if ((Invoke-Redis @("SET", "iso:key", "after")) -ne "OK") {
+                throw "iso SET after failed"
+            }
+            $sawProgress = $true
+            break
+        }
+        Start-Sleep -Milliseconds 10
+    }
+    $ok = $false
+    for ($i = 0; $i -lt 200; $i++) {
+        $info = Invoke-Redis @("INFO", "persistence")
+        $lastSave1 = $lastSave0
+        if ($info -match "rdb_last_save_time:(\d+)") { $lastSave1 = [int64]$Matches[1] }
+        $idle = $info -match "rdb_bgsave_in_progress:0"
+        if ($idle -and ($info -match "rdb_last_bgsave_status:err") -and ($lastSave1 -ne $lastSave0)) {
+            throw "iso BGSAVE failed:`n$info"
+        }
+        if ($idle -and ($info -match "rdb_last_bgsave_status:ok") -and ($lastSave1 -ne $lastSave0)) {
+            $ok = $true
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not $ok) { throw "iso BGSAVE did not finish" }
+    if ($sawProgress -and ((Invoke-Redis @("GET", "iso:key")) -ne "after")) {
+        throw "parent lost write issued during BGSAVE"
+    }
+
+    try { Invoke-Redis @("SHUTDOWN", "NOSAVE") | Out-Null } catch { }
+    if ($proc -and -not $proc.WaitForExit(5000)) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    }
+    $proc = $null
+
+    if ($sawProgress) {
+        $proc = Start-Process -FilePath $server -ArgumentList @(
+            "--port", "$port",
+            "--bind", "127.0.0.1",
+            "--protected-mode", "no",
+            "--dir", $work,
+            "--dbfilename", "dump.rdb",
+            "--logfile", $log
+        ) -PassThru -WindowStyle Hidden
+        $ready = $false
+        for ($i = 0; $i -lt 50; $i++) {
+            try {
+                if ((Invoke-Redis @("PING")) -eq "PONG") { $ready = $true; break }
+            } catch { }
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not $ready) { throw "reload server did not become ready (see $log)" }
+        $got = Invoke-Redis @("GET", "iso:key")
+        if ($got -ne "before") {
+            throw "RDB was not isolated: iso:key=$got (want before)"
+        }
+        Write-Host "ok smoke_bgsave (SET/GET + BGSAVE + redis-check-rdb + snapshot isolation)"
+    } else {
+        Write-Host "ok smoke_bgsave (SET/GET + BGSAVE + redis-check-rdb; isolation window missed)"
+    }
 } finally {
     if ($proc -and -not $proc.HasExited) {
         try { Invoke-Redis @("SHUTDOWN", "NOSAVE") | Out-Null } catch { }

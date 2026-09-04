@@ -45,7 +45,7 @@ int CommitHeapBlock(void *addr, size_t size, int commit);
 /* Pre-parse result: 1 if persistence-available no (argv or conf). */
 extern int g_PersistenceDisabled;
 
-#define QFORK_MAGIC 0x51463130u /* 'QF10' */
+#define QFORK_MAGIC 0x51463131u /* 'QF11' */
 
 #ifndef CHILD_TYPE_RDB
 #define CHILD_TYPE_RDB 1
@@ -64,6 +64,7 @@ typedef struct QForkPayloadHeader {
     uint32_t magic;
     uint32_t purpose;
     size_t   redisDataSize;
+    size_t   sharedDataSize;
     uint8_t  dictHashSeed[16];
     unsigned long parent_pid;
     /* RDB disk */
@@ -101,11 +102,17 @@ int QForkSpawnChild(void *payload_map, void *abort_event,
 void *QForkGetControlMap(void);
 int QForkProtectForFork(void);
 int QForkChildAttach(void *parent_process, void *control_map);
+/* Merge parent WRITECOPY dirtied pages back into the section and remap
+ * FILE_MAP_ALL_ACCESS. Call after the child exits, or immediately if
+ * CreateProcess failed. Do not call while the child is still reading. */
 int QForkRejoinAfterFork(void);
 /* hold=1 after PAGE_WRITECOPY until the --QFork child is reaped (or spawn
  * fails). While held, empty 4 MB blocks stay mapped so the child can
  * DuplicateHandle them. hold=0 unmaps any fully free blocks. */
 void QForkHoldUnmap(int hold);
+/* Freeze workers, merge COW pages, release the unmap hold, thaw.
+ * waitpid calls this when a mapped-heap --QFork child is reaped. */
+void QForkOnChildReaped(void);
 
 #ifndef QFORK_MAIN_IMPL
 #define main redis_main
