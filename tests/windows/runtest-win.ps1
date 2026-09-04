@@ -52,7 +52,6 @@ $watchdogDeny = @(
     "unit/scan",
     "unit/sort",
     "unit/multi",
-    "unit/pubsub",
     "unit/type/list",
     "unit/type/set",
     "unit/type/zset",

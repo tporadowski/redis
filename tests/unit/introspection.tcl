@@ -676,6 +676,13 @@ start_server {tags {"introspection"}} {
             repl-compression
         }
 
+        if {$::tcl_platform(platform) eq "windows"} {
+            # QFork heap is chosen at process start; CONFIG SET is rejected.
+            append skip_configs {
+                persistence-available
+            }
+        }
+
         if {!$::tls} {
             append skip_configs {
                 tls-prefer-server-ciphers
@@ -914,44 +921,44 @@ start_server {tags {"introspection"}} {
 
     test {redis-server command line arguments - error cases} {
         # Take '--invalid' as the option.
-        catch {exec src/redis-server --invalid} err
+        set err [redis_server_startup_error --invalid]
         assert_match {*Bad directive or wrong number of arguments*} $err
 
-        catch {exec src/redis-server --port} err
+        set err [redis_server_startup_error --port]
         assert_match {*'port'*wrong number of arguments*} $err
 
-        catch {exec src/redis-server --port 6380 --loglevel} err
+        set err [redis_server_startup_error --port 6380 --loglevel]
         assert_match {*'loglevel'*wrong number of arguments*} $err
 
         # Take `6379` and `6380` as the port option value.
-        catch {exec src/redis-server --port 6379 6380} err
+        set err [redis_server_startup_error --port 6379 6380]
         assert_match {*'port "6379" "6380"'*wrong number of arguments*} $err
 
         # Take `--loglevel` and `verbose` as the port option value.
-        catch {exec src/redis-server --port --loglevel verbose} err
+        set err [redis_server_startup_error --port --loglevel verbose]
         assert_match {*'port "--loglevel" "verbose"'*wrong number of arguments*} $err
 
         # Take `--bla` as the port option value.
-        catch {exec src/redis-server --port --bla --loglevel verbose} err
+        set err [redis_server_startup_error --port --bla --loglevel verbose]
         assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
 
         # Take `--bla` as the loglevel option value.
-        catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
+        set err [redis_server_startup_error --logfile --my--log--file --loglevel --bla]
         assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
 
         # Using MULTI_ARG's own check, empty option value
-        catch {exec src/redis-server --shutdown-on-sigint} err
+        set err [redis_server_startup_error --shutdown-on-sigint]
         assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
-        catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
+        set err [redis_server_startup_error --shutdown-on-sigint "now force" --shutdown-on-sigterm]
         assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
 
         # Something like `redis-server --some-config --config-value1 --config-value2 --loglevel debug` would break,
         # because if you want to pass a value to a config starting with `--`, it can only be a single value.
-        catch {exec src/redis-server --replicaof 127.0.0.1 abc} err
+        set err [redis_server_startup_error --replicaof 127.0.0.1 abc]
         assert_match {*'replicaof "127.0.0.1" "abc"'*Invalid master port*} $err
-        catch {exec src/redis-server --replicaof --127.0.0.1 abc} err
+        set err [redis_server_startup_error --replicaof --127.0.0.1 abc]
         assert_match {*'replicaof "--127.0.0.1" "abc"'*Invalid master port*} $err
-        catch {exec src/redis-server --replicaof --127.0.0.1 --abc} err
+        set err [redis_server_startup_error --replicaof --127.0.0.1 --abc]
         assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
