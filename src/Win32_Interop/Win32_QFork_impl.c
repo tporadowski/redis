@@ -51,6 +51,7 @@ static void win32ThawAfterSnapshot(void) {
 }
 
 void QForkOnChildReaped(void) {
+    QForkReleaseModuleSnapshot();
     win32FreezeForSnapshot();
     if (!QForkRejoinAfterFork()) {
         serverLog(LL_WARNING,
@@ -143,8 +144,15 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
     }
 }
 
+#ifdef _WIN32
+extern dict *modules;
+#endif
+
 void win32CaptureQForkStaticRoots(QForkStaticRoots *roots) {
     memset(roots, 0, sizeof(*roots));
+#ifdef _WIN32
+    roots->modules = modules;
+#endif
     ACLGetForkData(&roots->acl_users, &roots->acl_default_user,
                    &roots->acl_users_to_load, &roots->acl_log,
                    &roots->acl_log_entry_count, &roots->acl_command_id,
@@ -183,6 +191,9 @@ int SetupRedisGlobals(void *redisData, size_t redisDataSize,
     if (dictHashSeed)
         dictSetHashFunctionSeed(dictHashSeed);
     if (roots) {
+#ifdef _WIN32
+        modules = roots->modules;
+#endif
         ACLSetForkData(roots->acl_users, roots->acl_default_user,
                        roots->acl_users_to_load, roots->acl_log,
                        roots->acl_log_entry_count, roots->acl_command_id,
@@ -544,9 +555,25 @@ int win32RedisFork(int purpose) {
 
     win32FreezeForSnapshot();
 
+    if (QForkPrepareModuleSnapshot() != 0) {
+        serverLog(LL_WARNING, "QFork: module-image snapshot failed");
+        win32ThawAfterSnapshot();
+        UnmapViewOfFile(hdr);
+        CloseHandle(hPayload);
+        if (abort_ev)
+            CloseHandle(abort_ev);
+        errno = EIO;
+        return -1;
+    }
+    hdr->module_snapshot_handle =
+        (uint64_t)(uintptr_t)QForkGetModuleSnapshotHandle();
+    hdr->module_snapshot_size = QForkGetModuleSnapshotSize();
+    hdr->module_snapshot_count = QForkGetModuleSnapshotCount();
+
     if (!QForkProtectForFork()) {
         serverLog(LL_WARNING, "QFork: PAGE_WRITECOPY failed gle=%lu",
                   GetLastError());
+        QForkReleaseModuleSnapshot();
         QForkRejoinAfterFork();
         win32ThawAfterSnapshot();
         UnmapViewOfFile(hdr);
@@ -564,6 +591,7 @@ int win32RedisFork(int purpose) {
     HANDLE hThread = NULL;
     if (!QForkSpawnChild(hPayload, abort_ev, &child_pid, (void **)&hProcess,
                          socket_job, socket_job ? (void **)&hThread : NULL)) {
+        QForkReleaseModuleSnapshot();
         QForkRejoinAfterFork();
         QForkHoldUnmap(0);
         win32ThawAfterSnapshot();

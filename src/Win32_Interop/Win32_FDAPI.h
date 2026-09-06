@@ -90,6 +90,20 @@ typedef unsigned short sa_family_t;
 #ifndef EAI_FAIL
 #define EAI_FAIL 4
 #endif
+#ifndef EAI_NONAME
+#ifdef WSAHOST_NOT_FOUND
+#define EAI_NONAME WSAHOST_NOT_FOUND
+#else
+#define EAI_NONAME 8
+#endif
+#endif
+#ifndef EAI_SERVICE
+#ifdef WSATYPE_NOT_FOUND
+#define EAI_SERVICE WSATYPE_NOT_FOUND
+#else
+#define EAI_SERVICE 9
+#endif
+#endif
 #ifndef INET_ADDRSTRLEN
 #define INET_ADDRSTRLEN 16
 #endif

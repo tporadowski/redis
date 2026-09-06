@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <errno.h>
+#include <stdint.h>
 #include "win32_types.h"
 
 #ifdef __cplusplus
@@ -28,7 +29,7 @@ typedef size_t _sigset_t;
 
 #define pthread_mutex_t CRITICAL_SECTION
 #define pthread_attr_t size_t
-#define pthread_t unsigned int
+#define pthread_t uintptr_t
 
 #define pthread_mutex_init(a,b) (InitializeCriticalSectionAndSpinCount((a), 0x80000400),0)
 #define pthread_mutex_destroy(a) (DeleteCriticalSection((a)),0)

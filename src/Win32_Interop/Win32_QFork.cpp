@@ -242,6 +242,17 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     }
 
     crc64_init();
+    QForkModuleLogToStderr();
+    if (QForkRestoreModuleSnapshot(parent,
+            (void *)(uintptr_t)hdr->module_snapshot_handle,
+            hdr->module_snapshot_size,
+            hdr->module_snapshot_count) != 0) {
+        fprintf(stderr, "QForkChildMain: module image restore failed\n");
+        UnmapViewOfFile(hdr);
+        CloseHandle(local_payload);
+        CloseHandle(parent);
+        return 1;
+    }
     void *redisData = (char *)hdr + sizeof(QForkPayloadHeader);
     void *sharedData = (char *)redisData + hdr->redisDataSize;
     if (SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed,
@@ -278,7 +289,8 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     UnmapViewOfFile(hdr);
     CloseHandle(local_payload);
     CloseHandle(parent);
-    return rc;
+    /* Skip CRT/jemalloc atexit in this disposable persistence process. */
+    ExitProcess(rc == 0 ? 0 : 1);
 }
 
 int RedisWindowsParentMain(int argc, char **argv) {

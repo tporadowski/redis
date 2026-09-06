@@ -77,6 +77,12 @@ void win32_globfree_utf8(char **paths, size_t count);
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);
 
+/* PE export names are ASCII. Copy the FARPROC into a typed pointer without
+ * an incompatible-function cast. On failure inspect GetLastError(); errno
+ * is left unchanged. */
+int win32_get_proc_address(void *module, const char *name,
+                           void *function, size_t function_size);
+
 
 #ifdef __cplusplus
 }

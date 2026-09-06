@@ -90,6 +90,7 @@ int geteuid(void);
 #ifndef _WINSOCKAPI_
 int gethostname(char *name, size_t len);
 #endif
+int win32_secure_random_bytes(void *buffer, size_t length);
 long random(void);
 void srandom(unsigned int seed);
 pid_t fork(void);

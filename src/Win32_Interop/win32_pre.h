@@ -148,6 +148,45 @@
 #define S_IROTH _S_IREAD
 #endif
 
+/* Include stdlib.h before redefining RAND_MAX so the CRT include guard
+ * keeps the 15-bit 0x7fff value from coming back. Skiplist and HNSW
+ * scale against RAND_MAX; they need the POSIX 31-bit range. */
+#include <stdlib.h>
+#include <limits.h>
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+#ifdef RAND_MAX
+#undef RAND_MAX
+#endif
+#define RAND_MAX INT_MAX
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+int win32_secure_random_bytes(void *buffer, size_t length);
+long random(void);
+void srandom(unsigned int seed);
+#ifdef __cplusplus
+}
+#endif
+
+#ifndef WIN32_NO_RANDOM_REMAP
+#ifndef __cplusplus
+#ifdef rand
+#undef rand
+#endif
+#ifdef srand
+#undef srand
+#endif
+#define rand() ((int)random())
+#define srand(seed) srandom(seed)
+#endif
+#endif
+
 #endif /* _WIN32 */
 
 #endif

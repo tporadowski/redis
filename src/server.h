@@ -1048,6 +1048,8 @@ struct RedisModule {
 #ifdef _WIN32
     char *win_fork_child_name;   /* Exported child symbol for SetForkChildFn. */
     void *win_fork_child_user_data;
+    wchar_t *qfork_path;         /* Absolute DLL path for the QFork child. */
+    uint64_t qfork_load_seq;     /* Preserve module loader order in QFork. */
 #endif
 };
 typedef struct RedisModule RedisModule;

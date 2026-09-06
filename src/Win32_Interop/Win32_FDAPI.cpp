@@ -299,7 +299,21 @@ int fdapi_shutdown(int sockfd, int how) {
 
 int fdapi_getaddrinfo(const char *node, const char *service,
                       const struct addrinfo *hints, struct addrinfo **res) {
+    const unsigned char *cursor;
     int rc;
+
+    if (res != NULL) *res = NULL;
+    if (node != NULL) {
+        for (cursor = (const unsigned char *)node; *cursor != '\0'; cursor++) {
+            if (*cursor >= 0x80) return EAI_NONAME;
+        }
+    }
+    if (service != NULL) {
+        for (cursor = (const unsigned char *)service; *cursor != '\0'; cursor++) {
+            if (*cursor >= 0x80) return EAI_SERVICE;
+        }
+    }
+
     FDAPI_Init();
     rc = getaddrinfo(node, service, hints, res);
     if (rc != 0) {

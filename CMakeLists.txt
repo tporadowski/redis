@@ -112,8 +112,11 @@ target_include_directories(tre PUBLIC deps/tre/local_includes deps/tre/lib)
 target_compile_definitions(tre PRIVATE TRE_REGEX_T_FIELD=value)
 target_compile_options(tre PRIVATE "/FI${REDIS_INTEROP_INC}/win32_types_hiredis.h")
 
-add_library(linenoise STATIC src/Win32_Interop/linenoise_win32.c)
-target_include_directories(linenoise PUBLIC deps/linenoise)
+add_library(linenoise STATIC deps/linenoise/linenoise.c)
+target_include_directories(linenoise PUBLIC deps/linenoise
+    PRIVATE "${REDIS_INTEROP_INC}")
+set_source_files_properties(deps/linenoise/linenoise.c PROPERTIES LANGUAGE C)
+target_link_libraries(linenoise PRIVATE win32_interop)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(DISABLE_TESTS ON CACHE BOOL "" FORCE)
@@ -326,6 +329,10 @@ add_executable(interop_smoke tests/windows/interop_smoke.c)
 redis_win32_src(interop_smoke)
 target_link_libraries(interop_smoke PRIVATE win32_interop)
 
+add_executable(linenoise_smoke tests/windows/linenoise_smoke.c)
+redis_win32_src(linenoise_smoke)
+target_link_libraries(linenoise_smoke PRIVATE linenoise win32_interop)
+
 add_executable(jemalloc_smoke
     tests/windows/jemalloc_smoke.c
     src/Win32_Interop/Win32_JemallocHeap.c)
@@ -391,6 +398,7 @@ set(REDIS_SERVER_SRC
     src/vector.c src/fast_float_strtod.c src/client_comp.c
     src/Win32_Interop/Win32_QFork.cpp
     src/Win32_Interop/Win32_QFork_heap.cpp
+    src/Win32_Interop/Win32_QFork_modules.cpp
     src/Win32_Interop/Win32_QFork_impl.c
     src/Win32_Interop/resources/EventLog.rc)
 if(INCLUDE_VEC_SETS)
@@ -434,7 +442,7 @@ if(INCLUDE_VEC_SETS)
 endif()
 target_link_libraries(redis-server PRIVATE
     lua hdr_histogram hiredis fpconv xxhash tre win32_interop jemalloc
-    advapi32 shell32)
+    advapi32 shell32 psapi)
 if(MSVC)
     target_compile_options(redis-server PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
@@ -493,8 +501,10 @@ set_target_properties(helloworld PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 if(MSVC)
+    target_compile_definitions(helloworld PRIVATE WIN32_NO_RANDOM_REMAP)
     target_compile_options(helloworld PRIVATE "/FI${REDIS_PRE_HEADER}")
-    target_link_options(helloworld PRIVATE /EXPORT:RedisModule_OnLoad)
+    target_link_options(helloworld PRIVATE
+        /EXPORT:RedisModule_OnLoad /DYNAMICBASE:NO /GUARD:NO)
 endif()
 
 add_library(forkcheck SHARED src/modules/forkcheck.c)
@@ -509,8 +519,10 @@ set_target_properties(forkcheck PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 if(MSVC)
+    target_compile_definitions(forkcheck PRIVATE WIN32_NO_RANDOM_REMAP)
     target_compile_options(forkcheck PRIVATE "/FI${REDIS_PRE_HEADER}")
-    target_link_options(forkcheck PRIVATE /EXPORT:RedisModule_OnLoad)
+    target_link_options(forkcheck PRIVATE
+        /EXPORT:RedisModule_OnLoad /DYNAMICBASE:NO /GUARD:NO)
 endif()
 
 add_custom_target(smoke_module

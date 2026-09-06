@@ -26,6 +26,71 @@ static void check(int condition, const char *message) {
     }
 }
 
+struct secure_random_context {
+    unsigned char bytes[64];
+    int result;
+};
+
+static void *fill_secure_random(void *argument) {
+    struct secure_random_context *context = argument;
+    context->result = win32_secure_random_bytes(context->bytes,
+                                                sizeof(context->bytes));
+    return NULL;
+}
+
+static void test_secure_random(void) {
+    struct secure_random_context contexts[4];
+    pthread_t threads[4];
+    int i, j;
+    int seen_high_bit = 0;
+
+    memset(contexts, 0, sizeof(contexts));
+    memset(threads, 0, sizeof(threads));
+
+    check(RAND_MAX == INT_MAX,
+          "RAND_MAX must be 31-bit so skiplist/HNSW thresholds match POSIX");
+    check(win32_secure_random_bytes(NULL, 0) == 0,
+          "zero-length secure random requests should succeed");
+    errno = 0;
+    check(win32_secure_random_bytes(NULL, 1) == -1 && errno == EINVAL,
+          "a NULL secure-random buffer should fail with EINVAL");
+
+    for (i = 0; i < 4; i++) {
+        check(pthread_create(&threads[i], NULL, fill_secure_random,
+                             &contexts[i]) == 0,
+              "concurrent secure random thread should start");
+    }
+    for (i = 0; i < 4; i++) {
+        if (threads[i] != 0)
+            check(pthread_join(threads[i], NULL) == 0,
+                  "concurrent secure random thread should join");
+        {
+            int all_zero = 1;
+            for (j = 0; j < (int)sizeof(contexts[i].bytes); j++) {
+                if (contexts[i].bytes[j] != 0) all_zero = 0;
+            }
+            check(contexts[i].result == 0 && !all_zero,
+                  "secure random output should succeed and contain entropy");
+        }
+        if (i != 0) {
+            check(memcmp(contexts[0].bytes, contexts[i].bytes,
+                         sizeof(contexts[0].bytes)) != 0,
+                  "independent secure random outputs should differ");
+        }
+    }
+
+    for (i = 0; i < 64; i++) {
+        long value = random();
+        check(value >= 0 && value <= RAND_MAX,
+              "random() should return a nonnegative 31-bit value");
+        if (value > 32767) seen_high_bit = 1;
+        check(rand() >= 0 && rand() <= RAND_MAX,
+              "rand() should share the 31-bit generator");
+    }
+    check(seen_high_bit,
+          "random() must exceed the CRT 15-bit range");
+}
+
 static void test_llp64_widths(void) {
     check(DICTHT_SIZE(33) == (UINT64_C(1) << 33),
           "DICTHT_SIZE(33) must retain the bit above 32");
@@ -81,10 +146,10 @@ static void test_error_translation(void) {
     check(pthread_sigmask(SIG_BLOCK, &signals, &old_signals) == 0 &&
               errno == EBUSY,
           "the Windows pthread signal-mask no-op should preserve errno");
-    errno = 0;
-    check(pthread_sigmask(999, &signals, &old_signals) == -1 &&
-              errno == EINVAL,
-          "pthread_sigmask should reject an invalid how");
+    errno = EBUSY;
+    check(pthread_sigmask(999, &signals, &old_signals) == EINVAL &&
+              errno == EBUSY,
+          "pthread_sigmask should reject an invalid how without touching errno");
 }
 
 static void push_dir(char (*dirs)[MAX_PATH * 2], int *ndirs, const char *path) {
@@ -414,11 +479,26 @@ static void *return_thread_argument(void *argument) {
     return argument;
 }
 
+struct pthread_hold_context {
+    HANDLE started;
+    HANDLE release;
+};
+
+static void *hold_until_released(void *argument) {
+    struct pthread_hold_context *context = argument;
+    SetEvent(context->started);
+    WaitForSingleObject(context->release, INFINITE);
+    return argument;
+}
+
 static void test_pthread_join_result(void) {
     int marker = 0x5a17;
     pthread_attr_t attributes;
     size_t stack_size = 0;
     pthread_t thread = 0;
+    pthread_t detached = 0;
+    void *result = NULL;
+    struct pthread_hold_context hold;
 
     check(pthread_attr_init(&attributes) == 0 &&
               pthread_attr_getstacksize(&attributes, &stack_size) == 0 &&
@@ -432,8 +512,40 @@ static void test_pthread_join_result(void) {
                          &marker) == 0,
           "pthread_create should retain a joinable Windows handle");
     if (thread == 0) return;
-    check(pthread_join(thread, NULL) == 0,
-          "pthread_join should wait for the real Windows thread handle");
+    check(pthread_join(thread, &result) == 0 && result == &marker,
+          "pthread_join should return the thread result pointer");
+    check(pthread_join(thread, NULL) == ESRCH,
+          "a second join should report that the thread is gone");
+    check(pthread_join(pthread_self(), NULL) == EDEADLK,
+          "joining the calling thread should be EDEADLK");
+    check(pthread_join((pthread_t)0x2, NULL) == ESRCH,
+          "joining an unknown pthread_t should be ESRCH");
+
+    memset(&hold, 0, sizeof(hold));
+    hold.started = CreateEventW(NULL, TRUE, FALSE, NULL);
+    hold.release = CreateEventW(NULL, TRUE, FALSE, NULL);
+    check(hold.started != NULL && hold.release != NULL,
+          "detach test events should be created");
+    if (hold.started == NULL || hold.release == NULL) goto detach_cleanup;
+    check(pthread_create(&detached, NULL, hold_until_released, &hold) == 0,
+          "detach test thread should be created");
+    if (detached == 0) goto detach_cleanup;
+    check(WaitForSingleObject(hold.started, 5000) == WAIT_OBJECT_0,
+          "detach test thread should start");
+    check(pthread_detach(detached) == 0,
+          "pthread_detach should mark a live thread detached");
+    check(pthread_join(detached, NULL) == EINVAL,
+          "joining a detached thread should be EINVAL");
+    check(pthread_detach(detached) == EINVAL,
+          "a second detach of a live thread should be EINVAL");
+    SetEvent(hold.release);
+
+detach_cleanup:
+    if (hold.release != NULL) {
+        SetEvent(hold.release);
+        CloseHandle(hold.release);
+    }
+    if (hold.started != NULL) CloseHandle(hold.started);
 }
 
 struct pthread_identity_context {
@@ -495,6 +607,10 @@ static void test_pthread_identity(void) {
           "pthread_self should match the first opaque pthread identity");
     check(second.observed_self == second_thread,
           "pthread_self should match the second opaque pthread identity");
+    check((pthread_self() & 1) != 0,
+          "the main thread identity should stay outside the record-pointer namespace");
+    check(pthread_self() != first_thread && pthread_self() != second_thread,
+          "worker pthread identities should differ from the caller");
 
 cleanup:
     if (second_thread != 0)
@@ -505,6 +621,55 @@ cleanup:
               "first pthread identity thread should join");
     if (second.start_event != NULL) CloseHandle(second.start_event);
     if (first.start_event != NULL) CloseHandle(first.start_event);
+}
+
+static void test_proc_address_policy(void) {
+    typedef DWORD (WINAPI *GetCurrentProcessIdFunction)(void);
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    GetCurrentProcessIdFunction function = NULL;
+    const char non_ascii_name[] = {'G', 'e', 't', (char)0xc3, '\0'};
+
+    check(kernel32 != NULL, "kernel32 should already be loaded");
+    if (kernel32 == NULL) return;
+
+    errno = EBUSY;
+    check(win32_get_proc_address(kernel32, "GetCurrentProcessId", &function,
+                                 sizeof(function)) == 0 &&
+              function != NULL && function() == GetCurrentProcessId(),
+          "ASCII PE export names should resolve to typed function pointers");
+    check(errno == EBUSY,
+          "procedure lookup should preserve the caller's errno");
+
+    function = NULL;
+    SetLastError(ERROR_SUCCESS);
+    check(win32_get_proc_address(kernel32, non_ascii_name, &function,
+                                 sizeof(function)) == -1 &&
+              function == NULL && GetLastError() == ERROR_INVALID_NAME,
+          "non-ASCII PE export names should be rejected explicitly");
+
+    SetLastError(ERROR_SUCCESS);
+    check(win32_get_proc_address(kernel32, "GetCurrentProcessId", &function,
+                                 sizeof(function) - 1) == -1 &&
+              GetLastError() == ERROR_INVALID_PARAMETER,
+          "procedure lookup should reject incompatible pointer sizes");
+}
+
+static void test_dns_ascii_policy(void) {
+    struct addrinfo hints;
+    struct addrinfo *result;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    result = (struct addrinfo *)(uintptr_t)1;
+    check(getaddrinfo("host-\xc3\xa9", "6379", &hints, &result) ==
+              EAI_NONAME && result == NULL,
+          "non-ASCII DNS nodes should be rejected before Winsock");
+    result = (struct addrinfo *)(uintptr_t)1;
+    check(getaddrinfo("localhost", "port-\xc3\xa9", &hints, &result) ==
+              EAI_SERVICE && result == NULL,
+          "non-ASCII DNS services should be rejected before Winsock");
 }
 
 static void test_address_conversion(void) {
@@ -560,15 +725,65 @@ static void test_address_conversion(void) {
           "inet_pton should reject unsupported families");
 }
 
-static void test_getrusage(void) {
-    struct rusage usage;
+static long long rusage_total_us(const struct rusage *ru) {
+    return (long long)ru->ru_utime.tv_sec * 1000000 + ru->ru_utime.tv_usec +
+           (long long)ru->ru_stime.tv_sec * 1000000 + ru->ru_stime.tv_usec;
+}
 
-    memset(&usage, 0xff, sizeof(usage));
-    check(getrusage(RUSAGE_SELF, &usage) == 0,
+static int rusage_timeval_ok(const struct timeval *tv) {
+    return tv->tv_sec >= 0 && tv->tv_usec >= 0 && tv->tv_usec < 1000000;
+}
+
+static void burn_cpu(void) {
+    volatile unsigned x = 1;
+    int i;
+    for (i = 0; i < 20000000; i++)
+        x = x * 1664525u + 1013904223u;
+}
+
+static void test_getrusage(void) {
+    struct rusage self_usage;
+    struct rusage thread_usage;
+    struct rusage children;
+    int spins;
+
+    errno = 0;
+    check(getrusage(RUSAGE_SELF, NULL) == -1 && errno == EFAULT,
+          "getrusage should reject a NULL usage block with EFAULT");
+    errno = 0;
+    check(getrusage(99, &self_usage) == -1 && errno == EINVAL,
+          "getrusage should reject an unknown who with EINVAL");
+
+    memset(&children, 0xff, sizeof(children));
+    check(getrusage(RUSAGE_CHILDREN, &children) == 0,
+          "getrusage RUSAGE_CHILDREN should succeed");
+    check(rusage_total_us(&children) == 0,
+          "Windows does not accumulate child CPU into RUSAGE_CHILDREN");
+
+    memset(&self_usage, 0xff, sizeof(self_usage));
+    check(getrusage(RUSAGE_SELF, &self_usage) == 0,
           "getrusage RUSAGE_SELF should succeed");
-    check(usage.ru_utime.tv_sec == 0 && usage.ru_utime.tv_usec == 0 &&
-              usage.ru_stime.tv_sec == 0 && usage.ru_stime.tv_usec == 0,
-          "Windows getrusage stub should zero the usage block");
+    check(rusage_timeval_ok(&self_usage.ru_utime) &&
+              rusage_timeval_ok(&self_usage.ru_stime),
+          "RUSAGE_SELF times should be normalized timevals");
+
+    for (spins = 0; spins < 8 && rusage_total_us(&self_usage) == 0; spins++) {
+        burn_cpu();
+        check(getrusage(RUSAGE_SELF, &self_usage) == 0,
+              "getrusage RUSAGE_SELF should succeed after work");
+    }
+    check(rusage_total_us(&self_usage) > 0,
+          "GetProcessTimes should report nonzero CPU after work");
+
+    check(getrusage(RUSAGE_THREAD, &thread_usage) == 0,
+          "getrusage RUSAGE_THREAD should succeed");
+    check(rusage_timeval_ok(&thread_usage.ru_utime) &&
+              rusage_timeval_ok(&thread_usage.ru_stime),
+          "RUSAGE_THREAD times should be normalized timevals");
+    check(rusage_total_us(&thread_usage) > 0,
+          "GetThreadTimes should report nonzero CPU after work");
+    check(rusage_total_us(&thread_usage) <= rusage_total_us(&self_usage),
+          "thread CPU should not exceed process CPU");
 }
 
 static void close_pipe(int pipefds[2]) {
@@ -843,8 +1058,14 @@ int main(void) {
     ran("pthread-join");
     test_pthread_identity();
     ran("pthread-id");
+    test_secure_random();
+    ran("random");
     test_llp64_widths();
     ran("llp64");
+    test_proc_address_policy();
+    ran("getproc");
+    test_dns_ascii_policy();
+    ran("dns-ascii");
     test_address_conversion();
     ran("inet");
     test_getrusage();
@@ -863,6 +1084,6 @@ int main(void) {
         return 1;
     }
 
-    printf("interop_smoke: ok (path, errno, UTF-8 FS, pthread, LLP64, inet, fdapi)\n");
+    printf("interop_smoke: ok (path, errno, UTF-8 FS, pthread, random, LLP64, ASCII, inet, fdapi)\n");
     return 0;
 }

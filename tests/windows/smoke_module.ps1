@@ -21,7 +21,7 @@ $port = 16398
 $work = Join-Path $BuildDir "smoke_module_work"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $log = Join-Path $work "smoke.log"
-Remove-Item $log -ErrorAction SilentlyContinue
+Remove-Item $log, (Join-Path $work "dump.rdb") -ErrorAction SilentlyContinue
 
 function Invoke-Redis {
     param([string[]]$RedisArgs)
@@ -58,6 +58,34 @@ try {
         throw "HELLO.SIMPLE expected 0, got: $hello"
     }
     Write-Host "ok HELLO.SIMPLE $hello"
+
+    if ((Invoke-Redis @("SET", "modkey", "modval")) -ne "OK") {
+        throw "SET before BGSAVE failed"
+    }
+    $save = Invoke-Redis @("BGSAVE")
+    if ($save -notmatch "Background saving started") {
+        throw "BGSAVE with loaded module failed: $save"
+    }
+    $done = $false
+    for ($i = 0; $i -lt 80; $i++) {
+        $info = Invoke-Redis @("INFO", "persistence")
+        if ($info -match "rdb_bgsave_in_progress:0" -and
+            $info -match "rdb_last_bgsave_status:ok") {
+            $done = $true
+            break
+        }
+        if ($info -match "rdb_last_bgsave_status:err") {
+            throw "BGSAVE with loaded module reported err`n$info"
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $done) { throw "BGSAVE with loaded module did not finish" }
+    $rdb = Join-Path $work "dump.rdb"
+    $check = & (Join-Path $BuildDir "redis-check-rdb.exe") $rdb 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "redis-check-rdb failed after module BGSAVE:`n$check"
+    }
+    Write-Host "ok BGSAVE with helloworld.dll loaded"
 } finally {
     if ($proc -and -not $proc.HasExited) {
         try { Invoke-Redis @("SHUTDOWN", "NOSAVE") | Out-Null } catch {}

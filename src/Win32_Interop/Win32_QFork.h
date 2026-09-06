@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <wchar.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,9 +50,11 @@ extern int g_PersistenceDisabled;
 
 /* Process-static roots that live outside redisServer. Pointers refer to
  * mapped-heap objects and stay valid in the child; keymeta is a .bss array
- * and must be copied by value. Module DLL images are not reloaded here. */
+ * and must be copied by value. Module DLL images are restored separately
+ * before these roots are reconnected. */
 #define QFORK_KEYMETA_MAX 4096
 typedef struct QForkStaticRoots {
+    void *modules;
     void *acl_users;
     void *acl_default_user;
     void *acl_users_to_load;
@@ -105,8 +108,24 @@ typedef struct QForkPayloadHeader {
     /* CHILD_TYPE_MODULE: exported symbol + user_data (pointer, COW if live). */
     char     module_symbol[64];
     uint64_t module_user_data;
+    /* Parent HANDLE of the module-image snapshot mapping (0 if none). */
+    uint64_t module_snapshot_handle;
+    uint64_t module_snapshot_size;
+    uint32_t module_snapshot_count;
     QForkStaticRoots roots;
 } QForkPayloadHeader;
+
+int QForkValidateModuleImage(void *handle, const wchar_t *path,
+                             const char *name);
+int QForkPrepareModuleSnapshot(void);
+void QForkReleaseModuleSnapshot(void);
+void *QForkGetModuleSnapshotHandle(void);
+uint64_t QForkGetModuleSnapshotSize(void);
+uint32_t QForkGetModuleSnapshotCount(void);
+int QForkRestoreModuleSnapshot(void *parent_process,
+                               void *parent_snapshot_handle,
+                               uint64_t size, uint32_t count);
+void QForkModuleLogToStderr(void);
 
 void ACLGetForkData(void **users, void **default_user, void **users_to_load,
                     void **acl_log, long long *acl_log_entry_count,

@@ -2,6 +2,7 @@
 /* pthread_join + cond broadcast + thread-control accounting. */
 #include "Win32_Interop/Win32_PThread.h"
 #include "Win32_Interop/Win32_ThreadControl.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -42,6 +43,10 @@ int main(void) {
     }
     if (pthread_join(t, &ret) != 0) {
         fprintf(stderr, "pthread_join failed\n");
+        return 1;
+    }
+    if (ret != (void *)(intptr_t)42) {
+        fprintf(stderr, "pthread_join did not return the thread result\n");
         return 1;
     }
 

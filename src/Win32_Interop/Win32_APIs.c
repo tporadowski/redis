@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
 #define WIN32_NO_UTF8_IO_REMAP
+#define WIN32_NO_RANDOM_REMAP
 #include "win32_pre.h"
 #include "Win32_Time.h"
 #include "Win32_FDAPI.h"
@@ -11,6 +12,7 @@
 #include "posix/dlfcn.h"
 #include "posix/sys/time.h"
 #include "posix/sys/file.h"
+#include "posix/sys/resource.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,6 +30,109 @@
 #ifndef UNUSED
 #define UNUSED(V) ((void)(V))
 #endif
+
+#ifndef __RTL_GENRANDOM
+#define __RTL_GENRANDOM 1
+typedef BOOLEAN (WINAPI *RtlGenRandomFunc)(void *RandomBuffer,
+                                           ULONG RandomBufferLength);
+#endif
+
+int win32_get_proc_address(void *module, const char *name,
+                           void *function, size_t function_size) {
+    const unsigned char *cursor;
+    FARPROC raw_function;
+    DWORD error;
+
+    if (module == NULL || name == NULL || name[0] == '\0' || function == NULL ||
+        function_size != sizeof(raw_function)) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return -1;
+    }
+    for (cursor = (const unsigned char *)name; *cursor != '\0'; cursor++) {
+        if (*cursor > 0x7f) {
+            SetLastError(ERROR_INVALID_NAME);
+            return -1;
+        }
+    }
+
+    raw_function = GetProcAddress((HMODULE)module, name);
+    if (raw_function == NULL) {
+        error = GetLastError();
+        if (error == ERROR_SUCCESS) error = ERROR_PROC_NOT_FOUND;
+        SetLastError(error);
+        return -1;
+    }
+
+    memcpy(function, &raw_function, sizeof(raw_function));
+    return 0;
+}
+
+static INIT_ONCE secure_random_once = INIT_ONCE_STATIC_INIT;
+static RtlGenRandomFunc secure_random_function;
+static DWORD secure_random_error = ERROR_SUCCESS;
+
+static BOOL CALLBACK initialize_secure_random(PINIT_ONCE once, PVOID parameter,
+                                              PVOID *context) {
+    HMODULE module;
+    RtlGenRandomFunc function;
+
+    UNUSED(once);
+    UNUSED(parameter);
+    UNUSED(context);
+
+    module = LoadLibraryW(L"advapi32.dll");
+    if (module == NULL) {
+        secure_random_error = GetLastError();
+        return TRUE;
+    }
+    if (win32_get_proc_address(module, "SystemFunction036", &function,
+                               sizeof(function)) != 0) {
+        secure_random_error = GetLastError();
+        if (secure_random_error == ERROR_SUCCESS)
+            secure_random_error = ERROR_PROC_NOT_FOUND;
+        FreeLibrary(module);
+        return TRUE;
+    }
+    secure_random_function = function;
+    return TRUE;
+}
+
+int win32_secure_random_bytes(void *buffer, size_t length) {
+    unsigned char *cursor = (unsigned char *)buffer;
+
+    if (length == 0) return 0;
+    if (buffer == NULL) {
+        errno = EINVAL;
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return -1;
+    }
+
+    if (!InitOnceExecuteOnce(&secure_random_once, initialize_secure_random,
+                             NULL, NULL)) {
+        secure_random_error = GetLastError();
+    }
+    if (secure_random_function == NULL) {
+        DWORD error = secure_random_error == ERROR_SUCCESS ?
+                      ERROR_GEN_FAILURE : secure_random_error;
+        SetLastError(error);
+        errno = win32_errno_from_system_error((int)error);
+        return -1;
+    }
+
+    while (length != 0) {
+        ULONG chunk = length > (size_t)ULONG_MAX ? ULONG_MAX : (ULONG)length;
+        if (!secure_random_function(cursor, chunk)) {
+            DWORD error = GetLastError();
+            if (error == ERROR_SUCCESS) error = ERROR_GEN_FAILURE;
+            SetLastError(error);
+            errno = win32_errno_from_system_error((int)error);
+            return -1;
+        }
+        cursor += chunk;
+        length -= chunk;
+    }
+    return 0;
+}
 
 #ifndef CLOCK_REALTIME
 #define CLOCK_REALTIME  0
@@ -79,11 +184,59 @@ int mkstemp(char *template) {
 }
 
 long random(void) {
-    return (long)rand();
+    unsigned int x = 0;
+    if (win32_secure_random_bytes(&x, sizeof(x)) != 0) abort();
+    return (long)(x >> 1);
 }
 
 void srandom(unsigned int seed) {
-    srand(seed);
+    /* System RNG; the POSIX seed is unused. */
+    UNUSED(seed);
+}
+
+static void filetime_to_timeval(const FILETIME *ft, struct timeval *tv) {
+    ULARGE_INTEGER li;
+    unsigned long long usec;
+
+    li.LowPart = ft->dwLowDateTime;
+    li.HighPart = ft->dwHighDateTime;
+    usec = li.QuadPart / 10ULL;
+    tv->tv_sec = (long)(usec / 1000000ULL);
+    tv->tv_usec = (long)(usec % 1000000ULL);
+}
+
+int getrusage(int who, struct rusage *ru) {
+    FILETIME starttime, exittime, kerneltime, usertime;
+
+    if (ru == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    memset(ru, 0, sizeof(*ru));
+
+    if (who == RUSAGE_SELF) {
+        if (!GetProcessTimes(GetCurrentProcess(), &starttime, &exittime,
+                             &kerneltime, &usertime)) {
+            errno = win32_errno_from_system_error((int)GetLastError());
+            return -1;
+        }
+    } else if (who == RUSAGE_THREAD) {
+        if (!GetThreadTimes(GetCurrentThread(), &starttime, &exittime,
+                            &kerneltime, &usertime)) {
+            errno = win32_errno_from_system_error((int)GetLastError());
+            return -1;
+        }
+    } else if (who == RUSAGE_CHILDREN) {
+        /* Windows does not accumulate waited-child CPU into the parent. */
+        return 0;
+    } else {
+        errno = EINVAL;
+        return -1;
+    }
+
+    filetime_to_timeval(&kerneltime, &ru->ru_stime);
+    filetime_to_timeval(&usertime, &ru->ru_utime);
+    return 0;
 }
 
 int geteuid(void) {
@@ -318,13 +471,12 @@ void *dlopen(const char *filename, int flags) {
 }
 
 void *dlsym(void *handle, const char *symbol) {
-    FARPROC p;
+    FARPROC p = NULL;
 
     g_dlerror_pending = 0;
     if (!handle)
         handle = (void *)GetModuleHandleA(NULL);
-    p = GetProcAddress((HMODULE)handle, symbol);
-    if (!p) {
+    if (win32_get_proc_address(handle, symbol, &p, sizeof(p)) != 0) {
         dl_set_error(symbol);
         return NULL;
     }

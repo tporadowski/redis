@@ -25,9 +25,12 @@ static inline int setrlimit(int res, const struct rlimit *rl) {
     (void)res; (void)rl;
     return 0;
 }
-static inline int getrusage(int who, struct rusage *ru) {
-    (void)who;
-    if (ru) memset(ru, 0, sizeof(*ru));
-    return 0;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+int getrusage(int who, struct rusage *ru);
+#ifdef __cplusplus
 }
+#endif
 #endif

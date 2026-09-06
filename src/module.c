@@ -2400,6 +2400,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
 #ifdef _WIN32
     module->win_fork_child_name = NULL;
     module->win_fork_child_user_data = NULL;
+    module->qfork_path = NULL;
+    module->qfork_load_seq = 0;
 #endif
     ctx->module = module;
 }
@@ -13557,6 +13559,7 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     if (moduleForkOwner == module)
         moduleForkOwner = NULL;
     sdsfree(module->win_fork_child_name);
+    zfree(module->qfork_path);
 #endif
     moduleLoadQueueEntryFree(module->loadmod);
     zfree(module);
@@ -13714,6 +13717,110 @@ void moduleUnregisterCleanup(RedisModule *module) {
     moduleUnregisterAuthCBs(module);
 }
 
+#ifdef _WIN32
+static uint64_t moduleQForkLoadSequence;
+
+static wchar_t *moduleGetQForkPath(void *handle) {
+    DWORD capacity = MAX_PATH;
+    while (capacity <= 32768) {
+        wchar_t *path = zmalloc(sizeof(wchar_t) * capacity);
+        DWORD length = GetModuleFileNameW((HMODULE)handle, path, capacity);
+        if (length == 0) {
+            zfree(path);
+            return NULL;
+        }
+        if (length < capacity) {
+            path[length] = L'\0';
+            return path;
+        }
+        zfree(path);
+        capacity *= 2;
+    }
+    return NULL;
+}
+
+static int moduleQForkValidateCallback(RedisModule *module,
+                                       uintptr_t callback,
+                                       const char *callback_kind)
+{
+    MEMORY_BASIC_INFORMATION info;
+
+    if (callback == 0) return C_OK;
+    if (VirtualQuery((const void *)callback, &info, sizeof(info)) == 0 ||
+        info.AllocationBase != module->handle)
+    {
+        serverLog(LL_WARNING,
+            "Module %s cannot participate in Windows QFork persistence: "
+            "%s callback %p is outside its primary DLL image",
+            module->name, callback_kind, (void *)callback);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+static int moduleQForkValidatePersistenceCallbacks(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(module->types, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        moduleType *mt = listNodeValue(ln);
+        if (moduleQForkValidateCallback(module, (uintptr_t)mt->rdb_save,
+                                        "RDB save") == C_ERR ||
+            moduleQForkValidateCallback(module, (uintptr_t)mt->aof_rewrite,
+                                        "AOF rewrite") == C_ERR ||
+            moduleQForkValidateCallback(module, (uintptr_t)mt->aux_save,
+                                        "RDB AUX save") == C_ERR ||
+            moduleQForkValidateCallback(module, (uintptr_t)mt->aux_save2,
+                                        "RDB AUX save2") == C_ERR)
+            return C_ERR;
+    }
+
+    if (RedisModule_EventListeners != NULL) {
+        listRewind(RedisModule_EventListeners, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            RedisModuleEventListener *listener = listNodeValue(ln);
+            if (listener->module == module &&
+                listener->event.id == REDISMODULE_EVENT_PERSISTENCE &&
+                moduleQForkValidateCallback(module,
+                    (uintptr_t)listener->callback,
+                    "persistence event") == C_ERR)
+                return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+int moduleForEachForkModule(
+    int (*callback)(const char *name, void *handle, const wchar_t *path,
+                    uint64_t sequence, void *privdata),
+    void *privdata)
+{
+    dictIterator *di;
+    dictEntry *de;
+
+    if (modules == NULL || dictSize(modules) == 0) return C_OK;
+    di = dictGetIterator(modules);
+    while ((de = dictNext(di)) != NULL) {
+        RedisModule *module = dictGetVal(de);
+        /* In-tree modules (vector-sets) live in the server image. The
+         * QFork child already has that image; only LoadLibrary modules
+         * need a snapshot. */
+        if (module->handle == NULL || module->qfork_path == NULL)
+            continue;
+        if (moduleQForkValidatePersistenceCallbacks(module) == C_ERR ||
+            callback(module->name, module->handle, module->qfork_path,
+                     module->qfork_load_seq, privdata) == C_ERR)
+        {
+            dictReleaseIterator(di);
+            return C_ERR;
+        }
+    }
+    dictReleaseIterator(di);
+    return C_OK;
+}
+#endif
+
 /* Load a module by path and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -13755,6 +13862,24 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 /* Load a module by its 'onload' callback and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex) {
+#ifdef _WIN32
+    wchar_t *qfork_path = NULL;
+    if (handle != NULL) {
+        qfork_path = moduleGetQForkPath(handle);
+        if (qfork_path == NULL) {
+            dlclose(handle);
+            serverLog(LL_WARNING,
+                "Module %s loaded but its absolute DLL path could not be resolved",
+                path);
+            return C_ERR;
+        }
+        if (!QForkValidateModuleImage(handle, qfork_path, path)) {
+            zfree(qfork_path);
+            dlclose(handle);
+            return C_ERR;
+        }
+    }
+#endif
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
@@ -13766,6 +13891,9 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
+#ifdef _WIN32
+        zfree(qfork_path);
+#endif
         if (handle) dlclose(handle);
         return C_ERR;
     }
@@ -13774,6 +13902,10 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     dictAdd(modules,ctx.module->name,ctx.module);
     ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
+#ifdef _WIN32
+    ctx.module->qfork_path = qfork_path;
+    ctx.module->qfork_load_seq = ++moduleQForkLoadSequence;
+#endif
     ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
     ctx.module->loadmod->path = sdsnew(path);
     ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;

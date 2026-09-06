@@ -23,4 +23,11 @@
 #ifndef EAI_NONAME
 #define EAI_NONAME 8
 #endif
+#ifndef EAI_SERVICE
+#ifdef WSATYPE_NOT_FOUND
+#define EAI_SERVICE WSATYPE_NOT_FOUND
+#else
+#define EAI_SERVICE 9
+#endif
+#endif
 #endif
