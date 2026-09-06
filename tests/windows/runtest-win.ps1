@@ -12,10 +12,17 @@ if (-not $BuildDir) { $BuildDir = Join-Path $Root "build" }
 $BuildDir = (Resolve-Path $BuildDir).Path
 
 function Stop-RedisTestServers {
-    Get-Process redis-server -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Host "killing leftover redis-server pid=$($_.Id)"
-        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-    }
+    $expected = [System.IO.Path]::GetFullPath((Join-Path $BuildDir "redis-server.exe"))
+    Get-CimInstance Win32_Process -Filter "Name = 'redis-server.exe'" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $img = $_.ExecutablePath
+            if (-not $img) { return }
+            $full = [System.IO.Path]::GetFullPath($img)
+            if ([String]::Equals($full, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "killing leftover redis-server pid=$($_.ProcessId)"
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
 }
 
 $rdbSmoke = Join-Path $PSScriptRoot "smoke_rdb50.ps1"
@@ -39,6 +46,7 @@ $gitUsr = "C:\Program Files\Git\usr\bin"
 $gitMingw = "C:\Program Files\Git\mingw64\bin"
 $env:PATH = "$gitMingw;$gitUsr;$env:PATH"
 $env:REDIS_SERVER = Join-Path $BuildDir "redis-server.exe"
+$env:REDIS_TEST_LAUNCHER = Join-Path $BuildDir "redis-test-launcher.exe"
 if (-not $env:QFORK_HEAP_BYTES) { $env:QFORK_HEAP_BYTES = "512M" }
 # Default off: AF_UNIX listen in start_server. Set to 1 to re-enable.
 if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }

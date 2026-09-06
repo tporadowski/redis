@@ -2052,7 +2052,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 freeClientAsync(slave);
             }
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
-            struct redis_stat buf;
+            struct stat buf;
 
             if (bgsaveerr != C_OK) {
                 /* Notify the task that the snapshot bulk delivery failed */

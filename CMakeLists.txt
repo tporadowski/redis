@@ -231,11 +231,12 @@ add_library(win32_interop STATIC
     src/Win32_Interop/Win32_ThreadControl.c
     src/Win32_Interop/Win32_ProcessTable.c
     src/Win32_Interop/Win32_EventLog.cpp
-    src/Win32_Interop/Win32_service.cpp)
+    src/Win32_Interop/Win32_service.cpp
+    src/Win32_Interop/Win32_StackTrace.cpp)
 target_include_directories(win32_interop PUBLIC
     "${REDIS_POSIX_INC}"
     "${REDIS_INTEROP_INC}")
-target_link_libraries(win32_interop PUBLIC ws2_32 mswsock advapi32 shell32)
+target_link_libraries(win32_interop PUBLIC ws2_32 mswsock advapi32 shell32 dbghelp)
 if(MSVC)
     target_compile_options(win32_interop PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/FI${REDIS_PRE_HEADER}>
@@ -295,6 +296,15 @@ if(BUILD_TLS)
 endif()
 target_link_libraries(redis-benchmark PRIVATE hiredis hdr_histogram win32_interop)
 
+add_executable(redis-test-launcher tests/windows/test-launcher.c)
+set_source_files_properties(tests/windows/test-launcher.c PROPERTIES LANGUAGE C)
+target_compile_definitions(redis-test-launcher PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+if(MSVC)
+    target_compile_options(redis-test-launcher PRIVATE /W3 /wd4996)
+endif()
+target_link_libraries(redis-test-launcher PRIVATE kernel32 ntdll ws2_32)
+
 add_executable(fdapi_smoke tests/windows/fdapi_smoke.c)
 redis_win32_src(fdapi_smoke)
 target_link_libraries(fdapi_smoke PRIVATE win32_interop)
@@ -308,6 +318,13 @@ target_link_libraries(wsiocp_smoke PRIVATE win32_interop)
 add_executable(pthread_smoke tests/windows/pthread_smoke.c)
 redis_win32_src(pthread_smoke)
 target_link_libraries(pthread_smoke PRIVATE win32_interop)
+
+add_executable(llp64_smoke tests/windows/llp64_smoke.c)
+redis_win32_src(llp64_smoke)
+
+add_executable(interop_smoke tests/windows/interop_smoke.c)
+redis_win32_src(interop_smoke)
+target_link_libraries(interop_smoke PRIVATE win32_interop)
 
 add_executable(jemalloc_smoke
     tests/windows/jemalloc_smoke.c
@@ -420,9 +437,11 @@ target_link_libraries(redis-server PRIVATE
     advapi32 shell32)
 if(MSVC)
     target_compile_options(redis-server PRIVATE
-        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
-    # Child must map the QFork heap at the same VA.
-    target_link_options(redis-server PRIVATE /DYNAMICBASE:NO)
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
+        /Zi)
+    # Child must map the QFork heap at the same VA. /DEBUG keeps a PDB so
+    # the SEH walker can name frames; /OPT:REF,ICF keep Release ICF.
+    target_link_options(redis-server PRIVATE /DYNAMICBASE:NO /DEBUG /OPT:REF /OPT:ICF)
 endif()
 
 # redis-check-rdb is the same image; dispatch is by argv0.
@@ -623,5 +642,28 @@ add_custom_target(lint_llp64
         -BuildDir "${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "M10: LLP64 sizeof(long)/clzl/PORT_LONG lint + arch_bits:64")
+
+add_custom_target(smoke_interop
+    COMMAND llp64_smoke
+    COMMAND interop_smoke
+    DEPENDS llp64_smoke interop_smoke
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Win64 interop + LLP64 width smokes")
+
+add_custom_target(smoke_stacktrace
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_stacktrace.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "SEH stack dump on DEBUG SEGFAULT")
+
+add_custom_target(smoke_cluster_lock
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_cluster_lock.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+    DEPENDS redis-server redis-cli
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "cluster nodes.conf.lock sidecar excludes a second node")
 
 message(STATUS "win-8.10 CMake: redis-cli + redis-server + helloworld.dll + smokes")

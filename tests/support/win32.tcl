@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
-# Portable file helpers + Windows process lookup for the test harness.
+# Portable file helpers + exact-image Windows process identity.
 
 proc file_contents {filename} {
     set fd [open $filename r]
@@ -17,7 +17,7 @@ proc file_first_line {filename} {
 
 proc redis_server_bin {} {
     if {[info exists ::env(REDIS_SERVER)] && $::env(REDIS_SERVER) ne ""} {
-        return $::env(REDIS_SERVER)
+        return [file normalize $::env(REDIS_SERVER)]
     }
     if {$::tcl_platform(platform) eq "windows"} {
         foreach c {
@@ -32,17 +32,88 @@ proc redis_server_bin {} {
     return "src/redis-server"
 }
 
+proc redis_test_launcher_bin {} {
+    if {[info exists ::env(REDIS_TEST_LAUNCHER)] &&
+        $::env(REDIS_TEST_LAUNCHER) ne ""} {
+        return [file normalize $::env(REDIS_TEST_LAUNCHER)]
+    }
+    set dir [file dirname [redis_server_bin]]
+    set cand [file join $dir redis-test-launcher.exe]
+    if {[file exists $cand]} { return $cand }
+    foreach c {
+        build/redis-test-launcher.exe
+        redis-test-launcher.exe
+    } {
+        if {[file exists $c]} { return [file normalize $c] }
+    }
+    return $cand
+}
+
+set ::redis_server_path [redis_server_bin]
+set ::redis_test_launcher_path [redis_test_launcher_bin]
+
 proc win32_pid_alive {pid} {
-    if {[catch {exec tasklist.exe /FI "PID eq $pid" /NH} out]} {
-        return 0
+    if {![info exists ::redis_test_launcher_path] ||
+        ![file exists $::redis_test_launcher_path]} {
+        if {[catch {exec tasklist.exe /FI "PID eq $pid" /NH} out]} {
+            return 0
+        }
+        if {[string match -nocase "*No tasks*" $out]} {
+            return 0
+        }
+        return [expr {[string first $pid $out] != -1}]
     }
-    if {[string match -nocase "*No tasks*" $out]} {
-        return 0
+    return [expr {![catch {
+        exec $::redis_test_launcher_path --is-alive $pid
+    }]}]
+}
+
+# True only when PID is this checkout's redis-server.exe (not a service install).
+proc win32_process_matches {pid {expected ""}} {
+    if {$expected eq ""} {
+        set expected [file nativename [file normalize $::redis_server_path]]
+    } else {
+        set expected [file nativename [file normalize $expected]]
     }
-    return [expr {[string first $pid $out] != -1}]
+    if {![file exists $::redis_test_launcher_path]} {
+        return [win32_pid_alive $pid]
+    }
+    return [expr {![catch {
+        exec $::redis_test_launcher_path --is-owned $pid $expected
+    }]}]
+}
+
+proc win32_process_owned {pid} {
+    if {![file exists $::redis_test_launcher_path]} {
+        return [win32_pid_alive $pid]
+    }
+    set allowed [list [file nativename [file normalize $::redis_server_path]]]
+    foreach extra [list $::redis_test_launcher_path] {
+        if {$extra ne "" && [file exists $extra]} {
+            lappend allowed [file nativename [file normalize $extra]]
+        }
+    }
+    return [expr {![catch {
+        exec $::redis_test_launcher_path --is-owned $pid {*}$allowed
+    }]}]
 }
 
 proc win32_kill_pid {pid} {
+    if {![win32_process_owned $pid]} { return }
+    if {[file exists $::redis_test_launcher_path]} {
+        set token ""
+        catch {
+            set token [string trim [exec $::redis_test_launcher_path --creation-token $pid]]
+        }
+        set expected [file nativename [file normalize $::redis_server_path]]
+        if {$token ne ""} {
+            if {![catch {
+                exec $::redis_test_launcher_path --terminate $pid --token $token $expected
+            }]} {
+                return
+            }
+        }
+    }
     catch {exec taskkill.exe /F /T /PID $pid}
 }
 
@@ -62,6 +133,18 @@ proc redis_server_startup_error {args} {
 
 # First child of $parent, or "" if none. Used by get_child_pid (QFork).
 proc win32_child_pid {parent} {
+    if {[file exists $::redis_test_launcher_path]} {
+        set expected [file nativename [file normalize $::redis_server_path]]
+        if {![catch {
+            set out [string trim [exec $::redis_test_launcher_path \
+                --find-qfork-child $parent $expected]]
+        }]} {
+            if {[string is integer -strict $out] && $out > 0} {
+                return $out
+            }
+        }
+        return ""
+    }
     lindex [win32_child_pids $parent] 0
 }
 
@@ -69,16 +152,7 @@ proc win32_child_pids {parent} {
     if {![string is integer -strict $parent] || $parent <= 0} {
         return {}
     }
-    set script "(Get-CimInstance Win32_Process -Filter \"ParentProcessId=$parent\").ProcessId"
-    if {[catch {exec powershell.exe -NoProfile -Command $script} out]} {
-        return {}
-    }
-    set pids {}
-    foreach line [split $out \n] {
-        set line [string trim $line]
-        if {[string is integer -strict $line] && $line > 0} {
-            lappend pids $line
-        }
-    }
-    return $pids
+    set child [win32_child_pid $parent]
+    if {$child eq ""} { return {} }
+    return [list $child]
 }

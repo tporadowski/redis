@@ -685,6 +685,17 @@ void hashTemplatesInit(void) {
     server.htemplates = htemplates;
 }
 
+#ifdef _WIN32
+/* A QFork child starts as a fresh executable, so this file-local alias is not
+ * inherited even though the registry itself and server.htemplates are present
+ * in the mapped parent heap. Reattach the alias before persistence code walks
+ * template-encoded hashes. */
+int hashTemplatesSetQForkState(void) {
+    htemplates = server.htemplates;
+    return htemplates ? C_OK : C_ERR;
+}
+#endif
+
 /* Create a new hash tmpl, fields must be pre-sorted. */
 static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
                                                 unsigned long long field_count) 

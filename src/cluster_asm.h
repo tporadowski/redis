@@ -57,6 +57,10 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
 int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, int argc);
+#ifdef _WIN32
+void *asmGetQForkState(void);
+void asmSetQForkState(void *state);
+#endif
 int asmTrimSlots(struct asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup);
 int asmIsBgTrimRunning(void);
 void asmBgTrimCounterDecr(void);

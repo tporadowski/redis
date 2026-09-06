@@ -13,6 +13,9 @@
 #include "server.h"
 #include "cluster.h"
 #include "sha256.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 #include <fcntl.h>
 #include <ctype.h>
 
@@ -42,6 +45,34 @@ long long ACLLogEntryCount = 0; /* Number of ACL log entries created */
 static rax *commandId = NULL; /* Command name to id mapping */
 
 static unsigned long nextid = 0; /* Next command id that has not been assigned */
+
+#ifdef _WIN32
+void ACLGetForkData(void **users, void **default_user, void **users_to_load,
+                    void **acl_log, long long *acl_log_entry_count,
+                    void **command_id, unsigned long *next_id)
+{
+    *users = Users;
+    *default_user = DefaultUser;
+    *users_to_load = UsersToLoad;
+    *acl_log = ACLLog;
+    *acl_log_entry_count = ACLLogEntryCount;
+    *command_id = commandId;
+    *next_id = nextid;
+}
+
+void ACLSetForkData(void *users, void *default_user, void *users_to_load,
+                    void *acl_log, long long acl_log_entry_count,
+                    void *command_id, unsigned long next_id)
+{
+    Users = users;
+    DefaultUser = default_user;
+    UsersToLoad = users_to_load;
+    ACLLog = acl_log;
+    ACLLogEntryCount = acl_log_entry_count;
+    commandId = command_id;
+    nextid = next_id;
+}
+#endif
 
 #define ACL_MAX_CATEGORIES 64 /* Maximum number of command categories  */
 

@@ -37,6 +37,7 @@
 #include "Win32_Interop/Win32_QFork.h"
 #include "Win32_Interop/Win32_Service.h"
 #include "Win32_Interop/Win32_EventLog.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 #include <time.h>
@@ -3537,6 +3538,33 @@ int populateCommandStructure(struct redisCommand *c) {
 
 extern struct redisCommand redisCommandTable[];
 
+#ifdef _WIN32
+/* A QFork child starts as a fresh executable, so the runtime-populated tail
+ * of redisCommandTable[] (including subcommand dictionaries) is zeroed even
+ * though the copied server command dictionaries still point at those static
+ * entries. Re-run population against disposable child dictionaries, then put
+ * the copied parent dictionaries back so renames and module commands remain
+ * exactly as captured. */
+void rehydrateCommandTableForQFork(void) {
+    dict *parent_commands = server.commands;
+    dict *parent_orig_commands = server.orig_commands;
+    dict *child_commands = dictCreate(&commandTableDictType);
+    dict *child_orig_commands = dictCreate(&commandTableDictType);
+
+    serverAssert(parent_commands != NULL && parent_orig_commands != NULL);
+    serverAssert(child_commands != NULL && child_orig_commands != NULL);
+
+    server.commands = child_commands;
+    server.orig_commands = child_orig_commands;
+    populateCommandTable();
+    server.commands = parent_commands;
+    server.orig_commands = parent_orig_commands;
+
+    dictRelease(child_commands);
+    dictRelease(child_orig_commands);
+}
+#endif
+
 /* Populates the Redis Command Table dict from the static table in commands.c
  * which is auto generated from the json files in the commands folder. */
 void populateCommandTable(void) {
@@ -5242,6 +5270,10 @@ int finishShutdown(void) {
     /* Unlock the cluster config file before shutdown */
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1) {
         flock(server.cluster_config_file_lock_fd, LOCK_UN|LOCK_NB);
+#ifdef _WIN32
+        close(server.cluster_config_file_lock_fd);
+        server.cluster_config_file_lock_fd = -1;
+#endif
     }
 #endif /* __sun */
 
@@ -7751,7 +7783,11 @@ void memtest(size_t megabytes, int passes);
 /* Returns 1 if there is --sentinel among the arguments or if
  * executable name contains "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv, char *exec_name) {
+#ifdef _WIN32
+    if (win32_utf8_contains_ignore_case(exec_name, "redis-sentinel")) return 1;
+#else
     if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
+#endif
 
     for (int j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
@@ -7767,12 +7803,22 @@ void loadDataFromDisk(void) {
 
     /* Handle preload_file, which overrides anything else. */
     if (server.preload_file) {
-        if (!strncmp(server.preload_file, "aof:/", 5)) {
+        if (!strncmp(server.preload_file, "aof:", 4)) {
             int ret;
-            if (!strcmp(getFileExtension(server.preload_file), "aof")) {
+            char *extension = getFileExtension(server.preload_file);
+#ifdef _WIN32
+            if (extension != NULL &&
+                win32_utf8_strings_equal_ignore_case(extension, "aof")) {
                 ret = loadPreLoadAOFFile(server.preload_file + 4);
-            } else if (!strcmp(getFileExtension(server.preload_file), "manifest")) {
+            } else if (extension != NULL &&
+                       win32_utf8_strings_equal_ignore_case(extension, "manifest")) {
                 ret = loadPreLoadManifestFile(server.preload_file + 4);
+#else
+            if (extension != NULL && !strcmp(extension, "aof")) {
+                ret = loadPreLoadAOFFile(server.preload_file + 4);
+            } else if (extension != NULL && !strcmp(extension, "manifest")) {
+                ret = loadPreLoadManifestFile(server.preload_file + 4);
+#endif
             } else {
                 serverLog(LL_NOTICE,"Invalid preload-file configuration (not .aof or .manifest): %s. Exiting.", server.preload_file);
                 exit(1);
@@ -7784,7 +7830,7 @@ void loadDataFromDisk(void) {
                 exit(1);
             }
             loaded = 1;
-        } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
+        } else if (!strncmp(server.preload_file, "rdb:", 4)) {
             int rdbflags = RDBFLAGS_NONE;
             if (iAmMaster()) {
                 /* Master may delete expired keys when loading, we should

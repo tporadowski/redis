@@ -1739,10 +1739,7 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx) {
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
-    if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_EXP;
-    if (size >= LONG_MAX) return (8*sizeof(long)-1);
-
-    return 8*sizeof(long) - __builtin_clzl(size-1);
+    return dictNextExpForSize(size);
 }
 
 /* Finds and returns the link within the dict where the provided key should

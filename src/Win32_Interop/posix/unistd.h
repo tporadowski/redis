@@ -30,12 +30,6 @@
 #ifndef umask
 #define umask _umask
 #endif
-#ifndef access
-#define access _access
-#endif
-#ifndef unlink
-#define unlink _unlink
-#endif
 #ifndef rename
 #define rename fdapi_rename
 #endif
@@ -45,26 +39,48 @@
 #ifndef getppid
 #define getppid win32_getppid
 #endif
-#ifndef getcwd
-#define getcwd _getcwd
-#endif
-#ifndef chdir
-#define chdir _chdir
-#endif
-#ifndef rmdir
-#define rmdir _rmdir
-#endif
-#ifndef mkdir
-#define mkdir(path, mode) _mkdir(path)
-#endif
-#ifndef lstat
-#define lstat stat
-#endif
 
 #include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#include <stdio.h>
+#include <sys/stat.h>
+FILE *replace_fopen(const char *path, const char *mode);
+FILE *replace_freopen(const char *path, const char *mode, FILE *stream);
+int replace_unlink(const char *path);
+int replace_remove(const char *path);
+int replace_mkdir(const char *path);
+int replace_rmdir(const char *path);
+int replace_chmod(const char *path, int mode);
+int replace_access(const char *path, int mode);
+int replace_stat(const char *path, struct stat *buffer);
+char *win32_getcwd(char *buf, size_t size);
+int win32_set_current_directory_utf8(const char *path);
+
+#ifndef WIN32_NO_UTF8_IO_REMAP
+#undef fopen
+#define fopen replace_fopen
+#undef freopen
+#define freopen replace_freopen
+#undef remove
+#define remove replace_remove
+#undef unlink
+#define unlink replace_unlink
+#undef getcwd
+#define getcwd win32_getcwd
+#undef chdir
+#define chdir win32_set_current_directory_utf8
+#undef rmdir
+#define rmdir replace_rmdir
+#undef mkdir
+#define mkdir(path, mode) replace_mkdir(path)
+#undef access
+#define access replace_access
+#undef lstat
+#define lstat replace_stat
 #endif
 
 unsigned int sleep(unsigned int seconds);

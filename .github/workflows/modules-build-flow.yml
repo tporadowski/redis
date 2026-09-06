@@ -36,6 +36,7 @@ jobs:
 
   test-modules:
     name: test-modules-${{ matrix.arch }}-${{ matrix.osnick }}
+    if: github.repository == 'redis/redis'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 300
     # Mapping form with an explicit PATH: a module bootstrap can append to

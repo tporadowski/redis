@@ -31,6 +31,7 @@ int crt_close(int fd);
 int crt_read(int fd, void *buffer, unsigned int count);
 int crt_write(int fd, const void *buffer, unsigned int count);
 int crt_open(const char *filename, int oflag, int pmode);
+int crt_wopen(const wchar_t *filename, int oflag, int pmode);
 int crt_open_osfhandle(intptr_t osfhandle, int flags);
 intptr_t crt_get_osfhandle(int fd);
 int crt_setmode(int fd, int mode);

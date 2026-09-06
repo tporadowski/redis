@@ -10,6 +10,8 @@
 
 #ifdef _WIN32
 #include "Win32_Interop/Win32_cli.h"
+#include "Win32_Interop/Win32_Error.h"
+#define getenv(name) win32_getenv_utf8_cached(name)
 #endif
 
 #include "fmacros.h"
@@ -11281,6 +11283,11 @@ int main(int argc, char **argv) {
     int firstarg;
     struct timeval tv;
 #ifdef _WIN32
+    if (win32_get_utf8_argv(&argc, &argv) != 0) {
+        fprintf(stderr, "Unable to decode the Windows command line as UTF-8: %s\n",
+                strerror(errno));
+        return 1;
+    }
     cliWin32Init();
 #endif
 

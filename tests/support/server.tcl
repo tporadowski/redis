@@ -162,7 +162,7 @@ proc kill_server config {
 
 proc is_alive pid {
     if {$::tcl_platform(platform) eq "windows"} {
-        return [win32_pid_alive $pid]
+        return [win32_process_matches $pid]
     }
     if {[catch {exec kill -0 $pid} err]} {
         return 0
@@ -448,7 +448,15 @@ proc spawn_server {config_file stdout stderr args} {
     }
 
     if {$::tcl_platform(platform) eq "windows"} {
-        set pid [exec {*}$cmd >> $stdout 2>> $stderr &]
+        if {![file exists $::redis_test_launcher_path]} {
+            error "missing redis-test-launcher.exe (build redis-test-launcher)"
+        }
+        set launch_cmd [list $::redis_test_launcher_path $stdout $stderr --]
+        lappend launch_cmd {*}$cmd
+        set pid [string trim [exec {*}$launch_cmd]]
+        if {![string is wideinteger -strict $pid] || $pid <= 0} {
+            error "hidden Redis launcher returned an invalid PID: $pid"
+        }
         if {$::wait_server} {
             puts "server started PID: $pid. press any key to continue..."
             read stdin 1

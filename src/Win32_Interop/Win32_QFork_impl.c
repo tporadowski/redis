@@ -2,6 +2,9 @@
 #include "server.h"
 #include "rdb.h"
 #include "monotonic.h"
+#include "functions.h"
+#include "keymeta.h"
+#include "cluster_asm.h"
 #include "Win32_QFork.h"
 #include "Win32_QFork_impl.h"
 #include "Win32_ThreadControl.h"
@@ -140,23 +143,65 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
     }
 }
 
-void SetupRedisGlobals(void *redisData, size_t redisDataSize,
-                       unsigned char *dictHashSeed, int purpose,
-                       void *sharedData, size_t sharedDataSize) {
+void win32CaptureQForkStaticRoots(QForkStaticRoots *roots) {
+    memset(roots, 0, sizeof(*roots));
+    ACLGetForkData(&roots->acl_users, &roots->acl_default_user,
+                   &roots->acl_users_to_load, &roots->acl_log,
+                   &roots->acl_log_entry_count, &roots->acl_command_id,
+                   &roots->acl_nextid);
+    roots->configs = configGetQForkData();
+    roots->asm_manager = asmGetQForkState();
+    roots->functions_engines = functionsGetEnginesForQFork();
+    roots->functions_lib_ctx = functionsLibCtxGetCurrent();
+    roots->functions_engine_cache_memory = functionsGetEngineCacheMemoryForQFork();
+    roots->keymeta_size = keyMetaForkDataSize();
+    if (roots->keymeta_size > sizeof(roots->keymeta) ||
+        keyMetaCopyForkData(roots->keymeta, roots->keymeta_size) != C_OK)
+    {
+        roots->keymeta_size = 0;
+    }
+}
+
+int SetupRedisGlobals(void *redisData, size_t redisDataSize,
+                      unsigned char *dictHashSeed, int purpose,
+                      void *sharedData, size_t sharedDataSize,
+                      const QForkStaticRoots *roots) {
     if (redisData && redisDataSize == sizeof(server)) {
         memcpy(&server, redisData, redisDataSize);
     } else {
         fprintf(stderr, "SetupRedisGlobals: size mismatch payload=%zu server=%zu\n",
                 redisDataSize, sizeof(server));
+        return -1;
     }
     if (sharedData && sharedDataSize == sizeof(shared)) {
         memcpy(&shared, sharedData, sharedDataSize);
     } else {
         fprintf(stderr, "SetupRedisGlobals: shared mismatch payload=%zu shared=%zu\n",
                 sharedDataSize, sizeof(shared));
+        return -1;
     }
     if (dictHashSeed)
         dictSetHashFunctionSeed(dictHashSeed);
+    if (roots) {
+        ACLSetForkData(roots->acl_users, roots->acl_default_user,
+                       roots->acl_users_to_load, roots->acl_log,
+                       roots->acl_log_entry_count, roots->acl_command_id,
+                       roots->acl_nextid);
+        configSetQForkData(roots->configs);
+        asmSetQForkState(roots->asm_manager);
+        functionsSetQForkState(roots->functions_engines, roots->functions_lib_ctx,
+                               roots->functions_engine_cache_memory);
+        if (hashTemplatesSetQForkState() != C_OK) {
+            fprintf(stderr, "SetupRedisGlobals: hash template registry missing\n");
+            return -1;
+        }
+        if (keyMetaSetForkData(roots->keymeta, roots->keymeta_size) != C_OK) {
+            fprintf(stderr,
+                    "SetupRedisGlobals: keymeta ABI mismatch got=%zu expected=%zu\n",
+                    roots->keymeta_size, keyMetaForkDataSize());
+            return -1;
+        }
+    }
     /* Fresh process: executable-image roots are not inherited with the map. */
     monotonicInit();
     R_Zero = 0.0;
@@ -198,6 +243,13 @@ void SetupRedisGlobals(void *redisData, size_t redisDataSize,
     server.pending_push_messages = listCreate();
     server.clients_waiting_acks = listCreate();
     server.postponed_clients = listCreate();
+    clusterSetQForkState();
+    if (connTypeInitialize() != C_OK) {
+        fprintf(stderr, "SetupRedisGlobals: connTypeInitialize failed\n");
+        return -1;
+    }
+    rehydrateCommandTableForQFork();
+    return 0;
 }
 
 int do_rdbSave(int req, char *filename, void *rsi, int rdbflags) {
@@ -484,6 +536,7 @@ int win32RedisFork(int purpose) {
     memcpy(hdr->module_symbol, g_win32_qfork_job.module_symbol,
            sizeof(hdr->module_symbol));
     hdr->module_user_data = (uint64_t)(uintptr_t)g_win32_qfork_job.module_user_data;
+    win32CaptureQForkStaticRoots(&hdr->roots);
     memcpy(hdr + 1, &server, sizeof(server));
     memcpy((char *)(hdr + 1) + sizeof(server), &shared, sizeof(shared));
 

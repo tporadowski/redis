@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3 */
+#define WIN32_NO_UTF8_IO_REMAP
 #include "win32_pre.h"
 #include "Win32_Time.h"
 #include "Win32_FDAPI.h"
@@ -6,18 +7,22 @@
 #include "posix/sys/utsname.h"
 #include "posix/sys/uio.h"
 #include "posix/dirent.h"
+#include "posix/glob.h"
 #include "posix/dlfcn.h"
 #include "posix/sys/time.h"
+#include "posix/sys/file.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <io.h>
+#include <direct.h>
 #include <process.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <wchar.h>
 #include <windows.h>
 
 #ifndef UNUSED
@@ -145,9 +150,36 @@ struct tm *gmtime_r(const time_t *timep, struct tm *result) {
 /* kill() is implemented in Win32_ProcessTable.c */
 
 int flock(int fd, int operation) {
-    UNUSED(fd);
-    UNUSED(operation);
-    return 0;
+    HANDLE handle;
+    OVERLAPPED overlapped;
+    DWORD flags = 0;
+    DWORD gle;
+
+    handle = (HANDLE)FDAPI_get_osfhandle(fd);
+    if (handle == INVALID_HANDLE_VALUE || handle == (HANDLE)(intptr_t)-1) {
+        errno = EBADF;
+        return -1;
+    }
+    memset(&overlapped, 0, sizeof(overlapped));
+    if (operation & LOCK_UN) {
+        if (!UnlockFileEx(handle, 0, MAXDWORD, MAXDWORD, &overlapped)) {
+            errno = win32_errno_from_system_error((int)GetLastError());
+            return -1;
+        }
+        return 0;
+    }
+    if (operation & LOCK_EX)
+        flags |= LOCKFILE_EXCLUSIVE_LOCK;
+    if (operation & LOCK_NB)
+        flags |= LOCKFILE_FAIL_IMMEDIATELY;
+    if (LockFileEx(handle, flags, 0, MAXDWORD, MAXDWORD, &overlapped))
+        return 0;
+    gle = GetLastError();
+    if (gle == ERROR_LOCK_VIOLATION)
+        errno = EWOULDBLOCK;
+    else
+        errno = win32_errno_from_system_error((int)gle);
+    return -1;
 }
 
 int uname(struct utsname *buf) {
@@ -345,32 +377,218 @@ int fchmod(int fd, int mode) {
     return 0;
 }
 
+FILE *replace_fopen(const char *path, const char *mode) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    wchar_t *wide_mode;
+    FILE *file;
+    int saved_errno;
+
+    if (wide_path == NULL) return NULL;
+    wide_mode = win32_utf8_to_wide(mode);
+    if (wide_mode == NULL) {
+        win32_free(wide_path);
+        return NULL;
+    }
+    file = _wfopen(wide_path, wide_mode);
+    saved_errno = errno;
+    win32_free(wide_mode);
+    win32_free(wide_path);
+    errno = saved_errno;
+    return file;
+}
+
+FILE *replace_freopen(const char *path, const char *mode, FILE *stream) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    wchar_t *wide_mode;
+    FILE *file;
+    int saved_errno;
+
+    if (wide_path == NULL) return NULL;
+    wide_mode = win32_utf8_to_wide(mode);
+    if (wide_mode == NULL) {
+        win32_free(wide_path);
+        return NULL;
+    }
+    file = _wfreopen(wide_path, wide_mode, stream);
+    saved_errno = errno;
+    win32_free(wide_mode);
+    win32_free(wide_path);
+    errno = saved_errno;
+    return file;
+}
+
+int replace_unlink(const char *path) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    int result;
+    int saved_errno;
+    if (wide_path == NULL) return -1;
+    result = _wunlink(wide_path);
+    saved_errno = errno;
+    win32_free(wide_path);
+    errno = saved_errno;
+    return result;
+}
+
+int replace_remove(const char *path) {
+    return replace_unlink(path);
+}
+
+int replace_mkdir(const char *path) {
+    wchar_t *wide_path = win32_utf8_directory_path_to_wide(path);
+    int result;
+    int saved_errno;
+    if (wide_path == NULL) return -1;
+    result = _wmkdir(wide_path);
+    saved_errno = errno;
+    win32_free(wide_path);
+    errno = saved_errno;
+    return result;
+}
+
+int replace_rmdir(const char *path) {
+    wchar_t *wide_path = win32_utf8_directory_path_to_wide(path);
+    int result;
+    int saved_errno;
+    if (wide_path == NULL) return -1;
+    result = _wrmdir(wide_path);
+    saved_errno = errno;
+    win32_free(wide_path);
+    errno = saved_errno;
+    return result;
+}
+
+int replace_chmod(const char *path, int mode) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    int result;
+    int saved_errno;
+    if (wide_path == NULL) return -1;
+    result = _wchmod(wide_path, mode);
+    saved_errno = errno;
+    win32_free(wide_path);
+    errno = saved_errno;
+    return result;
+}
+
+int replace_access(const char *path, int mode) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    int result;
+    int saved_errno;
+    if (wide_path == NULL) return -1;
+    result = _waccess(wide_path, mode);
+    saved_errno = errno;
+    win32_free(wide_path);
+    errno = saved_errno;
+    return result;
+}
+
+int replace_stat(const char *path, struct stat *buffer) {
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    struct __stat64 st;
+    int result;
+    int saved_errno;
+
+    if (!buffer) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (wide_path == NULL) return -1;
+    result = _wstat64(wide_path, &st);
+    saved_errno = errno;
+    win32_free(wide_path);
+    if (result != 0) {
+        errno = saved_errno;
+        return -1;
+    }
+    memset(buffer, 0, sizeof(*buffer));
+    buffer->st_mode = st.st_mode;
+    buffer->st_nlink = st.st_nlink;
+    buffer->st_size = (off_t)st.st_size;
+    buffer->st_atime = (time_t)st.st_atime;
+    buffer->st_mtime = (time_t)st.st_mtime;
+    buffer->st_ctime = (time_t)st.st_ctime;
+    return 0;
+}
+
+int glob(const char *pattern, int flags,
+         int (*errfunc)(const char *, int), glob_t *pglob) {
+    char **paths = NULL;
+    size_t count = 0;
+
+    UNUSED(flags);
+    UNUSED(errfunc);
+    if (!pglob) {
+        errno = EINVAL;
+        return -1;
+    }
+    pglob->gl_pathc = 0;
+    pglob->gl_pathv = NULL;
+    if (win32_glob_utf8(pattern, &paths, &count) != 0)
+        return GLOB_NOMATCH;
+    if (count == 0) {
+        win32_globfree_utf8(paths, count);
+        return GLOB_NOMATCH;
+    }
+    pglob->gl_pathc = count;
+    pglob->gl_pathv = paths;
+    return 0;
+}
+
+void globfree(glob_t *pglob) {
+    if (!pglob) return;
+    win32_globfree_utf8(pglob->gl_pathv, pglob->gl_pathc);
+    pglob->gl_pathc = 0;
+    pglob->gl_pathv = NULL;
+}
+
 int link(const char *oldpath, const char *newpath) {
-    if (CreateHardLinkA(newpath, oldpath, NULL))
+    wchar_t *wide_src = win32_utf8_path_to_wide(oldpath);
+    wchar_t *wide_dst;
+
+    if (wide_src == NULL) return -1;
+    wide_dst = win32_utf8_path_to_wide(newpath);
+    if (wide_dst == NULL) {
+        win32_free(wide_src);
+        return -1;
+    }
+
+    if (CreateHardLinkW(wide_dst, wide_src, NULL)) {
+        win32_free(wide_src);
+        win32_free(wide_dst);
         return 0;
-    if (CopyFileA(oldpath, newpath, TRUE))
-        return 0;
+    }
+
     {
         DWORD e = GetLastError();
-        if (e == ERROR_ALREADY_EXISTS)
-            errno = EEXIST;
-        else if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
-            errno = ENOENT;
-        else if (e == ERROR_ACCESS_DENIED)
-            errno = EACCES;
-        else
-            errno = EIO;
+        win32_free(wide_src);
+        win32_free(wide_dst);
+        errno = win32_errno_from_system_error((int)e);
+        return -1;
     }
-    return -1;
 }
 
 int truncate(const char *path, off_t length) {
-    int fd = _open(path, _O_RDWR | _O_BINARY);
-    int rc;
-    if (fd < 0) return -1;
-    rc = _chsize_s(fd, length);
-    _close(fd);
-    return rc;
+    wchar_t *wide_path = win32_utf8_path_to_wide(path);
+    HANDLE handle;
+    LARGE_INTEGER newSize;
+    int result = 0;
+
+    if (wide_path == NULL) return -1;
+    handle = CreateFileW(wide_path, GENERIC_READ | GENERIC_WRITE,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         OPEN_EXISTING, 0, NULL);
+    win32_free(wide_path);
+    if (handle == INVALID_HANDLE_VALUE) {
+        set_errno_from_last_error();
+        return -1;
+    }
+    newSize.QuadPart = length;
+    if (!SetFilePointerEx(handle, newSize, NULL, FILE_BEGIN) ||
+        !SetEndOfFile(handle)) {
+        set_errno_from_last_error();
+        result = -1;
+    }
+    CloseHandle(handle);
+    return result;
 }
 
 int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value) {
@@ -398,7 +616,7 @@ int nanosleep(const struct timespec *req, struct timespec *rem) {
 
 typedef struct DIR {
     HANDLE handle;
-    WIN32_FIND_DATAA ffd;
+    WIN32_FIND_DATAW ffd;
     int stored;
     int done;
     struct dirent cur;
@@ -406,18 +624,40 @@ typedef struct DIR {
 
 DIR *opendir(const char *name) {
     DIR *d;
-    char pattern[MAX_PATH];
+    size_t length;
+    char *pattern;
+    wchar_t *wide;
+
     if (!name) {
         errno = EINVAL;
         return NULL;
     }
+    length = strlen(name);
+    pattern = (char *)malloc(length + 3);
+    if (!pattern) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    memcpy(pattern, name, length);
+    if (length != 0 && name[length - 1] != '/' && name[length - 1] != '\\')
+        pattern[length++] = '/';
+    pattern[length++] = '*';
+    pattern[length] = '\0';
+    wide = win32_utf8_path_to_wide(pattern);
+    free(pattern);
+    if (!wide) return NULL;
+
     d = (DIR *)calloc(1, sizeof(*d));
-    if (!d) return NULL;
-    snprintf(pattern, sizeof(pattern), "%s\\*", name);
-    d->handle = FindFirstFileA(pattern, &d->ffd);
+    if (!d) {
+        win32_free(wide);
+        errno = ENOMEM;
+        return NULL;
+    }
+    d->handle = FindFirstFileW(wide, &d->ffd);
+    win32_free(wide);
     if (d->handle == INVALID_HANDLE_VALUE) {
         free(d);
-        errno = ENOENT;
+        set_errno_from_last_error();
         return NULL;
     }
     d->stored = 1;
@@ -425,16 +665,21 @@ DIR *opendir(const char *name) {
 }
 
 struct dirent *readdir(DIR *dirp) {
+    char *utf8;
     if (!dirp || dirp->done) return NULL;
     if (!dirp->stored) {
-        if (!FindNextFileA(dirp->handle, &dirp->ffd)) {
+        if (!FindNextFileW(dirp->handle, &dirp->ffd)) {
             dirp->done = 1;
             return NULL;
         }
     }
     dirp->stored = 0;
     memset(&dirp->cur, 0, sizeof(dirp->cur));
-    strncpy(dirp->cur.d_name, dirp->ffd.cFileName, sizeof(dirp->cur.d_name) - 1);
+    utf8 = win32_wide_to_utf8(dirp->ffd.cFileName);
+    if (utf8) {
+        strncpy(dirp->cur.d_name, utf8, sizeof(dirp->cur.d_name) - 1);
+        win32_free(utf8);
+    }
     dirp->cur.d_type = (dirp->ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? DT_DIR : DT_REG;
     return &dirp->cur;
 }

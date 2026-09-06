@@ -24,6 +24,7 @@
 #include "Win32_fdapi_crt.h"
 #include <io.h>
 #include <fcntl.h>
+#include <wchar.h>
 
 int crt_pipe(int *pfds, unsigned int psize, int textmode) {
     return _pipe(pfds, psize, textmode);
@@ -37,6 +38,9 @@ int crt_write(int fd, const void *buffer, unsigned int count) {
 }
 int crt_open(const char *filename, int oflag, int pmode) {
     return _open(filename, oflag, pmode);
+}
+int crt_wopen(const wchar_t *filename, int oflag, int pmode) {
+    return _wopen(filename, oflag, pmode);
 }
 int crt_open_osfhandle(intptr_t osfhandle, int flags) {
     return _open_osfhandle(osfhandle, flags);

@@ -45,7 +45,31 @@ int CommitHeapBlock(void *addr, size_t size, int commit);
 /* Pre-parse result: 1 if persistence-available no (argv or conf). */
 extern int g_PersistenceDisabled;
 
-#define QFORK_MAGIC 0x51463131u /* 'QF11' */
+#define QFORK_MAGIC 0x51463132u /* 'QF12' */
+
+/* Process-static roots that live outside redisServer. Pointers refer to
+ * mapped-heap objects and stay valid in the child; keymeta is a .bss array
+ * and must be copied by value. Module DLL images are not reloaded here. */
+#define QFORK_KEYMETA_MAX 4096
+typedef struct QForkStaticRoots {
+    void *acl_users;
+    void *acl_default_user;
+    void *acl_users_to_load;
+    void *acl_log;
+    long long acl_log_entry_count;
+    void *acl_command_id;
+    unsigned long acl_nextid;
+
+    void *configs;
+    void *asm_manager;
+
+    void *functions_engines;
+    void *functions_lib_ctx;
+    size_t functions_engine_cache_memory;
+
+    size_t keymeta_size;
+    unsigned char keymeta[QFORK_KEYMETA_MAX];
+} QForkStaticRoots;
 
 #ifndef CHILD_TYPE_RDB
 #define CHILD_TYPE_RDB 1
@@ -81,7 +105,15 @@ typedef struct QForkPayloadHeader {
     /* CHILD_TYPE_MODULE: exported symbol + user_data (pointer, COW if live). */
     char     module_symbol[64];
     uint64_t module_user_data;
+    QForkStaticRoots roots;
 } QForkPayloadHeader;
+
+void ACLGetForkData(void **users, void **default_user, void **users_to_load,
+                    void **acl_log, long long *acl_log_entry_count,
+                    void **command_id, unsigned long *next_id);
+void ACLSetForkData(void *users, void *default_user, void *users_to_load,
+                    void *acl_log, long long acl_log_entry_count,
+                    void *command_id, unsigned long next_id);
 
 void win32PrepareRdbDiskJob(int req, const char *filename, const void *rsi, int rdbflags);
 void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,

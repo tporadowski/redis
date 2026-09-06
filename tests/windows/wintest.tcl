@@ -93,6 +93,10 @@ if {![file exists $srv]} {
     exit 2
 }
 set ::env(REDIS_SERVER) $srv
+set launcher [file join $build redis-test-launcher.exe]
+if {[file exists $launcher]} {
+    set ::env(REDIS_TEST_LAUNCHER) $launcher
+}
 if {![info exists ::env(QFORK_HEAP_BYTES)] || $::env(QFORK_HEAP_BYTES) eq ""} {
     set ::env(QFORK_HEAP_BYTES) 512M
 }

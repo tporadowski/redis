@@ -102,6 +102,24 @@ static dict *engines = NULL;
 /* Libraries Ctx. */
 static functionsLibCtx *curr_functions_lib_ctx = NULL;
 
+#ifdef _WIN32
+void *functionsGetEnginesForQFork(void) {
+    return engines;
+}
+
+size_t functionsGetEngineCacheMemoryForQFork(void) {
+    return engine_cache_memory;
+}
+
+void functionsSetQForkState(void *engines_root, void *lib_ctx_root,
+                            size_t engine_cache_memory_root)
+{
+    engines = engines_root;
+    curr_functions_lib_ctx = lib_ctx_root;
+    engine_cache_memory = engine_cache_memory_root;
+}
+#endif
+
 static size_t functionMallocSize(functionInfo *fi) {
     return zmalloc_size(fi) + sdsZmallocSize(fi->name)
             + (fi->desc ? sdsZmallocSize(fi->desc) : 0)

@@ -52,6 +52,9 @@
 #include "sha256.h"
 #include "config.h"
 #include "zmalloc.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Error.h"
+#endif
 
 #define UNUSED(x) ((void)(x))
 
@@ -1036,17 +1039,24 @@ void getRandomHexChars(char *p, size_t len) {
  * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
+#ifdef _WIN32
+    sds relpath = sdsnew(filename);
+    char *buffer;
+    sds result;
+
+    relpath = sdstrim(relpath," \r\n\t");
+    buffer = win32_get_full_path_utf8(relpath);
+    sdsfree(relpath);
+    if (buffer == NULL) return NULL;
+    result = sdsnew(buffer);
+    win32_free(buffer);
+    return result;
+#else
     char cwd[1024];
     sds abspath;
     sds relpath = sdsnew(filename);
 
     relpath = sdstrim(relpath," \r\n\t");
-#ifdef _WIN32
-    /* Drive-absolute (C:\...), UNC (\\server\share), or root-relative (\foo). */
-    if ((relpath[0] && relpath[1] == ':') ||
-        relpath[0] == '\\' || relpath[0] == '/')
-        return relpath;
-#endif
     if (relpath[0] == '/') return relpath; /* Path is already absolute. */
 
     /* If path is relative, join cwd and relative path. */
@@ -1084,6 +1094,7 @@ sds getAbsolutePath(char *filename) {
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
     return abspath;
+#endif
 }
 
 /*
@@ -1225,6 +1236,18 @@ int dirRemove(char *dname) {
 }
 
 sds makePath(char *path, char *filename) {
+#ifdef _WIN32
+    /* An empty directory is used when preload-file already contains an
+     * absolute path. Prefixing a drive or UNC path with '/' makes it invalid
+     * on Windows, unlike the harmless double slash produced on POSIX. */
+    if (path[0] == '\0' &&
+        (((isalpha((unsigned char)filename[0]) && filename[1] == ':' &&
+           (filename[2] == '/' || filename[2] == '\\'))) ||
+         (filename[0] == '/' && filename[1] == '/')))
+    {
+        return sdsnew(filename);
+    }
+#endif
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
 }
 

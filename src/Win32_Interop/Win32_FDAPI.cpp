@@ -18,11 +18,19 @@
 #include <WS2tcpip.h>
 #include <mswsock.h>
 #include <windows.h>
+#include <stdlib.h>
 
 #include "Win32_FDAPI.h"
 #include "win32_rfdmap.h"
 #include "Win32_fdapi_crt.h"
 #include "Win32_Error.h"
+
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0x80000
+#endif
+#ifndef _O_NOINHERIT
+#define _O_NOINHERIT 0x0080
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -367,12 +375,35 @@ int pipe(int pipefd[2]) {
     return 0;
 }
 
+static void win32_ignore_invalid_parameter(
+    const wchar_t *expr, const wchar_t *func, const wchar_t *file,
+    unsigned int line, uintptr_t reserved)
+{
+    (void)expr;
+    (void)func;
+    (void)file;
+    (void)line;
+    (void)reserved;
+}
+
 int fsync(int fd) {
     int crt = RFDMap::getInstance().lookupCrtFD(fd);
+    int rc;
+    _invalid_parameter_handler prev;
     if (crt >= 0)
         return crt_commit(crt);
-    /* fopen/fileno CRT descriptors are not RFDs. */
-    return crt_commit(fd);
+    /* fopen/fileno CRT descriptors are not RFDs. Probe with the CRT
+     * invalid-parameter handler silenced: a stale RFD can alias a closed
+     * CRT fd, and UCRT _commit then abort()s (STATUS_STACK_BUFFER_OVERRUN). */
+    prev = _set_thread_local_invalid_parameter_handler(
+        win32_ignore_invalid_parameter);
+    rc = crt_commit(fd);
+    _set_thread_local_invalid_parameter_handler(prev);
+    if (rc != 0) {
+        errno = EBADF;
+        return -1;
+    }
+    return 0;
 }
 
 int fcntl(int fd, int cmd, ...) {
@@ -495,20 +526,35 @@ int fdapi_select(int nfds, redis_fd_set *readfds, redis_fd_set *writefds,
 
 int fdapi_open(const char *pathname, int flags, ...) {
     int mode = 0;
+    int crt;
+    wchar_t *wide;
     if (flags & _O_CREAT) {
         va_list ap;
         va_start(ap, flags);
         mode = va_arg(ap, int);
         va_end(ap);
     }
-    int crt = crt_open(pathname, flags | _O_BINARY, mode);
+    if (flags & O_CLOEXEC) {
+        flags |= _O_NOINHERIT;
+        flags &= ~O_CLOEXEC;
+    }
+    wide = win32_utf8_path_to_wide(pathname);
+    if (!wide)
+        return -1;
+    crt = crt_wopen(wide, flags | _O_BINARY, mode);
+    win32_free(wide);
     if (crt < 0)
         return -1;
     return RFDMap::getInstance().addCrtFD(crt);
 }
 
 int ftruncate(int fd, off_t length) {
-    int crt = RFDMap::getInstance().lookupCrtFD(fd);
+    int crt;
+    if (length < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    crt = RFDMap::getInstance().lookupCrtFD(fd);
     if (crt < 0) {
         errno = EBADF;
         return -1;
@@ -603,7 +649,12 @@ int fdapi_isatty(int fd) {
 }
 
 off_t fdapi_lseek(int fd, off_t offset, int whence) {
-    int crt = RFDMap::getInstance().lookupCrtFD(fd);
+    int crt;
+    if (whence == SEEK_SET && offset < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    crt = RFDMap::getInstance().lookupCrtFD(fd);
     if (crt < 0) {
         errno = EBADF;
         return -1;
@@ -627,33 +678,45 @@ int fdapi_fstat(int fd, struct stat *buf) {
 int fdapi_rename(const char *oldpath, const char *newpath) {
     int retries = 50;
     DWORD flags;
+    DWORD gle;
+    wchar_t *wide_src;
+    wchar_t *wide_dst;
     if (!oldpath || !newpath) {
         errno = EINVAL;
         return -1;
     }
-    /* POSIX rename replaces an existing dest. Win32 rename() does not.
-     * Antivirus or a briefly-open dest can return ERROR_ACCESS_DENIED;
-     * retry like the 5.0 port. */
-    flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED |
-            MOVEFILE_WRITE_THROUGH;
+    /* POSIX rename replaces an existing dest. Do not use COPY_ALLOWED:
+     * a cross-volume rename becomes copy+delete and can leave a partial
+     * RDB/AOF/manifest after a crash. */
+    flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
+    wide_src = win32_utf8_path_to_wide(oldpath);
+    if (!wide_src) return -1;
+    wide_dst = win32_utf8_path_to_wide(newpath);
+    if (!wide_dst) {
+        win32_free(wide_src);
+        return -1;
+    }
     while (retries--) {
-        if (MoveFileExA(oldpath, newpath, flags))
+        if (MoveFileExW(wide_src, wide_dst, flags)) {
+            win32_free(wide_src);
+            win32_free(wide_dst);
             return 0;
-        DWORD gle = GetLastError();
-        if (gle == ERROR_ACCESS_DENIED || gle == ERROR_SHARING_VIOLATION) {
+        }
+        gle = GetLastError();
+        if (gle == ERROR_ACCESS_DENIED || gle == ERROR_SHARING_VIOLATION ||
+            gle == ERROR_LOCK_VIOLATION) {
             if (retries)
                 Sleep(10);
             errno = EACCES;
             continue;
         }
-        if (gle == ERROR_FILE_NOT_FOUND)
-            errno = ENOENT;
-        else if (gle == ERROR_ALREADY_EXISTS)
-            errno = EEXIST;
-        else
-            errno = EIO;
+        errno = win32_errno_from_system_error((int)gle);
+        win32_free(wide_src);
+        win32_free(wide_dst);
         return -1;
     }
+    win32_free(wide_src);
+    win32_free(wide_dst);
     return -1;
 }
 

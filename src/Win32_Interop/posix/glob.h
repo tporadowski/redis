@@ -15,11 +15,13 @@ typedef struct {
     char **gl_pathv;
     size_t gl_offs;
 } glob_t;
-static inline int glob(const char *pattern, int flags,
-                       int (*errfunc)(const char *, int), glob_t *pglob) {
-    (void)pattern; (void)flags; (void)errfunc;
-    if (pglob) { pglob->gl_pathc = 0; pglob->gl_pathv = 0; }
-    return GLOB_NOMATCH;
+#ifdef __cplusplus
+extern "C" {
+#endif
+int glob(const char *pattern, int flags,
+         int (*errfunc)(const char *, int), glob_t *pglob);
+void globfree(glob_t *pglob);
+#ifdef __cplusplus
 }
-static inline void globfree(glob_t *pglob) { (void)pglob; }
+#endif
 #endif

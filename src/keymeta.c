@@ -46,6 +46,27 @@ typedef struct KeyMetaClass {
 } KeyMetaClass;
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
+#ifdef _WIN32
+/* QFork children are fresh processes. The database snapshot lives in the
+ * mapped Redis heap, but this registry is process-static and must be copied
+ * by value before RDB/AOF inspects metadata attached to those keys. */
+size_t keyMetaForkDataSize(void) {
+    return sizeof(keyMetaClass);
+}
+
+int keyMetaCopyForkData(void *data, size_t size) {
+    if (data == NULL || size != sizeof(keyMetaClass)) return C_ERR;
+    memcpy(data, keyMetaClass, sizeof(keyMetaClass));
+    return C_OK;
+}
+
+int keyMetaSetForkData(const void *data, size_t size) {
+    if (data == NULL || size != sizeof(keyMetaClass)) return C_ERR;
+    memcpy(keyMetaClass, data, sizeof(keyMetaClass));
+    return C_OK;
+}
+#endif
+
 /* Add metadata to keymeta spec, handling out-of-order metaid */
 static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
@@ -562,6 +583,11 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
     /* Check if there are any module metadata bits set */
     uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
     if (likely(mbits == 0)) return 0; /* No module metadata */
+#ifdef _WIN32
+    /* Module rdb_save callbacks live in DLLs that are not loaded in the
+     * QFork child. Expire is encoded on the key separately. */
+    if (server.in_fork_child) return 0;
+#endif
 
     /* Skip builtin expire slot if present */
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
@@ -656,6 +682,9 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
     /* Iterate module metadata and invoke per-class aof_rewrite if provided */
     uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
     if (likely(mbits == 0)) return 1;
+#ifdef _WIN32
+    if (server.in_fork_child) return 1;
+#endif
 
     int keyMetaId = KEY_META_ID_MODULE_FIRST;
     do {

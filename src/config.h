@@ -28,9 +28,11 @@
 
 /* Define redis_fstat to fstat or fstat64() */
 #ifdef _WIN32
-/* RFD, not CRT fd — see fdapi_fstat. */
+struct stat;
+int replace_stat(const char *path, struct stat *buffer);
+/* RFD, not CRT fd — see fdapi_fstat. Paths go through UTF-8 wide wrappers. */
 #define redis_fstat fdapi_fstat
-#define redis_stat stat
+#define redis_stat replace_stat
 #elif defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64

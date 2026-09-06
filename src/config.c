@@ -27,6 +27,7 @@
 #include <arpa/inet.h>
 #ifdef _WIN32
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 /*-----------------------------------------------------------------------------
@@ -291,6 +292,16 @@ struct standardConfig {
 };
 
 dict *configs = NULL; /* Runtime config values */
+
+#ifdef _WIN32
+dict *configGetQForkData(void) {
+    return configs;
+}
+
+void configSetQForkData(dict *data) {
+    configs = data;
+}
+#endif
 
 /* Lookup a config by the provided sds string name, or return NULL
  * if the config does not exist */
@@ -1129,7 +1140,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
     if (fp == NULL && errno != ENOENT) return NULL;
 
-    struct redis_stat sb;
+    struct stat sb;
     if (fp && redis_fstat(fileno(fp),&sb) == -1) {
         fclose(fp);
         return NULL;
@@ -2422,12 +2433,28 @@ static int isValidAOFfilename(char *val, const char **err) {
  * components. Keeping preload-file paths in this lexical form makes direct
  * path-string comparisons unambiguous. */
 static int isNormalizedAbsoluteFilePath(char *path) {
+    char *component;
+
+#ifdef _WIN32
+    /* Accept normalized drive-absolute paths in either native or slash form. */
+    if (!isalpha((unsigned char)path[0]) || path[1] != ':' ||
+        (path[2] != '/' && path[2] != '\\'))
+    {
+        return 0;
+    }
+    component = path + 3;
+#else
     if (path[0] != '/') return 0;
+    component = path + 1;
+#endif
 
     /* Skip the leading slash and validate each slash-delimited component. */
-    char *component = path + 1;
     while (1) {
+#ifdef _WIN32
+        char *separator = strpbrk(component, "/\\");
+#else
         char *separator = strchr(component, '/');
+#endif
         size_t len = separator ? (size_t)(separator - component) : strlen(component);
 
         /* An empty component means the path contains "//" or ends with "/".
@@ -2445,7 +2472,7 @@ static int isNormalizedAbsoluteFilePath(char *path) {
 }
 
 static int isValidPreloadFile(char *val, const char **err) {
-    if (val && strncmp(val, "aof:/", 5) && strncmp(val, "rdb:/", 5)) {
+    if (val && strncmp(val, "aof:", 4) && strncmp(val, "rdb:", 4)) {
         *err = "argument must be in the format '[aof|rdb]:[filename]'";
         return 0;
     }

@@ -177,6 +177,16 @@ enum asmChannel {
 /* Global ASM manager */
 struct asmManager *asmManager = NULL;
 
+#ifdef _WIN32
+void *asmGetQForkState(void) {
+    return asmManager;
+}
+
+void asmSetQForkState(void *state) {
+    asmManager = state;
+}
+#endif
+
 /* replication.c */
 char *sendCommand(connection *conn, ...);
 char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens);

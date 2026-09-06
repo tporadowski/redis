@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
+# Native win-8.10 CI. Official Redis make/runtest lives in ci.yml and is
+# gated to redis/redis only.
+name: Windows
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cmake-smokes:
+    if: github.repository != 'redis/redis'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install LLVM
+        run: choco install llvm -y --no-progress
+
+      - name: Build (clang-cl + Ninja + vcpkg OpenSSL)
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-win.ps1 -BuildDir build
+
+      - name: Version
+        run: |
+          .\build\redis-server.exe --version
+          .\build\redis-cli.exe --version
+
+      - name: In-process smokes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $failed = 0
+          foreach ($name in @(
+              "llp64_smoke",
+              "interop_smoke",
+              "fdapi_smoke",
+              "pthread_smoke",
+              "wsiocp_smoke"
+            )) {
+            $exe = Join-Path "build" "$name.exe"
+            if (-not (Test-Path $exe)) {
+              Write-Host "skip $name (not in this tree)"
+              continue
+            }
+            Write-Host "== $name =="
+            & $exe
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "$name failed: $LASTEXITCODE"
+              $failed++
+            }
+          }
+          if ($failed -ne 0) { throw "$failed in-process smoke(s) failed" }
+
+      - name: Server smokes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $failed = 0
+          foreach ($script in @(
+              "tests/windows/smoke_stacktrace.ps1",
+              "tests/windows/smoke_cluster_lock.ps1"
+            )) {
+            if (-not (Test-Path $script)) {
+              Write-Host "skip $script (not in this tree)"
+              continue
+            }
+            Write-Host "== $script =="
+            powershell -NoProfile -ExecutionPolicy Bypass -File $script -BuildDir build
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "$script failed: $LASTEXITCODE"
+              $failed++
+            }
+          }
+          if ($failed -ne 0) { throw "$failed server smoke(s) failed" }

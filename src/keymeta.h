@@ -117,6 +117,11 @@ typedef struct KeyMetaSpec {
 
 /* init Keys metadata on server startup */
 void keyMetaInit(void);
+#ifdef _WIN32
+size_t keyMetaForkDataSize(void);
+int keyMetaCopyForkData(void *data, size_t size);
+int keyMetaSetForkData(const void *data, size_t size);
+#endif
 
 /* Key metadata event callbacks */
 void keyMetaOnUnlink(struct redisDb *db, robj *key,kvobj *kv);

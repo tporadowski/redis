@@ -156,7 +156,8 @@ typedef struct dictType {
     void *(*prefetchEntryValue)(const dictEntry *de);
 } dictType;
 
-#define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
+/* uint64_t so Win64 LLP64 (32-bit long) can still form tables above 2^32. */
+#define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (uint64_t)1<<(exp))
 #define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
 struct dict {
@@ -211,6 +212,14 @@ typedef struct {
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
 #define DICT_HT_INITIAL_SIZE     (1<<(DICT_HT_INITIAL_EXP))
+
+/* Smallest power-of-two table exponent that can hold `size` entries.
+ * 64-bit so Win64 LLP64 can still express tables larger than 2^32. */
+static inline signed char dictNextExpForSize(uint64_t size) {
+    if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_EXP;
+    if (size >= (((uint64_t)1) << 63)) return 63;
+    return (signed char)(64 - __builtin_clzll(size - 1));
+}
 
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) do {                     \

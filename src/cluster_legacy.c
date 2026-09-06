@@ -39,6 +39,12 @@
  * that represents this node. */
 clusterNode *myself = NULL;
 
+#ifdef _WIN32
+void clusterSetQForkState(void) {
+    myself = server.cluster ? server.cluster->myself : NULL;
+}
+#endif
+
 clusterNode *createClusterNode(char *nodename, int flags);
 void clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -729,31 +735,20 @@ int clusterSaveConfig(int do_fsync) {
     }
 
 #ifdef _WIN32
-    /* NTFS cannot rename over dest, and clusterLockConfig holds dest open. */
-    if (fd != -1) {
-        close(fd);
+    /* MoveFileEx cannot replace a source that is still open. Close the temp
+     * file first; the companion nodes.conf.lock still excludes another
+     * process using this cluster-config-file path. */
+    if (close(fd) == -1) {
         fd = -1;
+        serverLog(LL_WARNING,"Could not close tmp cluster config file: %s",strerror(errno));
+        goto cleanup;
     }
-    if (server.cluster_config_file_lock_fd != -1) {
-        close(server.cluster_config_file_lock_fd);
-        server.cluster_config_file_lock_fd = -1;
-    }
-    unlink(server.cluster_configfile);
+    fd = -1;
 #endif
     if (rename(tmpfilename, server.cluster_configfile) == -1) {
         serverLog(LL_WARNING,"Could not rename tmp cluster config file: %s",strerror(errno));
-#ifdef _WIN32
-        clusterLockConfig(server.cluster_configfile);
-#endif
         goto cleanup;
     }
-#ifdef _WIN32
-    if (clusterLockConfig(server.cluster_configfile) == C_ERR) {
-        serverLog(LL_WARNING,"Could not re-lock cluster config file: %s",
-            strerror(errno));
-        goto cleanup;
-    }
-#endif
 
     if (do_fsync) {
         if (fsyncFileDir(server.cluster_configfile) == -1) {
@@ -781,9 +776,9 @@ void clusterSaveConfigOrDie(int do_fsync) {
 /* Lock the cluster config using flock(), and retain the file descriptor used to
  * acquire the lock so that the file will be locked as long as the process is up.
  *
- * This works because we always update nodes.conf with a new version
- * in-place, reopening the file, and writing to it in place (later adjusting
- * the length with ftruncate()).
+ * POSIX keeps the lock on nodes.conf itself (updated in place). Windows
+ * replaces nodes.conf atomically, so the lock lives on a stable companion
+ * nodes.conf.lock and is not dropped across saves.
  *
  * On success C_OK is returned, otherwise an error is logged and
  * the function returns C_ERR to signal a lock was not acquired. */
@@ -793,14 +788,23 @@ int clusterLockConfig(char *filename) {
  * which will release _all_ locks anyway
  */
 #if !defined(__sun)
+#ifdef _WIN32
+    sds lockfilename = sdscatfmt(sdsempty(), "%s.lock", filename);
+    const char *lock_target = lockfilename;
+#else
+    const char *lock_target = filename;
+#endif
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
-    int fd = open(filename,O_WRONLY|O_CREAT|O_CLOEXEC,0644);
+    int fd = open(lock_target,O_WRONLY|O_CREAT|O_CLOEXEC,0644);
     if (fd == -1) {
         serverLog(LL_WARNING,
             "Can't open %s in order to acquire a lock: %s",
-            filename, strerror(errno));
+            lock_target, strerror(errno));
+#ifdef _WIN32
+        sdsfree(lockfilename);
+#endif
         return C_ERR;
     }
 
@@ -816,6 +820,9 @@ int clusterLockConfig(char *filename) {
                 "Impossible to lock %s: %s", filename, strerror(errno));
         }
         close(fd);
+#ifdef _WIN32
+        sdsfree(lockfilename);
+#endif
         return C_ERR;
     }
     /* Lock acquired: leak the 'fd' by not closing it until shutdown time, so that
@@ -828,6 +835,9 @@ int clusterLockConfig(char *filename) {
      * (redis-aof-rewrite) is still alive, the fd(lock) will still be held by the
      * child process, and the main process will fail to get lock, means fail to start. */
     server.cluster_config_file_lock_fd = fd;
+#ifdef _WIN32
+    sdsfree(lockfilename);
+#endif
 #else
     UNUSED(filename);
 #endif /* __sun */

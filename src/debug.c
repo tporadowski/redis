@@ -41,6 +41,10 @@ typedef ucontext_t sigcontext_t;
 #endif
 #endif /* HAVE_BACKTRACE */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_StackTrace.h"
+#endif
+
 #ifdef __CYGWIN__
 #ifndef SA_ONSTACK
 #define SA_ONSTACK 0x08000000
@@ -1270,6 +1274,8 @@ void _serverAssert(const char *estr, const char *file, int line) {
     if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
         logStackTrace(NULL, 1, 0);
+#elif defined(_WIN32)
+        win32_log_stack_trace(NULL);
 #endif
         /* If this was a recursive assertion, it what most likely generated
          * from printCrashReport. */
@@ -1391,6 +1397,8 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
         logStackTrace(NULL, 1, 0);
+#elif defined(_WIN32)
+        win32_log_stack_trace(NULL);
 #endif
         /* If this was a recursive panic, it what most likely generated
          * from printCrashReport. */
@@ -2118,7 +2126,7 @@ static void setupStacktracePipe(void) {
         serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
     }
 }
-#else
+#elif !defined(_WIN32)
 static void setupStacktracePipe(void) {/* we don't need a pipe to write the stacktraces */}
 #endif
 #ifdef HAVE_BACKTRACE
@@ -2545,6 +2553,7 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
+#ifndef _WIN32
 void invalidFunctionWasCalled(void) {}
 
 typedef void (*invalidFunctionWasCalledType)(void);
@@ -2615,7 +2624,36 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     bugReportEnd(1, sig);
 }
+#endif /* !_WIN32 */
 
+#ifdef _WIN32
+static void initBugReportLocks(void) {
+    if (signal_handler_lock_initialized) return;
+    pthread_mutexattr_init(&signal_handler_lock_attr);
+    pthread_mutexattr_settype(&signal_handler_lock_attr, PTHREAD_MUTEX_ERRORCHECK);
+    pthread_mutex_init(&signal_handler_lock, &signal_handler_lock_attr);
+    pthread_mutexattr_init(&bug_report_start_attr);
+    pthread_mutexattr_settype(&bug_report_start_attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&bug_report_start_mutex, &bug_report_start_attr);
+    signal_handler_lock_initialized = 1;
+}
+
+void setupDebugSigHandlers(void) {
+    setupSigSegvHandler();
+}
+
+void setupSigSegvHandler(void) {
+    initBugReportLocks();
+    if (server.crashlog_enabled)
+        StackTraceInit();
+    else
+        StackTraceShutdown();
+}
+
+void removeSigSegvHandlers(void) {
+    StackTraceShutdown();
+}
+#else
 void setupDebugSigHandlers(void) {
     setupStacktracePipe();
 
@@ -2675,6 +2713,7 @@ void removeSigSegvHandlers(void) {
     sigaction(SIGILL, &act, NULL);
     sigaction(SIGABRT, &act, NULL);
 }
+#endif
 
 void printCrashReport(void) {
     atomicSet(server.crashing, 1);
@@ -2703,7 +2742,7 @@ void bugReportEnd(int killViaSignal, int sig) {
     serverLogRawFromHandler(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
-"           http://github.com/redis/redis/issues\n\n"
+"           https://github.com/tporadowski/redis/issues\n\n"
 "  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
 "  Some other issues could be detected by redis-server --check-system\n"

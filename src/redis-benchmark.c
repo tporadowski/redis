@@ -39,6 +39,9 @@
 #include "hdr_histogram.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Error.h"
+#endif
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -1709,6 +1712,13 @@ int test_is_selected(const char *name) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    if (win32_get_utf8_argv(&argc, &argv) != 0) {
+        fprintf(stderr, "Unable to decode the Windows command line as UTF-8: %s\n",
+                strerror(errno));
+        return 1;
+    }
+#endif
     int i;
     char *data, *cmd, *tag;
     int len;

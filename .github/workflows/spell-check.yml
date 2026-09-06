@@ -16,6 +16,7 @@ concurrency:
 jobs:
   build:
     name: Spellcheck
+    if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
 
     steps:

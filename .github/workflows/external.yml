@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test-external-standalone:
     runs-on: ubuntu-latest
-    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis'
     timeout-minutes: 360
     steps:
     - uses: actions/checkout@v6
@@ -38,7 +38,7 @@ jobs:
 
   test-external-cluster:
     runs-on: ubuntu-latest
-    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis'
     timeout-minutes: 360
     steps:
     - uses: actions/checkout@v6
@@ -66,7 +66,7 @@ jobs:
 
   test-external-nodebug:
     runs-on: ubuntu-latest
-    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis'
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v6

@@ -11,6 +11,7 @@
 #include "Win32_ProcessTable.h"
 #include "Win32_Service.h"
 #include "Win32_EventLog.h"
+#include "Win32_Error.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -243,8 +244,15 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     crc64_init();
     void *redisData = (char *)hdr + sizeof(QForkPayloadHeader);
     void *sharedData = (char *)redisData + hdr->redisDataSize;
-    SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed,
-                      (int)hdr->purpose, sharedData, hdr->sharedDataSize);
+    if (SetupRedisGlobals(redisData, hdr->redisDataSize, hdr->dictHashSeed,
+                          (int)hdr->purpose, sharedData, hdr->sharedDataSize,
+                          &hdr->roots) != 0) {
+        fprintf(stderr, "QForkChildMain: SetupRedisGlobals failed\n");
+        UnmapViewOfFile(hdr);
+        CloseHandle(local_payload);
+        CloseHandle(parent);
+        return 1;
+    }
 
     int rc = 1;
     if (hdr->purpose == CHILD_TYPE_RDB) {
@@ -302,6 +310,15 @@ int main(int argc, char **argv) {
     InitTimeFunctions();
     InitThreadControl();
     FDAPI_Init();
+
+    {
+        char **utf8_argv = NULL;
+        int utf8_argc = 0;
+        if (win32_get_utf8_argv(&utf8_argc, &utf8_argv) == 0) {
+            argc = utf8_argc;
+            argv = utf8_argv;
+        }
+    }
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--QForkExit") == 0 && i + 1 < argc)

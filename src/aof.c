@@ -14,6 +14,7 @@
 #include "cluster_asm.h"
 #ifdef _WIN32
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 #include <signal.h>
@@ -797,18 +798,27 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 }
 
+/* Compare path or file-name spellings using the platform's lexical rules. */
+static int aofPathsEqual(const char *first, const char *second) {
+#ifdef _WIN32
+    return win32_utf8_paths_equal(first, second);
+#else
+    return strcmp(first, second) == 0;
+#endif
+}
+
 /* Return true when preload-file is the absolute path of the manifest currently
  * used by the configured append-only directory. */
 static int preloadFileIsCurrentAofManifest(void) {
     if (server.preload_file == NULL ||
-        strncmp(server.preload_file, "aof:/", 5) != 0)
+        strncmp(server.preload_file, "aof:", 4) != 0)
     {
         return 0;
     }
 
     char *preload_path = server.preload_file + 4;
     char *extension = getFileExtension(preload_path);
-    if (extension == NULL || strcmp(extension, "manifest") != 0) {
+    if (extension == NULL || !aofPathsEqual(extension, "manifest")) {
         return 0;
     }
 
@@ -816,7 +826,7 @@ static int preloadFileIsCurrentAofManifest(void) {
     sds current_path = makePath(server.aof_dirname, manifest_name);
     sds current_absolute_path = getAbsolutePath(current_path);
     int is_current = current_absolute_path != NULL &&
-                     strcmp(preload_path, current_absolute_path) == 0;
+                     aofPathsEqual(preload_path, current_absolute_path);
 
     sdsfree(current_absolute_path);
     sdsfree(current_path);
@@ -1818,7 +1828,7 @@ static int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
  * AOF_FAILED: Failed to load the AOF file. */
 int loadSingleAppendOnlyFile(char *filename) {
     struct client *fakeClient;
-    struct redis_stat sb;
+    struct stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
@@ -3317,7 +3327,7 @@ void aofRemoveTempFile(pid_t childpid) {
  * The status argument is an optional output argument to be filled with
  * one of the AOF_ status values. */
 off_t getAppendOnlyFileSize(sds filename, int *status) {
-    struct redis_stat sb;
+    struct stat sb;
     off_t size;
     mstime_t latency;
 

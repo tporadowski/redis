@@ -3875,6 +3875,12 @@ void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 void populateCommandTable(void);
+#ifdef _WIN32
+dict *configGetQForkData(void);
+void configSetQForkData(dict *data);
+void clusterSetQForkState(void);
+void rehydrateCommandTableForQFork(void);
+#endif
 void resetCommandTableStats(dict* commands);
 void resetErrorTableStats(void);
 void adjustOpenFilesLimit(void);
@@ -4100,6 +4106,9 @@ int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 
 /* Hash Templates functions */
 void hashTemplatesInit(void);
+#ifdef _WIN32
+int hashTemplatesSetQForkState(void);
+#endif
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);

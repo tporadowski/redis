@@ -4,10 +4,6 @@
 #   server.arch_bits = sizeof(long)
 # or PORT_LONG typedefs.
 
-# dict uses unsigned long for table size (32-bit cap on Windows).
-src/dict.c|if (size >= LONG_MAX) return (8*sizeof(long)-1);
-src/dict.c|return 8*sizeof(long) - __builtin_clzl(size-1);
-
 # BITOP length array; long is the element type, not pointer width.
 src/bitops.c|len = zmalloc(sizeof(long) * numkeys);
 
@@ -23,3 +19,4 @@ src/memtest.c|#define MEMTEST_BACKUP_WORDS (1024*(1024/sizeof(long)))
 # Comment only: do not invent PORT_LONG.
 src/Win32_Interop/win32_types_hiredis.h|Do not invent PORT_LONG
 src/Win32_Interop/win32_types_hiredis.h|Fix the few sizeof(long)
+src/db.c|accepts up to 2^63-1 (arch_bits is pointer width, not sizeof(long)). */

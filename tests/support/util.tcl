@@ -739,6 +739,17 @@ proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {ra
     r $idx deferred 0
 }
 
+proc get_qfork_child_pid {idx} {
+    if {$::tcl_platform(platform) eq "windows"} {
+        set child [win32_child_pid [srv $idx pid]]
+        if {![string is integer -strict $child] || $child <= 0} {
+            error "Invalid QFork child PID: $child"
+        }
+        return $child
+    }
+    return [get_child_pid $idx]
+}
+
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
     if {$::tcl_platform(platform) eq "windows"} {
@@ -791,6 +802,26 @@ proc get_proc_job {pid} {
     }
 }
 
+if {$::tcl_platform(platform) eq "windows"} {
+    proc windows_control_process {action pid} {
+        set executable [file nativename [file normalize $::redis_server_path]]
+        switch -- $action {
+            FindQForkChild { set command --find-qfork-child }
+            Suspend { set command --suspend }
+            Resume { set command --resume }
+            default { error "Unsupported Windows process control action: $action" }
+        }
+        exec $::redis_test_launcher_path $command $pid $executable
+    }
+
+    proc pause_process pid {
+        windows_control_process Suspend $pid
+    }
+
+    proc resume_process pid {
+        windows_control_process Resume $pid
+    }
+} else {
 proc pause_process {pid} {
     exec kill -SIGSTOP $pid
     wait_for_condition 50 100 {
@@ -829,6 +860,7 @@ proc resume_process {pid} {
         puts [exec ps j $pid]
         fail "process was not resumed"
     }
+}
 }
 
 proc cmdrstat {cmd r} {
