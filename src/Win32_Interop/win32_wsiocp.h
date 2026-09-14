@@ -38,7 +38,8 @@ extern "C" {
 #define CONNECT_PENDING 0x002000
 #define CLOSE_PENDING   0x004000
 #define UNIX_LISTEN     0x008000 /* AF_UNIX listen: accept(), not AcceptEx */
-#define WRITE_REARM_NEEDED 0x010000
+#define WRITE_REARM_NEEDED  0x010000
+#define ACCEPT_REARM_NEEDED 0x020000
 
 typedef struct WSIOCP_Request {
     void *client;
@@ -58,6 +59,13 @@ typedef struct aeApiState {
     int *fwd_masks;
     int fwd_n;
     int fwd_cap;
+    /* Deferred one-shot rearm. Per-loop so io-threads do not share a
+     * process-global retry list or a tight AcceptEx spin. */
+    unsigned long long next_accept_rearm_ms;
+    unsigned long long next_write_rearm_ms;
+    int accept_rearm_pending;
+    int write_rearm_pending;
+    int write_rearm_cursor;
 } aeApiState;
 
 void *WSIOCP_CreateIocp(void);
@@ -91,6 +99,8 @@ int WSIOCP_RearmRead(int rfd);
 int WSIOCP_QueueAccept(int listenfd);
 /* Post the next AcceptEx only if none is already in flight. */
 int WSIOCP_EnsureAcceptQueued(int listenfd);
+/* 1 if fired[] still names this loop's live socket state. */
+int WSIOCP_FiredEventValid(aeEventLoop *el, int fd, void *backend_data);
 int WSIOCP_Listen(int rfd, int backlog);
 int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
 int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop,

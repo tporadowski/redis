@@ -73,6 +73,7 @@ typedef struct aeTimeEvent {
 typedef struct aeFiredEvent {
     int fd;
     int mask;
+    void *backend_data; /* IOCP socket state; unused on POSIX backends */
 } aeFiredEvent;
 
 /* State of an event based program */

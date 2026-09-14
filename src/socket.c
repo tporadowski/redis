@@ -11,6 +11,7 @@
 #include "connhelpers.h"
 #ifdef _WIN32
 #include "Win32_Interop/win32_wsiocp.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 
 /* The connections module provides a lean abstraction of network connections
@@ -292,8 +293,32 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
 }
 
 static const char *connSocketGetLastError(connection *conn) {
+#ifdef _WIN32
+    return wsa_strerror(conn->last_errno);
+#else
     return strerror(conn->last_errno);
+#endif
 }
+
+#ifdef _WIN32
+/* A one-shot IOCP rearm failure must not leave a live connection registered
+ * with no future completion. Mark the connection failed and run its current
+ * handler once so the owner follows the normal cleanup path. */
+static int connSocketRearmFailed(connection *conn,
+                                 ConnectionCallbackFunc handler,
+                                 const char *operation)
+{
+    int error = errno;
+    conn->last_errno = error;
+    conn->state = CONN_STATE_ERROR;
+    if (conn->el && conn->fd >= 0)
+        aeDeleteFileEvent(conn->el, conn->fd, AE_READABLE | AE_WRITABLE);
+    serverLog(LL_WARNING, "IOCP %s rearm failed for fd=%d: %s",
+              operation, conn->fd, wsa_strerror(error));
+    if (handler != NULL) return callHandler(conn, handler);
+    return 1;
+}
+#endif
 
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
@@ -304,7 +329,12 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
+#ifdef _WIN32
+        int deferred = WSIOCP_TakeConnectError(conn->fd);
+        int conn_error = deferred ? deferred : anetGetError(conn->fd);
+#else
         int conn_error = anetGetError(conn->fd);
+#endif
         if (conn_error) {
             conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
@@ -337,15 +367,44 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     /* Handle normal I/O flows */
     if (!invert && call_read) {
         if (!callHandler(conn, conn->read_handler)) return;
+#ifdef _WIN32
+        /* IOCP read readiness is one-shot. Re-arm only after the handler has
+         * returned and only if the connection is still live and subscribed. */
+        if (conn->fd != -1 && conn->read_handler &&
+            conn->state != CONN_STATE_CLOSED && conn->state != CONN_STATE_ERROR) {
+            if (WSIOCP_QueueNextRead(conn->fd) != 0) {
+                if (!connSocketRearmFailed(conn, conn->read_handler, "read"))
+                    return;
+            }
+        }
+#endif
     }
     /* Fire the writable event. */
     if (call_write) {
         if (!callHandler(conn, conn->write_handler)) return;
+#ifdef _WIN32
+        if (conn->fd != -1 && conn->write_handler &&
+            conn->state != CONN_STATE_CLOSED && conn->state != CONN_STATE_ERROR) {
+            if (WSIOCP_QueueWriteReady(conn->fd) != 0) {
+                if (!connSocketRearmFailed(conn, conn->write_handler, "write"))
+                    return;
+            }
+        }
+#endif
     }
     /* If we have to invert the call, fire the readable event now
      * after the writable one. */
     if (invert && call_read) {
         if (!callHandler(conn, conn->read_handler)) return;
+#ifdef _WIN32
+        if (conn->fd != -1 && conn->read_handler &&
+            conn->state != CONN_STATE_CLOSED && conn->state != CONN_STATE_ERROR) {
+            if (WSIOCP_QueueNextRead(conn->fd) != 0) {
+                if (!connSocketRearmFailed(conn, conn->read_handler, "read"))
+                    return;
+            }
+        }
+#endif
     }
 }
 

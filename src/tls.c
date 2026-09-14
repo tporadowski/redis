@@ -33,6 +33,7 @@
 #ifdef _WIN32
 #include "Win32_Interop/win32_wsiocp.h"
 #include "Win32_Interop/Win32_FDAPI.h"
+#include "Win32_Interop/Win32_Error.h"
 
 /* OpenSSL on Windows treats SSL_set_fd's int as a SOCKET, not an RFD.
  * Cancel any zero-byte WSARecv first so OpenSSL never shares the socket
@@ -676,6 +677,56 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
+#ifdef _WIN32
+static int tlsRearmFailed(tls_connection *conn,
+                          ConnectionCallbackFunc handler,
+                          const char *operation)
+{
+    int error = errno;
+    conn->c.last_errno = error;
+    conn->c.state = CONN_STATE_ERROR;
+    if (conn->c.el && conn->c.fd >= 0)
+        aeDeleteFileEvent(conn->c.el, conn->c.fd, AE_READABLE | AE_WRITABLE);
+    serverLog(LL_WARNING, "IOCP TLS %s rearm failed for fd=%d: %s",
+              operation, conn->c.fd, wsa_strerror(error));
+    if (handler != NULL) return callHandler((connection *)conn, handler);
+    return 1;
+}
+
+/* IOCP readiness is one-shot. Re-arm every direction that remains registered
+ * after OpenSSL updates WANT_READ/WANT_WRITE, even when the AE mask did not
+ * change. Use the connection's loop, not server.el (io-threads). */
+static int tlsRearmEvents(tls_connection *conn) {
+    int mask;
+    ConnectionCallbackFunc handler;
+
+    if (conn->c.fd == -1 || !conn->c.el ||
+        conn->c.state == CONN_STATE_CLOSED ||
+        conn->c.state == CONN_STATE_ERROR) return 1;
+
+    mask = aeGetFileEvents(conn->c.el, conn->c.fd);
+    if (mask & AE_READABLE) {
+        if (WSIOCP_QueueNextRead(conn->c.fd) != 0) {
+            handler = conn->c.conn_handler ? conn->c.conn_handler :
+                      (conn->c.read_handler ? conn->c.read_handler :
+                       conn->c.write_handler);
+            tlsRearmFailed(conn, handler, "read");
+            return 0;
+        }
+    }
+    if (mask & AE_WRITABLE) {
+        if (WSIOCP_QueueWriteReady(conn->c.fd) != 0) {
+            handler = conn->c.conn_handler ? conn->c.conn_handler :
+                      (conn->c.write_handler ? conn->c.write_handler :
+                       conn->c.read_handler);
+            tlsRearmFailed(conn, handler, "write");
+            return 0;
+        }
+    }
+    return 1;
+}
+#endif
+
 static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
     if (!cert || !field || !out) return 0;
 
@@ -753,6 +804,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                     WantIOType want = 0;
                     if (!handleSSLReturnCode(conn, ret, &want)) {
                         registerSSLEvent(conn, want);
+#ifdef _WIN32
+                        tlsRearmEvents(conn);
+#endif
 
                         /* Avoid hitting UpdateSSLEvent, which knows nothing
                          * of what SSL_connect() wants and instead looks at our
@@ -784,6 +838,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                      * R/W handlers.
                      */
                     registerSSLEvent(conn, want);
+#ifdef _WIN32
+                    tlsRearmEvents(conn);
+#endif
                     return;
                 }
 
@@ -852,7 +909,12 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
     }
 
     /* The event loop may have been unbound during the event processing above. */
-    if (conn->c.el) updateSSLEvent(conn);
+    if (conn->c.el) {
+        updateSSLEvent(conn);
+#ifdef _WIN32
+        tlsRearmEvents(conn);
+#endif
+    }
 }
 
 static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {

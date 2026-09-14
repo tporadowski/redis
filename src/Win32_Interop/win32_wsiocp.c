@@ -44,6 +44,9 @@
 
 #define MAX_COMPLETE_PER_POLL 100
 #define ACCEPTEX_ADDR_BUF (sizeof(struct sockaddr_storage) + 32)
+#define WRITE_REARM_BATCH 64
+#define ACCEPT_REARM_MS 100
+#define WRITE_REARM_MS 10
 #define SUCCEEDED_WITH_IOCP(ok) ((ok) || (GetLastError() == ERROR_IO_PENDING))
 #define WSIOCP_WAKE_KEY ((ULONG_PTR)(INT_PTR)-2)
 
@@ -75,6 +78,8 @@ typedef struct iocpSockState {
     asendreq *wreqlist;
     int unknownComplete;
     int connect_err;
+    int accept_rearm_logged;
+    int write_rearm_logged;
 } iocpSockState;
 
 static char zreadchar[1];
@@ -82,26 +87,49 @@ static int close_hook_set;
 #define UNIX_LISTEN_MAX 16
 static int unix_listen_rfds[UNIX_LISTEN_MAX];
 static int unix_listen_n;
-#define WRITE_REARM_MAX 256
-static int write_rearm_fds[WRITE_REARM_MAX];
-static int write_rearm_n;
 
-static void write_rearm_add(int fd) {
-    int i;
-    for (i = 0; i < write_rearm_n; i++)
-        if (write_rearm_fds[i] == fd) return;
-    if (write_rearm_n < WRITE_REARM_MAX)
-        write_rearm_fds[write_rearm_n++] = fd;
+static aeApiState *loop_state_for(iocpSockState *ss) {
+    if (ss && ss->dest_el && ss->dest_el->apidata)
+        return (aeApiState *)ss->dest_el->apidata;
+    return NULL;
 }
 
-static void write_rearm_del(int fd) {
-    int i;
-    for (i = 0; i < write_rearm_n; i++) {
-        if (write_rearm_fds[i] == fd) {
-            write_rearm_fds[i] = write_rearm_fds[--write_rearm_n];
-            return;
-        }
-    }
+static void mark_accept_rearm(iocpSockState *ss) {
+    aeApiState *st;
+    if (!ss || (ss->masks & ACCEPT_REARM_NEEDED)) return;
+    ss->masks |= ACCEPT_REARM_NEEDED;
+    ss->accept_rearm_logged = 0;
+    st = loop_state_for(ss);
+    if (st) st->accept_rearm_pending++;
+}
+
+static void clear_accept_rearm(iocpSockState *ss) {
+    aeApiState *st;
+    if (!ss || (ss->masks & ACCEPT_REARM_NEEDED) == 0) return;
+    ss->masks &= ~ACCEPT_REARM_NEEDED;
+    ss->accept_rearm_logged = 0;
+    st = loop_state_for(ss);
+    if (st && st->accept_rearm_pending > 0)
+        st->accept_rearm_pending--;
+}
+
+static void mark_write_rearm(iocpSockState *ss) {
+    aeApiState *st;
+    if (!ss || (ss->masks & WRITE_REARM_NEEDED)) return;
+    ss->masks |= WRITE_REARM_NEEDED;
+    ss->write_rearm_logged = 0;
+    st = loop_state_for(ss);
+    if (st) st->write_rearm_pending++;
+}
+
+static void clear_write_rearm(iocpSockState *ss) {
+    aeApiState *st;
+    if (!ss || (ss->masks & WRITE_REARM_NEEDED) == 0) return;
+    ss->masks &= ~WRITE_REARM_NEEDED;
+    ss->write_rearm_logged = 0;
+    st = loop_state_for(ss);
+    if (st && st->write_rearm_pending > 0)
+        st->write_rearm_pending--;
 }
 
 static void unix_listen_add(int rfd) {
@@ -180,7 +208,10 @@ static int WSIOCP_CloseSocketState(iocpSockState *ss) {
 int WSIOCP_CloseSocketStateRFD(int rfd) {
     iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
     unix_listen_del(rfd);
-    write_rearm_del(rfd);
+    if (ss) {
+        clear_accept_rearm(ss);
+        clear_write_rearm(ss);
+    }
     if (ss && ss->accept_pending && ss->accept_pending->accept >= 0) {
         int afd = ss->accept_pending->accept;
         ss->accept_pending->accept = -1;
@@ -309,6 +340,11 @@ int WSIOCP_InitLoopExtras(aeEventLoop *el) {
     st->fwd_cs = NULL;
     st->fwd_fds = st->fwd_masks = NULL;
     st->fwd_n = st->fwd_cap = 0;
+    st->next_accept_rearm_ms = 0;
+    st->next_write_rearm_ms = 0;
+    st->accept_rearm_pending = 0;
+    st->write_rearm_pending = 0;
+    st->write_rearm_cursor = 0;
     if (pipe(fds) != 0) return -1;
     fcntl(fds[0], F_SETFL, O_NONBLOCK);
     fcntl(fds[1], F_SETFL, O_NONBLOCK);
@@ -361,6 +397,7 @@ static int fire_or_forward(aeEventLoop *el, iocpSockState *ss, int rfd,
     }
     el->fired[numevents].fd = rfd;
     el->fired[numevents].mask = mask;
+    el->fired[numevents].backend_data = ss;
     return numevents + 1;
 }
 
@@ -432,34 +469,29 @@ int WSIOCP_QueueWriteReady(int fd) {
         (ss->masks & AE_WRITABLE) == 0 ||
         (ss->masks & (CONNECT_PENDING | CLOSE_PENDING)) != 0 ||
         ss->wreqs != 0) {
-        ss->masks &= ~WRITE_REARM_NEEDED;
-        write_rearm_del(fd);
+        clear_write_rearm(ss);
         return 0;
     }
     iocp = ss->iocp;
     if (!iocp) {
-        ss->masks &= ~WRITE_REARM_NEEDED;
-        write_rearm_del(fd);
+        clear_write_rearm(ss);
         errno = EINVAL;
         return -1;
     }
 
     writable = FDAPI_IsSocketWritable(fd);
     if (writable < 0) {
-        ss->masks &= ~WRITE_REARM_NEEDED;
-        write_rearm_del(fd);
+        clear_write_rearm(ss);
         return -1;
     }
     if (!writable) {
-        ss->masks |= WRITE_REARM_NEEDED;
-        write_rearm_add(fd);
+        mark_write_rearm(ss);
         return 0;
     }
 
     areq = (asendreq *)walloc(sizeof(*areq));
     if (!areq) {
-        ss->masks &= ~WRITE_REARM_NEEDED;
-        write_rearm_del(fd);
+        clear_write_rearm(ss);
         errno = ENOMEM;
         return -1;
     }
@@ -467,15 +499,13 @@ int WSIOCP_QueueWriteReady(int fd) {
                                     (ULONG_PTR)(intptr_t)fd, &areq->ov)) {
         errno = GetLastError();
         wfree(areq);
-        ss->masks &= ~WRITE_REARM_NEEDED;
-        write_rearm_del(fd);
+        clear_write_rearm(ss);
         return -1;
     }
     ss->wreqs++;
     areq->next = ss->wreqlist;
     ss->wreqlist = areq;
-    ss->masks &= ~WRITE_REARM_NEEDED;
-    write_rearm_del(fd);
+    clear_write_rearm(ss);
     return 0;
 }
 
@@ -592,6 +622,7 @@ int WSIOCP_QueueAccept(int listenfd) {
                         &bytes, &areq->ov);
     if (SUCCEEDED_WITH_IOCP(rc)) {
         lss->masks |= ACCEPT_PENDING;
+        clear_accept_rearm(lss);
         return 0;
     }
     errno = FDAPI_WSAGetLastError();
@@ -612,8 +643,13 @@ int WSIOCP_EnsureAcceptQueued(int listenfd) {
         return -1;
     }
     if (ss->masks & (CLOSE_PENDING | UNIX_LISTEN)) return 0;
-    if (ss->accept_pending != NULL) return 0;
-    return WSIOCP_QueueAccept(listenfd);
+    if (ss->accept_pending != NULL) {
+        clear_accept_rearm(ss);
+        return 0;
+    }
+    if (WSIOCP_QueueAccept(listenfd) == 0) return 0;
+    mark_accept_rearm(ss);
+    return -1;
 }
 
 int WSIOCP_Listen(int rfd, int backlog) {
@@ -826,9 +862,95 @@ void WSIOCP_DelEvent(aeEventLoop *el, int fd, int mask) {
     if (!ss) return;
     if (mask & AE_READABLE) ss->masks &= ~AE_READABLE;
     if (mask & AE_WRITABLE) {
-        ss->masks &= ~(AE_WRITABLE | WRITE_REARM_NEEDED);
-        write_rearm_del(fd);
+        ss->masks &= ~AE_WRITABLE;
+        clear_write_rearm(ss);
     }
+}
+
+static void retry_accepts(aeEventLoop *el) {
+    aeApiState *state = (aeApiState *)el->apidata;
+    ULONGLONG now;
+    int fd;
+
+    if (state->accept_rearm_pending <= 0) {
+        state->next_accept_rearm_ms = 0;
+        return;
+    }
+    now = GetTickCount64();
+    if (state->next_accept_rearm_ms != 0 && now < state->next_accept_rearm_ms)
+        return;
+    state->next_accept_rearm_ms = now + ACCEPT_REARM_MS;
+
+    for (fd = 0; fd <= el->maxfd; fd++) {
+        iocpSockState *ss = WSIOCP_GetExistingSocketState(fd);
+        if (!ss || ss->iocp != state->iocp) continue;
+        if ((ss->masks & ACCEPT_REARM_NEEDED) == 0) continue;
+        if (ss->masks & CLOSE_PENDING) continue;
+        if (WSIOCP_QueueAccept(fd) != 0)
+            ss->accept_rearm_logged = 1;
+    }
+}
+
+/* Batch blocked writers into one poll() instead of probing every fd each
+ * tick. The cursor keeps a large set of slow clients fair. */
+static void retry_writes(aeEventLoop *el) {
+    aeApiState *state = (aeApiState *)el->apidata;
+    ULONGLONG now;
+    struct redis_pollfd candidates[WRITE_REARM_BATCH];
+    iocpSockState *candidate_states[WRITE_REARM_BATCH];
+    int candidate_count = 0;
+    int fd_count, offset, last_fd, poll_result, i;
+
+    if (state->write_rearm_pending <= 0) {
+        state->next_write_rearm_ms = 0;
+        return;
+    }
+    now = GetTickCount64();
+    if (state->next_write_rearm_ms != 0 && now < state->next_write_rearm_ms)
+        return;
+    state->next_write_rearm_ms = now + WRITE_REARM_MS;
+
+    fd_count = el->maxfd + 1;
+    if (fd_count <= 0) return;
+    last_fd = state->write_rearm_cursor % fd_count;
+
+    for (offset = 0;
+         offset < fd_count && candidate_count < WRITE_REARM_BATCH;
+         offset++) {
+        int fd = (state->write_rearm_cursor + offset) % fd_count;
+        iocpSockState *ss = WSIOCP_GetExistingSocketState(fd);
+        if (!ss || ss->iocp != state->iocp) continue;
+        if ((ss->masks & WRITE_REARM_NEEDED) == 0) continue;
+        if (ss->masks & CLOSE_PENDING) continue;
+        candidates[candidate_count].fd = fd;
+        candidates[candidate_count].events = POLLOUT;
+        candidates[candidate_count].revents = 0;
+        candidate_states[candidate_count] = ss;
+        candidate_count++;
+        last_fd = fd;
+    }
+    if (candidate_count == 0) return;
+    state->write_rearm_cursor = (last_fd + 1) % fd_count;
+
+    poll_result = fdapi_poll(candidates, candidate_count, 0);
+    for (i = 0; i < candidate_count; i++) {
+        if (poll_result >= 0 && candidates[i].revents == 0) continue;
+        if (WSIOCP_QueueWriteReady(candidates[i].fd) != 0)
+            candidate_states[i]->write_rearm_logged = 1;
+    }
+}
+
+int WSIOCP_FiredEventValid(aeEventLoop *el, int fd, void *backend_data) {
+    aeApiState *state;
+    iocpSockState *expected = (iocpSockState *)backend_data;
+    iocpSockState *ss;
+
+    if (!el || !el->apidata || fd < 0 || !expected) return 0;
+    state = (aeApiState *)el->apidata;
+    ss = WSIOCP_GetExistingSocketState(fd);
+    return ss == expected &&
+           ss->iocp == state->iocp &&
+           (ss->masks & CLOSE_PENDING) == 0;
 }
 
 int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
@@ -842,9 +964,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
     if (mswait > 250)
         mswait = 250;
+    retry_accepts(el);
+    retry_writes(el);
     /* Backpressured writes retry on a short cadence, not a busy loop. */
-    if (write_rearm_n > 0 && mswait > 10)
-        mswait = 10;
+    if (state->write_rearm_pending > 0 && mswait > WRITE_REARM_MS)
+        mswait = WRITE_REARM_MS;
 
     rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, entries,
                                      MAX_COMPLETE_PER_POLL, &numComplete,
@@ -947,15 +1071,6 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
         }
     }
 
-    if (write_rearm_n > 0) {
-        int pending[WRITE_REARM_MAX];
-        int n = write_rearm_n;
-        int i;
-        memcpy(pending, write_rearm_fds, (size_t)n * sizeof(int));
-        for (i = 0; i < n; i++)
-            (void)WSIOCP_QueueWriteReady(pending[i]);
-    }
-
     /* AF_UNIX listen sockets cannot use AcceptEx; poll for FD_ACCEPT. */
     {
         int i;
@@ -967,6 +1082,7 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
              * handler each tick; accept() returns EWOULDBLOCK if idle. */
             el->fired[numevents].fd = rfd;
             el->fired[numevents].mask = AE_READABLE;
+            el->fired[numevents].backend_data = ss;
             numevents++;
         }
     }

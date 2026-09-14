@@ -39,6 +39,8 @@
 #include "server.h"
 #ifdef _WIN32
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/win32_wsiocp.h"
+#include "Win32_Interop/Win32_Error.h"
 #endif
 #include "cluster.h"
 #include "cluster_asm.h"
@@ -10489,16 +10491,64 @@ static int eventLoopFromAeMask(int ae_mask) {
     return mask;
 }
 
+static void eventLoopFreeDataIfUnused(struct aeEventLoop *ae, int fd,
+                                      EventLoopData *data)
+{
+    if (data != NULL && aeGetFileEvents(ae, fd) == AE_NONE) {
+        if (aeGetFileClientData(ae, fd) == data)
+            ae->events[fd].clientData = NULL;
+        zfree(data);
+    }
+}
+
+#ifdef _WIN32
+/* IOCP readiness is one-shot. If rearming fails, remove that direction
+ * instead of leaving a registered event that can never fire again. */
+static void eventLoopRemoveFailedRearm(struct aeEventLoop *ae, int fd,
+                                       int ae_mask, const char *operation)
+{
+    int rearm_errno = errno;
+    EventLoopData *data = aeGetFileClientData(ae, fd);
+
+    aeDeleteFileEvent(ae, fd, ae_mask);
+    if (data != NULL) {
+        if (ae_mask & AE_READABLE) data->rFunc = NULL;
+        if (ae_mask & AE_WRITABLE) data->wFunc = NULL;
+        eventLoopFreeDataIfUnused(ae, fd, data);
+    }
+
+    serverLog(LL_WARNING,
+        "Error rearming module event-loop descriptor %d for %s; "
+        "the event was removed: %s",
+        fd, operation, wsa_strerror(rearm_errno));
+    errno = rearm_errno;
+}
+#endif
+
 static void eventLoopCbReadable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
-    UNUSED(ae);
     EventLoopData *data = user_data;
     data->rFunc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+#ifdef _WIN32
+    if (aeGetFileEvents(ae, fd) & AE_READABLE) {
+        if (WSIOCP_QueueNextRead(fd) != 0)
+            eventLoopRemoveFailedRearm(ae, fd, AE_READABLE, "reading");
+    }
+#else
+    UNUSED(ae);
+#endif
 }
 
 static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
-    UNUSED(ae);
     EventLoopData *data = user_data;
     data->wFunc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+#ifdef _WIN32
+    if (aeGetFileEvents(ae, fd) & AE_WRITABLE) {
+        if (WSIOCP_QueueWriteReady(fd) != 0)
+            eventLoopRemoveFailedRearm(ae, fd, AE_WRITABLE, "writing");
+    }
+#else
+    UNUSED(ae);
+#endif
 }
 
 /* Add a pipe / socket event to the event loop.

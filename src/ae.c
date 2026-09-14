@@ -423,9 +423,18 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         for (j = 0; j < numevents; j++) {
             int fd = eventLoop->fired[j].fd;
-            aeFileEvent *fe = &eventLoop->events[fd];
+            aeFileEvent *fe;
             int mask = eventLoop->fired[j].mask;
             int fired = 0; /* Number of events fired for current fd. */
+
+#ifdef _WIN32
+            /* Drop completions whose RFD was recycled or already closed. */
+            if (fd < 0 || fd > eventLoop->maxfd ||
+                !WSIOCP_FiredEventValid(eventLoop, fd,
+                                        eventLoop->fired[j].backend_data))
+                continue;
+#endif
+            fe = &eventLoop->events[fd];
 
             /* Normally we execute the readable event first, and the writable
              * event later. This is useful as sometimes we may be able
