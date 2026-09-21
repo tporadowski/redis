@@ -82,6 +82,16 @@ typedef struct iocpSockState {
     int write_rearm_logged;
 } iocpSockState;
 
+typedef struct iocpPendingComp {
+    OVERLAPPED_ENTRY entry;
+} iocpPendingComp;
+
+typedef struct iocpPendingQueue {
+    iocpPendingComp items[MAX_COMPLETE_PER_POLL];
+    int n;
+    int i;
+} iocpPendingQueue;
+
 static char zreadchar[1];
 static int close_hook_set;
 #define UNIX_LISTEN_MAX 16
@@ -345,13 +355,22 @@ int WSIOCP_InitLoopExtras(aeEventLoop *el) {
     st->accept_rearm_pending = 0;
     st->write_rearm_pending = 0;
     st->write_rearm_cursor = 0;
-    if (pipe(fds) != 0) return -1;
+    st->pending_comps = walloc(sizeof(iocpPendingQueue));
+    if (!st->pending_comps) return -1;
+    memset(st->pending_comps, 0, sizeof(iocpPendingQueue));
+    if (pipe(fds) != 0) {
+        wfree(st->pending_comps);
+        st->pending_comps = NULL;
+        return -1;
+    }
     fcntl(fds[0], F_SETFL, O_NONBLOCK);
     fcntl(fds[1], F_SETFL, O_NONBLOCK);
     cs = (CRITICAL_SECTION *)walloc(sizeof(*cs));
     if (!cs) {
         close(fds[0]);
         close(fds[1]);
+        wfree(st->pending_comps);
+        st->pending_comps = NULL;
         return -1;
     }
     InitializeCriticalSection(cs);
@@ -387,6 +406,8 @@ void WSIOCP_FreeLoopExtras(aeEventLoop *el) {
     wfree(st->fwd_masks);
     st->fwd_fds = st->fwd_masks = NULL;
     st->fwd_n = st->fwd_cap = 0;
+    wfree(st->pending_comps);
+    st->pending_comps = NULL;
 }
 
 static int fire_or_forward(aeEventLoop *el, iocpSockState *ss, int rfd,
@@ -522,6 +543,20 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
 
     FDAPI_CancelIoEx(rfd, &ss->ov_read);
 
+    /* Also drop a completion already pulled into this loop's pending
+     * queue. GetQueuedCompletionStatusEx will not see it again. */
+    if (ss->dest_el && ss->dest_el->apidata) {
+        aeApiState *st = (aeApiState *)ss->dest_el->apidata;
+        iocpPendingQueue *q = (iocpPendingQueue *)st->pending_comps;
+        int k;
+        if (q) {
+            for (k = q->i; k < q->n; k++) {
+                if (q->items[k].entry.lpOverlapped == &ss->ov_read)
+                    q->items[k].entry.lpOverlapped = NULL;
+            }
+        }
+    }
+
     /* Steal only this OV from the port; re-queue everything else. */
     deadline = GetTickCount() + 2000;
     while (ss->masks & READ_QUEUED) {
@@ -544,13 +579,11 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
 }
 
 /* Drop a pending 0-byte WSARecv so a following recv() can take the data.
- * Does not drain the IOCP port (that can steal ConnectEx / AcceptEx). */
+ * Drain that completion before the overlapped structure is reused. Leaving
+ * it queued makes the next probe share ov_read, and the cancel completion
+ * then looks like a failed read and the socket never becomes readable. */
 void WSIOCP_CancelQueuedRead(int rfd) {
-    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
-    if (!ss || (ss->masks & READ_QUEUED) == 0)
-        return;
-    FDAPI_CancelIoEx(rfd, &ss->ov_read);
-    ss->masks &= ~READ_QUEUED;
+    WSIOCP_CancelAndDrainRead(rfd);
 }
 
 int WSIOCP_RearmRead(int rfd) {
@@ -784,6 +817,12 @@ int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len) {
 
     ss->connect_err = 0;
     memset(&ss->ov_read, 0, sizeof(ss->ov_read));
+    /* ConnectEx posts a completion even when it returns TRUE. ov_read must
+     * stay owned by that packet until the poll dequeues it. Clearing
+     * CONNECT_PENDING early lets the handshake WSARecv reuse ov_read, and
+     * the stale connect packet then looks like a finished read. send()
+     * fails and WSAPoll never reports POLLOUT. */
+    ss->masks |= CONNECT_PENDING;
     /* ConnectEx requires a bind. Ignore if the caller already bound source. */
     if (addr->sa_family == AF_INET) {
         struct sockaddr_in any;
@@ -799,16 +838,16 @@ int WSIOCP_SocketConnect(int rfd, const struct sockaddr *addr, socklen_t len) {
 
     rc = FDAPI_ConnectEx(rfd, addr, (int)len, NULL, 0, NULL, &ss->ov_read);
     if (rc) {
-        wsiocp_update_connect_context(rfd);
-        return 0;
+        errno = EINPROGRESS;
+        return -1;
     }
     rc = FDAPI_WSAGetLastError();
     if (rc == ERROR_IO_PENDING) {
         errno = EINPROGRESS;
-        ss->masks |= CONNECT_PENDING;
         return -1;
     }
-    errno = rc;
+    ss->masks &= ~CONNECT_PENDING;
+    errno = rc ? rc : EIO;
     return -1;
 }
 
@@ -955,11 +994,10 @@ int WSIOCP_FiredEventValid(aeEventLoop *el, int fd, void *backend_data) {
 
 int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)el->apidata;
-    OVERLAPPED_ENTRY entries[MAX_COMPLETE_PER_POLL];
-    ULONG numComplete = 0;
-    ULONG j;
     int numevents = 0;
+    int drained = 0;
     DWORD mswait = tvp ? (DWORD)(tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : 100;
+    DWORD wait;
     BOOL rc;
     /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
     if (mswait > 250)
@@ -970,18 +1008,46 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     if (state->write_rearm_pending > 0 && mswait > WRITE_REARM_MS)
         mswait = WRITE_REARM_MS;
 
-    rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, entries,
-                                     MAX_COMPLETE_PER_POLL, &numComplete,
-                                     mswait, FALSE);
-    if (!rc)
-        numComplete = 0;
-
-    for (j = 0; j < numComplete && numevents < state->setsize; j++) {
-        int rfd = (int)(intptr_t)entries[j].lpCompletionKey;
+    /* Return at most one client readiness event. Further completions stay
+     * on this loop so a nested poll (busy script) still sees them, instead
+     * of being copied into fired[] before the handler runs. */
+    wait = mswait;
+    while (numevents == 0 && drained < MAX_COMPLETE_PER_POLL) {
+        iocpPendingQueue *q = (iocpPendingQueue *)state->pending_comps;
+        OVERLAPPED_ENTRY entry;
+        int rfd;
         iocpSockState *ss;
-        LPOVERLAPPED ov = entries[j].lpOverlapped;
+        LPOVERLAPPED ov;
 
-        if (entries[j].lpCompletionKey == WSIOCP_WAKE_KEY)
+        if (!q)
+            break;
+        if (q->i >= q->n) {
+            OVERLAPPED_ENTRY got[MAX_COMPLETE_PER_POLL];
+            ULONG numComplete = 0;
+            int n;
+            rc = GetQueuedCompletionStatusEx((HANDLE)state->iocp, got,
+                                             MAX_COMPLETE_PER_POLL,
+                                             &numComplete, wait, FALSE);
+            wait = 0;
+            if (!rc || numComplete == 0)
+                break;
+            q->n = 0;
+            q->i = 0;
+            for (n = 0; n < (int)numComplete && n < MAX_COMPLETE_PER_POLL; n++) {
+                q->items[q->n].entry = got[n];
+                q->n++;
+            }
+        }
+        entry = q->items[q->i].entry;
+        q->i++;
+        drained++;
+        if (!entry.lpOverlapped && entry.lpCompletionKey != WSIOCP_WAKE_KEY)
+            continue;
+
+        rfd = (int)(intptr_t)entry.lpCompletionKey;
+        ov = entry.lpOverlapped;
+
+        if (entry.lpCompletionKey == WSIOCP_WAKE_KEY)
             continue;
         ss = WSIOCP_GetExistingSocketState(rfd);
 
@@ -1014,11 +1080,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
             } else {
                 int matched = 0;
                 if (ov == &ss->ov_read) {
-                    /* Internal is NTSTATUS; cancelled Completions are < 0. */
                     matched = 1;
                     ss->masks &= ~READ_QUEUED;
-                    if ((ss->masks & AE_READABLE) &&
-                        (LONG)entries[j].Internal >= 0)
+                    /* A cancelled 0-byte probe (NTSTATUS < 0) still means the
+                     * payload is readable with recv(). Wake the handler. */
+                    if (ss->masks & AE_READABLE)
                         numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
                                                     numevents);
                     /* One-shot: the event loop rearms after the handler. */
@@ -1071,8 +1137,10 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
         }
     }
 
-    /* AF_UNIX listen sockets cannot use AcceptEx; poll for FD_ACCEPT. */
-    {
+    /* AF_UNIX listen sockets cannot use AcceptEx; poll for FD_ACCEPT.
+     * Skip when an IOCP event is already pending so a nested handler cannot
+     * miss a completion that this poll already reported. */
+    if (numevents == 0) {
         int i;
         for (i = 0; i < unix_listen_n && numevents < state->setsize; i++) {
             int rfd = unix_listen_rfds[i];

@@ -65,6 +65,8 @@ set units {
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
+    windows/iocp
+    windows/aof
     windows/regression
 }
 

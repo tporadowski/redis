@@ -52,6 +52,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | OS-impossible: `SIGSTOP`, abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize` | skip-list | OS feature |
 | gcc `.so` moduleapi | not in `wintest.tcl` `--single` list | clang-cl `.dll` moduleapi suite |
 | **13.2** `windows/regression` AUTH replica + AUTH-fail `maxclients` | default `wintest.tcl` | green |
+| `windows/iocp`, `windows/aof` | default `wintest.tcl` | green (IOCP one-shot, QFork AOF child reap, RDB-channel AUTH sync) |
 | **13.2** `MASTERAUTH` binary password (rdbchannel yes/no) | default `unit/auth` | green (IOCP handshake + log wait) |
 | `attach_to_replication_stream` / `SYNC` (`needs:repl`, `repl`, INCREX rewrite, three `needs:debug` names) | `--tags` + skip-list | extra-client AcceptEx + QFork `SYNC` without hang |
 | Protocol desync flood #1–#3 | default `unit/protocol` | green (non-blocking Tcl read) |
@@ -92,6 +93,6 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
-`windows/regression`.
+`windows/iocp`, `windows/aof`, `windows/regression`.
 `unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.

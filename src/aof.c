@@ -1267,7 +1267,16 @@ void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1) {
+#ifdef _WIN32
+        /* waitpid(-1) only reaps Sentinel scripts and returns 0 for a
+         * QFork child, so the old loop spun forever. */
+        while (waitpid(server.child_pid, &statloc, 0) != server.child_pid) {
+            if (errno == ECHILD)
+                break;
+        }
+#else
         while(waitpid(-1, &statloc, 0) != server.child_pid);
+#endif
     }
     aofRemoveTempFile(server.child_pid);
     resetChildState();
@@ -1278,16 +1287,19 @@ void killAppendOnlyChild(void) {
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
-    flushAppendOnlyFile(1);
-    if (redis_fsync(server.aof_fd) == -1) {
-        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
-    } else {
-        server.aof_last_fsync = server.mstime;
+    int was_wait_rewrite = server.aof_state == AOF_WAIT_REWRITE;
+    if (server.aof_fd != -1) {
+        flushAppendOnlyFile(1);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
+        } else {
+            server.aof_last_fsync = server.mstime;
+        }
+        close(server.aof_fd);
+        updateCurIncrAofEndOffset();
+        server.aof_fd = -1;
     }
-    close(server.aof_fd);
-    updateCurIncrAofEndOffset();
 
-    server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
@@ -1296,6 +1308,11 @@ void stopAppendOnly(void) {
     server.fsynced_reploff = -1;
     atomicSet(server.fsynced_reploff_pending, 0);
     killAppendOnlyChild();
+    if (was_wait_rewrite) {
+        /* The initial rewrite's INCR was never committed to the manifest.
+         * Remove it after the child has exited and dropped its handles. */
+        aofDelTempIncrAofFile();
+    }
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
     /* Stopping AOF breaks the continuous INCR stream required by BACKUP. */

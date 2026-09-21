@@ -323,7 +323,8 @@ int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob) {
         return C_ERR;
     n = hdr->numconns;
     if (n > QFORK_MAX_SOCKET_CONNS) n = QFORK_MAX_SOCKET_CONNS;
-    connTypeInitialize();
+    /* SetupRedisGlobals already registered connection types. A second
+     * connTypeInitialize() hits "already registered" and the child asserts. */
     for (i = 0; i < n; i++) {
         int rfd = FDAPI_WSASocketFromInfo(
             (char *)proto_blob + (size_t)i * QFORK_PROTO_INFO_SIZE);

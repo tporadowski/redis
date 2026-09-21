@@ -96,6 +96,13 @@ static sds bulkline = NULL;
 static sds handshake_line = NULL;
 static char repl_sync_again_blob;
 #define REPL_SYNC_AGAIN ((char *)&repl_sync_again_blob)
+
+/* True when a previous connRead pulled more than one reply. IOCP is
+ * one-shot, so the socket will not become readable again for bytes that
+ * are already in this buffer. Callers must keep going. */
+static int handshakeHasPendingLine(void) {
+    return handshake_line && strstr(handshake_line, "\r\n") != NULL;
+}
 #endif
 
 /* --------------------------- Utility functions ---------------------------- */
@@ -3000,6 +3007,12 @@ char *receiveSynchronousResponse(connection *conn) {
 
 /* Send a pre-formatted multi-bulk command to the connection. */
 char* sendCommandRaw(connection *conn, sds cmd) {
+#ifdef _WIN32
+    /* A pending 0-byte WSARecv makes send() fail and WSAPoll miss POLLOUT.
+     * Drop it for the synchronous handshake write; the event loop rearms. */
+    if (conn->fd >= 0)
+        WSIOCP_CancelQueuedRead(conn->fd);
+#endif
     if (connSyncWrite(conn,cmd,sdslen(cmd),server.repl_syncio_timeout*1000) == -1) {
         return sdscatprintf(sdsempty(),"-Writing to master: %s",
                 connGetLastError(conn));
@@ -3327,6 +3340,23 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 /* This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
 void syncWithMaster(connection *conn) {
+#ifdef _WIN32
+    /* Drain replies already sitting in handshake_line. One connRead can
+     * pull every +OK the master pipelined; returning here would wait for a
+     * socket event that never comes. */
+    static int draining_handshake;
+    if (!draining_handshake) {
+        int spins = 0;
+        draining_handshake = 1;
+        do {
+            syncWithMaster(conn);
+        } while (handshakeHasPendingLine() && spins++ < 64 &&
+                 conn->state == CONN_STATE_CONNECTED &&
+                 server.repl_transfer_s == conn);
+        draining_handshake = 0;
+        return;
+    }
+#endif
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
@@ -4268,6 +4298,20 @@ static int rdbChannelHandleFullresyncReply(connection *conn, sds *err) {
 /* Replication: Replica side.
  * This connection handler is used to initialize the RDB channel connection.*/
 static void rdbChannelFullSyncWithMaster(connection *conn) {
+#ifdef _WIN32
+    static int draining_handshake;
+    if (!draining_handshake) {
+        int spins = 0;
+        draining_handshake = 1;
+        do {
+            rdbChannelFullSyncWithMaster(conn);
+        } while (handshakeHasPendingLine() && spins++ < 64 &&
+                 conn->state == CONN_STATE_CONNECTED &&
+                 server.repl_rdb_transfer_s == conn);
+        draining_handshake = 0;
+        return;
+    }
+#endif
     int ret = 0;
     char *err = NULL;
     serverAssert(conn == server.repl_rdb_transfer_s);

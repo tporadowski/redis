@@ -640,6 +640,11 @@ ssize_t fdapi_write(int fd, const void *buf, size_t count) {
         int n = send(s, (const char *)buf, (int)count, 0);
         if (n == SOCKET_ERROR) {
             set_wsa_errno(0);
+            /* A pending 0-byte WSARecv can make send() fail with
+             * WSAGetLastError()==0. That is not a completed success;
+             * callers such as syncWrite must retry. */
+            if (errno == 0)
+                errno = EAGAIN;
             return -1;
         }
         return n;

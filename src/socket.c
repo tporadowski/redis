@@ -476,15 +476,24 @@ static int connSocketBlockingConnect(connection *conn, const char *addr, int por
  */
 
 static ssize_t connSocketSyncWrite(connection *conn, char *ptr, ssize_t size, long long timeout) {
-    return syncWrite(conn->fd, ptr, size, timeout);
+    ssize_t n = syncWrite(conn->fd, ptr, size, timeout);
+    /* syncWrite reports the failure in errno. connGetLastError reads
+     * last_errno, which otherwise stays 0 ("operation completed successfully")
+     * after a timeout. */
+    if (n == -1) conn->last_errno = errno;
+    return n;
 }
 
 static ssize_t connSocketSyncRead(connection *conn, char *ptr, ssize_t size, long long timeout) {
-    return syncRead(conn->fd, ptr, size, timeout);
+    ssize_t n = syncRead(conn->fd, ptr, size, timeout);
+    if (n == -1) conn->last_errno = errno;
+    return n;
 }
 
 static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size, long long timeout) {
-    return syncReadLine(conn->fd, ptr, size, timeout);
+    ssize_t n = syncReadLine(conn->fd, ptr, size, timeout);
+    if (n == -1) conn->last_errno = errno;
+    return n;
 }
 
 static const char *connSocketGetType(connection *conn) {

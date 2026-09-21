@@ -66,6 +66,10 @@ typedef struct aeApiState {
     int accept_rearm_pending;
     int write_rearm_pending;
     int write_rearm_cursor;
+    /* Completions already pulled from this loop's port. A nested poll
+     * (busy script) must see them; they must not all be delivered before
+     * the handler runs. */
+    void *pending_comps;
 } aeApiState;
 
 void *WSIOCP_CreateIocp(void);
