@@ -34,9 +34,19 @@ start_server {tags {"other"}} {
     test {je_malloc_conf compile-time tuning is active} {
         # Verify je_malloc_conf in src/zmalloc.c overrides jemalloc defaults:
         # (tcache_nslots_small_max: 200, lg_tcache_nslots_mul: 1).
+        # Windows keeps one arena and a tiny tcache: LG_PAGE is 20 (1 MiB),
+        # so the Linux 1000-slot tcache would retain far too much.
         if {[string match {*jemalloc*} [s mem_allocator]]} {
-            assert_equal 1000 [r debug mallctl opt.tcache_nslots_small_max]
-            assert_equal 3    [r debug mallctl opt.lg_tcache_nslots_mul]
+            if {$::tcl_platform(platform) eq "windows"} {
+                assert_equal 8 [r debug mallctl opt.tcache_nslots_small_max]
+                assert_equal 1 [r debug mallctl opt.narenas]
+                assert_equal 0 [r debug mallctl opt.dirty_decay_ms]
+                assert_equal 0 [r debug mallctl opt.muzzy_decay_ms]
+                assert_equal 1 [r debug mallctl opt.lg_tcache_nslots_mul]
+            } else {
+                assert_equal 1000 [r debug mallctl opt.tcache_nslots_small_max]
+                assert_equal 3    [r debug mallctl opt.lg_tcache_nslots_mul]
+            }
         }
     } {} {needs:debug}
 

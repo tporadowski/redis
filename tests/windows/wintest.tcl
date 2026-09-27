@@ -66,6 +66,7 @@ set units {
     unit/aofrw
     unit/lazyfree
     unit/pause
+    unit/other
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

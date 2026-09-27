@@ -71,6 +71,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/aofrw` | default `wintest.tcl` | green (`DEBUG LOADAOF` no longer closes a socket whose fd number matches the AOF file) |
 | `unit/lazyfree` | default `wintest.tcl` | green (UNLINK, async FLUSHDB/FLUSHALL, stream lazy free, REPLICAOF unblock; no Windows change) |
 | `unit/pause` | default `wintest.tcl` | green (CLIENT PAUSE). `/OPT:ICF` folded `evalRoCommand` into `evalCommand`, so shebang `EVAL` was rejected as `EVAL_RO`; read-only now follows `CMD_READONLY`. The `needs:repl` replica-pause pair stays denied |
+| `unit/other` | default `wintest.tcl` | green (save, AOF reload, BGSAVE kill, cluster-compatibility sampling). Jemalloc check expects the Windows conf (1 arena, tcache cap 8, immediate decay). `start_cluster` resizing stays denied by `-cluster` |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -93,7 +94,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
