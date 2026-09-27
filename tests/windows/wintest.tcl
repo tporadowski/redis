@@ -67,6 +67,7 @@ set units {
     unit/lazyfree
     unit/pause
     unit/other
+    unit/obuf-limits
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
