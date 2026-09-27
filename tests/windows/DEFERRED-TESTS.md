@@ -74,6 +74,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/other` | default `wintest.tcl` | green (save, AOF reload, BGSAVE kill, cluster-compatibility sampling). Jemalloc check expects the Windows conf (1 arena, tcache cap 8, immediate decay). `start_cluster` resizing stays denied by `-cluster` |
 | `unit/obuf-limits` | default `wintest.tcl` | green (hard and soft client output buffer limits, including mid-command `HRANDFIELD` and `KEYS`; no Windows change) |
 | `unit/pubsubshard` | default `wintest.tcl` | green (`SPUBLISH`/`SSUBSCRIBE` and shard messages over a replica; no Windows change) |
+| `unit/client-eviction` | default `wintest.tcl` | green (`maxmemory-clients` eviction by argv, query buffer, watch, pubsub, tracking, and output buffer; no Windows change). The output-buffer case took ~71s |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -96,7 +97,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,

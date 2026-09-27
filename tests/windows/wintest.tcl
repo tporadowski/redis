@@ -69,6 +69,7 @@ set units {
     unit/other
     unit/obuf-limits
     unit/pubsubshard
+    unit/client-eviction
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
