@@ -1292,10 +1292,10 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
     }
     
     test {Test loading duplicate users in config on startup} {
-        catch {exec src/redis-server --user foo --user foo} err
+        catch {exec [redis_server_bin] --user foo --user foo} err
         assert_match {*Duplicate user*} $err
 
-        catch {exec src/redis-server --user default --user default} err
+        catch {exec [redis_server_bin] --user default --user default} err
         assert_match {*Duplicate user*} $err
     } {} {external:skip}
 

@@ -2514,7 +2514,11 @@ void freeClientAsync(client *c) {
 
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
 #ifdef _WIN32
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY)
+    /* Delay closesocket only while a final reply is still queued. Once
+     * writeToClient() has flushed it and half-closed, free the client on
+     * the next beforeSleep. A fixed 100ms hold left ACL-killed subscribers
+     * visible to CLIENT LIST after the peer had already seen the close. */
+    if ((c->flags & CLIENT_CLOSE_AFTER_REPLY) && clientHasPendingReplies(c))
         c->close_after_reply_time = mstime() + 100;
 #endif
     c->flags |= CLIENT_CLOSE_ASAP;
