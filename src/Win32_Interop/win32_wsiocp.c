@@ -76,7 +76,6 @@ typedef struct iocpSockState {
     int wreqs;
     OVERLAPPED ov_read;
     asendreq *wreqlist;
-    int unknownComplete;
     int connect_err;
     int accept_rearm_logged;
     int write_rearm_logged;
@@ -1077,39 +1076,34 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                     }
                     WSIOCP_AddEvent(el, rfd, ss->masks);
                 }
-            } else {
-                int matched = 0;
-                if (ov == &ss->ov_read) {
-                    matched = 1;
-                    ss->masks &= ~READ_QUEUED;
-                    /* A cancelled 0-byte probe (NTSTATUS < 0) still means the
-                     * payload is readable with recv(). Wake the handler. */
-                    if (ss->masks & AE_READABLE)
-                        numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
-                                                    numevents);
-                    /* One-shot: the event loop rearms after the handler. */
-                } else if (ss->wreqs > 0 && ov != NULL) {
-                    asendreq *areq = (asendreq *)ov;
-                    if (unlink_wreq(ss, areq)) {
-                        matched = 1;
-                        if (areq->proc) {
-                            unsigned long written = 0, flags = 0;
-                            FDAPI_WSAGetOverlappedResult(rfd, &areq->ov,
-                                                         &written, 0, &flags);
-                            areq->proc(areq->eventLoop, rfd, &areq->req,
-                                       (int)written);
-                        }
-                        ss->wreqs--;
-                        wfree(areq);
-                        if (ss->wreqs == 0 && (ss->masks & AE_WRITABLE))
-                            numevents = fire_or_forward(el, ss, rfd, AE_WRITABLE,
-                                                        numevents);
+            } else if (ov == &ss->ov_read) {
+                ss->masks &= ~READ_QUEUED;
+                /* A cancelled 0-byte probe (NTSTATUS < 0) still means the
+                 * payload is readable with recv(). Wake the handler. */
+                if (ss->masks & AE_READABLE)
+                    numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
+                                                numevents);
+                /* One-shot: the event loop rearms after the handler. */
+            } else if (ss->wreqs > 0 && ov != NULL) {
+                asendreq *areq = (asendreq *)ov;
+                if (unlink_wreq(ss, areq)) {
+                    if (areq->proc) {
+                        unsigned long written = 0, flags = 0;
+                        FDAPI_WSAGetOverlappedResult(rfd, &areq->ov,
+                                                     &written, 0, &flags);
+                        areq->proc(areq->eventLoop, rfd, &areq->req,
+                                   (int)written);
                     }
+                    ss->wreqs--;
+                    wfree(areq);
+                    if (ss->wreqs == 0 && (ss->masks & AE_WRITABLE))
+                        numevents = fire_or_forward(el, ss, rfd, AE_WRITABLE,
+                                                    numevents);
                 }
-                if (!matched && ss->unknownComplete == 0) {
-                    ss->unknownComplete = 1;
-                    fdapi_close(rfd);
-                }
+                /* else: OVERLAPPED is not this socket's. A listener close
+                 * cancels AcceptEx, then the RFD is reused; dropping the
+                 * stale completion avoids closing the new listener after
+                 * CONFIG SET port rolls back. */
             }
         } else {
             if (ss->accept_pending && ov == &ss->accept_pending->ov) {
