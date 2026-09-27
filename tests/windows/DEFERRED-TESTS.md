@@ -67,6 +67,8 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/type/set`, `zset`, `stream` | runner deny (`REDIS_TEST_UNSAFE`) | same watchdog class as list; not started |
 | `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
+| `unit/shutdown` | default `wintest.tcl` | green (QFork SIGUSR1 abort, share-delete temp RDB, `kill.exe` signal pipe) |
+| `unit/aofrw` | default `wintest.tcl` | green (`DEBUG LOADAOF` no longer closes a socket whose fd number matches the AOF file) |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -84,12 +86,12 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/type/hash`, `unit/type/list-2`, `unit/type/list-3`, `unit/type/list-4`,
 `windows/type_list_nb`, `windows/type_set_nb`, `windows/type_zset_nb`,
 `windows/type_stream_nb`,
-`unit/keyspace`, `unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`,
+`unit/keyspace`, `unit/expire`, `unit/auth`, `unit/protocol`, `unit/quit`, `unit/shutdown`,
 `unit/limits`, `unit/pubsub`, `unit/introspection`,
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`,
+`unit/functions`, `unit/aofrw`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,

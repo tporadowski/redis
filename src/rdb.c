@@ -29,6 +29,10 @@
 
 #include <math.h>
 #include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#endif
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -2110,6 +2114,35 @@ werr: /* Write error. */
     return C_ERR;
 }
 
+#ifdef _WIN32
+/* NTFS refuses DeleteFile while any handle is open unless every handle was
+ * opened with FILE_SHARE_DELETE. Unix unlink only drops the name. The temp
+ * RDB has to allow that so SHUTDOWN and a second SIGINT can remove it while
+ * the saver still has the file open. */
+static FILE *fopenAllowUnlink(const char *filename) {
+    HANDLE handle;
+    int fd;
+    FILE *fp;
+
+    handle = CreateFileA(filename, GENERIC_READ | GENERIC_WRITE,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (handle == INVALID_HANDLE_VALUE) {
+        errno = EIO;
+        return NULL;
+    }
+    fd = _open_osfhandle((intptr_t)handle, _O_RDWR | _O_BINARY);
+    if (fd < 0) {
+        CloseHandle(handle);
+        return NULL;
+    }
+    fp = _fdopen(fd, "wb+");
+    if (!fp)
+        _close(fd);
+    return fp;
+}
+#endif
+
 static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     rio rdb;
@@ -2117,7 +2150,11 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     int saved_errno;
     char *err_op;    /* For a detailed log */
 
+#ifdef _WIN32
+    FILE *fp = fopenAllowUnlink(filename);
+#else
     FILE *fp = fopen(filename,"wb");
+#endif
     if (!fp) {
         saved_errno = errno;
         char *str_err = strerror(errno);
@@ -2280,9 +2317,15 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really
          * need to close the fd, it'll be released when the process exists. */
+#ifdef _WIN32
+        /* A second open without FILE_SHARE_DELETE would pin the name. The
+         * saver already opened the temp RDB so unlink can drop it. */
+        unlink(tmpfile);
+#else
         int fd = open(tmpfile, O_RDONLY|O_NONBLOCK);
         UNUSED(fd);
         unlink(tmpfile);
+#endif
     } else {
         bg_unlink(tmpfile);
     }

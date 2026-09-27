@@ -552,7 +552,11 @@ int win32RedisFork(int purpose) {
     memcpy(hdr + 1, &server, sizeof(server));
     memcpy((char *)(hdr + 1) + sizeof(server), &shared, sizeof(shared));
 
-    HANDLE abort_ev = CreateEvent(NULL, TRUE, FALSE, NULL);
+    SECURITY_ATTRIBUTES abort_sa;
+    memset(&abort_sa, 0, sizeof(abort_sa));
+    abort_sa.nLength = sizeof(abort_sa);
+    abort_sa.bInheritHandle = TRUE;
+    HANDLE abort_ev = CreateEventA(&abort_sa, TRUE, FALSE, NULL);
 
     win32FreezeForSnapshot();
 

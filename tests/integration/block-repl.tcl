@@ -8,7 +8,11 @@ proc start_bg_block_op {host port db ops tls} {
 }
 
 proc stop_bg_block_op {handle} {
-    catch {exec /bin/kill -9 $handle}
+    if {$::tcl_platform(platform) eq "windows"} {
+        catch {exec kill -9 $handle}
+    } else {
+        catch {exec /bin/kill -9 $handle}
+    }
 }
 
 start_server {tags {"repl" "external:skip"}} {

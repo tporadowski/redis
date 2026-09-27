@@ -637,7 +637,11 @@ proc start_write_load {host port seconds {key ""} {size 0} {sleep 0} {ignore_err
 
 # Stop a process generating write load executed with start_write_load.
 proc stop_write_load {handle} {
-    catch {exec /bin/kill -9 $handle}
+    if {$::tcl_platform(platform) eq "windows"} {
+        catch {exec kill -9 $handle}
+    } else {
+        catch {exec /bin/kill -9 $handle}
+    }
 }
 
 proc wait_load_handlers_disconnected {{level 0}} {
@@ -693,7 +697,11 @@ proc start_bg_complex_data {host port db ops} {
 
 # Stop a process generating write load executed with start_bg_complex_data.
 proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
+    if {$::tcl_platform(platform) eq "windows"} {
+        catch {exec kill -9 $handle}
+    } else {
+        catch {exec /bin/kill -9 $handle}
+    }
 }
 
 # Write num keys with the given key prefix and value size (in bytes). If idx is

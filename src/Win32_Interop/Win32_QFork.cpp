@@ -149,10 +149,20 @@ static int is_check_tool(const char *argv0) {
            strstr(base, "redis-check-aof") != NULL;
 }
 
+int QForkChildMain(void *control_handle, void *payload_handle,
+                   unsigned long parent_pid, void *abort_handle);
+
+static DWORD WINAPI qfork_abort_watch(LPVOID arg) {
+    /* Same code as SERVER_CHILD_NOERROR_RETVAL: parent treats this as a
+     * requested stop, not a failed save. */
+    if (WaitForSingleObject((HANDLE)arg, INFINITE) == WAIT_OBJECT_0)
+        ExitProcess(255);
+    return 0;
+}
+
 int QForkSpawnChild(void *payload_map, void *abort_event,
                     unsigned long *pid_out, void **process_out,
                     int suspended, void **thread_out) {
-    (void)abort_event;
     char fileName[MAX_PATH];
     if (!GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
         fprintf(stderr, "QForkSpawnChild: GetModuleFileName failed gle=%lu\n",
@@ -162,11 +172,12 @@ int QForkSpawnChild(void *payload_map, void *abort_event,
 
     char arguments[MAX_PATH * 2];
     _snprintf_s(arguments, sizeof(arguments), _TRUNCATE,
-                "\"%s\" --QFork %llu %llu %lu",
+                "\"%s\" --QFork %llu %llu %lu %llu",
                 fileName,
                 (unsigned long long)(uintptr_t)QForkGetControlMap(),
                 (unsigned long long)(uintptr_t)payload_map,
-                (unsigned long)GetCurrentProcessId());
+                (unsigned long)GetCurrentProcessId(),
+                (unsigned long long)(uintptr_t)abort_event);
 
     STARTUPINFOA si;
     memset(&si, 0, sizeof(si));
@@ -195,7 +206,7 @@ int QForkSpawnChild(void *payload_map, void *abort_event,
 }
 
 int QForkChildMain(void *control_handle, void *payload_handle,
-                   unsigned long parent_pid) {
+                   unsigned long parent_pid, void *abort_handle) {
     HANDLE parent = OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, FALSE,
                                 parent_pid);
     if (!parent) {
@@ -242,6 +253,12 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     }
 
     crc64_init();
+    if (abort_handle) {
+        HANDLE watcher = CreateThread(NULL, 0, qfork_abort_watch, abort_handle,
+                                      0, NULL);
+        if (watcher)
+            CloseHandle(watcher);
+    }
     QForkModuleLogToStderr();
     if (QForkRestoreModuleSnapshot(parent,
             (void *)(uintptr_t)hdr->module_snapshot_handle,
@@ -339,14 +356,15 @@ int main(int argc, char **argv) {
 
     int qf = argv_has_qfork(argc, argv);
     if (qf) {
-        if (qf + 3 >= argc) {
-            fprintf(stderr, "QFork: --QFork <control> <payload> <parent-pid>\n");
+        if (qf + 4 >= argc) {
+            fprintf(stderr, "QFork: --QFork <control> <payload> <parent-pid> <abort-handle>\n");
             return 1;
         }
         void *control = (void *)(uintptr_t)_strtoui64(argv[qf + 1], NULL, 10);
         void *payload = (void *)(uintptr_t)_strtoui64(argv[qf + 2], NULL, 10);
         unsigned long ppid = strtoul(argv[qf + 3], NULL, 10);
-        return QForkChildMain(control, payload, ppid);
+        void *abort_handle = (void *)(uintptr_t)_strtoui64(argv[qf + 4], NULL, 10);
+        return QForkChildMain(control, payload, ppid, abort_handle);
     }
 
     /* Service CLI before QFork heap (install/start/stop do not need it). */

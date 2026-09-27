@@ -1,6 +1,22 @@
 # SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
 # Portable file helpers + exact-image Windows process identity.
 
+if {$::tcl_platform(platform) eq "windows"} {
+    set _win_kill_dirs {}
+    if {[info exists ::env(REDIS_TEST_LAUNCHER)] && $::env(REDIS_TEST_LAUNCHER) ne ""} {
+        lappend _win_kill_dirs [file join [file dirname $::env(REDIS_TEST_LAUNCHER)] test-bin]
+    }
+    lappend _win_kill_dirs [file join [file dirname [info script]] .. .. build test-bin]
+    foreach _win_kill_dir $_win_kill_dirs {
+        set _win_kill_dir [file nativename [file normalize $_win_kill_dir]]
+        if {[file exists [file join $_win_kill_dir kill.exe]]} {
+            set ::env(PATH) "$_win_kill_dir;$::env(PATH)"
+            break
+        }
+    }
+    unset _win_kill_dir _win_kill_dirs
+}
+
 proc file_contents {filename} {
     set fd [open $filename r]
     set data [read $fd]

@@ -46,6 +46,7 @@ set units {
     unit/auth
     unit/protocol
     unit/quit
+    unit/shutdown
     unit/limits
     unit/pubsub
     unit/introspection
@@ -62,6 +63,7 @@ set units {
     unit/replybufsize
     unit/querybuf
     unit/functions
+    unit/aofrw
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

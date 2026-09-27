@@ -38,6 +38,10 @@
 #include "Win32_Interop/Win32_Service.h"
 #include "Win32_Interop/Win32_EventLog.h"
 #include "Win32_Interop/Win32_Error.h"
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #endif
 
 #include <time.h>
@@ -5175,6 +5179,17 @@ int finishShutdown(void) {
          * to unlink file actually) in background thread.
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
+#ifdef _WIN32
+        /* The QFork child still has the temp RDB open until it observes
+         * SIGUSR1 and exits. Unlink before that returns sharing violation. */
+        {
+            int statloc = 0;
+            while (waitpid(server.child_pid, &statloc, 0) != server.child_pid) {
+                if (errno == ECHILD)
+                    break;
+            }
+        }
+#endif
         rdbRemoveTempFile(server.child_pid, 0);
         resetChildState();
     }
@@ -7490,6 +7505,48 @@ static void sigShutdownHandler(int sig) {
     atomicSet(server.last_sig_received, sig);
 }
 
+#ifdef _WIN32
+/* Tests run `kill -SIGTERM <pid>` against a native process. CRT signal()
+ * does not receive that. A local pipe carries the signal number instead. */
+static DWORD WINAPI win32SignalPipeThread(LPVOID arg) {
+    char name[64];
+    UNUSED(arg);
+    snprintf(name, sizeof(name), "\\\\.\\pipe\\redis-sig-%lu",
+             GetCurrentProcessId());
+    for (;;) {
+        HANDLE pipe = CreateNamedPipeA(
+            name, PIPE_ACCESS_INBOUND,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            1, 16, 16, 0, NULL);
+        DWORD n = 0;
+        int sig = 0;
+        if (pipe == INVALID_HANDLE_VALUE)
+            return 0;
+        if (!ConnectNamedPipe(pipe, NULL) &&
+            GetLastError() != ERROR_PIPE_CONNECTED) {
+            CloseHandle(pipe);
+            continue;
+        }
+        if (ReadFile(pipe, &sig, sizeof(sig), &n, NULL) && n == sizeof(sig) &&
+            (sig == SIGINT || sig == SIGTERM))
+            sigShutdownHandler(sig);
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
+    }
+}
+
+static void win32StartSignalPipe(void) {
+    static int started = 0;
+    HANDLE thread;
+    if (started)
+        return;
+    started = 1;
+    thread = CreateThread(NULL, 0, win32SignalPipeThread, NULL, 0, NULL);
+    if (thread)
+        CloseHandle(thread);
+}
+#endif
+
 void setupSignalHandlers(void) {
     struct sigaction act;
 
@@ -7500,6 +7557,9 @@ void setupSignalHandlers(void) {
     sigaction(SIGINT, &act, NULL);
 
     setupDebugSigHandlers();
+#ifdef _WIN32
+    win32StartSignalPipe();
+#endif
 }
 
 /* This is the signal handler for children process. It is currently useful

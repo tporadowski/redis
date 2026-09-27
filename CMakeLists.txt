@@ -308,6 +308,20 @@ if(MSVC)
 endif()
 target_link_libraries(redis-test-launcher PRIVATE kernel32 ntdll ws2_32)
 
+# Tcl `exec kill` searches PATH for kill.exe. Git's kill.exe does not see
+# native redis-server pids, so the suite puts this directory first.
+add_executable(redis-test-kill tests/windows/redis-test-kill.c)
+set_source_files_properties(tests/windows/redis-test-kill.c PROPERTIES LANGUAGE C)
+set_target_properties(redis-test-kill PROPERTIES
+    OUTPUT_NAME kill
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-bin")
+target_compile_definitions(redis-test-kill PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+if(MSVC)
+    target_compile_options(redis-test-kill PRIVATE /W3 /wd4996)
+endif()
+target_link_libraries(redis-test-kill PRIVATE kernel32)
+
 add_executable(fdapi_smoke tests/windows/fdapi_smoke.c)
 redis_win32_src(fdapi_smoke)
 target_link_libraries(fdapi_smoke PRIVATE win32_interop)

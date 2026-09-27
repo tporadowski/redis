@@ -2116,10 +2116,18 @@ cleanup:
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
+#ifdef _WIN32
+    /* fileno() is a CRT descriptor. close() is fdapi_close(), which treats
+     * that small integer as a Redis fd and will close a live socket whose
+     * RFD happens to match. fclose drops the file; page-cache reclaim is a
+     * no-op on Windows. */
+    fclose(fp);
+#else
     int fd = dup(fileno(fp));
     fclose(fp);
     /* Reclaim page cache memory used by the AOF file in background. */
     if (fd >= 0) bioCreateCloseJob(fd, 0, 1);
+#endif
     sdsfree(aof_filepath);
     return ret;
 }
