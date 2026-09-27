@@ -64,6 +64,8 @@ set units {
     unit/querybuf
     unit/functions
     unit/aofrw
+    unit/lazyfree
+    unit/pause
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

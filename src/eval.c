@@ -603,7 +603,11 @@ void evalGenericCommand(client *c, int evalsha) {
     if (!de)
         de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
-    int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
+    /* Link /OPT:ICF folds evalRoCommand into evalCommand and
+     * evalShaRoCommand into evalShaCommand, because each RO entry point
+     * only tail-calls the write one. Function-pointer identity then treats
+     * every EVAL as EVAL_RO. CMD_READONLY is the real distinction. */
+    int ro = (c->cmd->flags & CMD_READONLY) != 0;
 
     scriptRunCtx rctx;
     if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
