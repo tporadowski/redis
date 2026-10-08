@@ -73,6 +73,7 @@ set units {
     unit/acl
     unit/tracking
     unit/wait
+    unit/info-keysizes
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

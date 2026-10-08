@@ -80,6 +80,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/wait` | default `wintest.tcl` | green (`WAIT`/`WAITAOF`, replica suspend via the test launcher, postponed AOFRW, and the failover-tagged trio; no Windows change). These servers are not tagged `needs:repl`, so the replica pairs actually ran |
 | `integration/logging` | default `wintest.tcl` | green (`DEBUG SEGFAULT` logs `--- STACK TRACE`). External `SIGABRT` and `SIGALRM` are skipped: the kill shim only delivers SIGINT and SIGTERM. Watchdog, `DEBUG ASSERT`, and hide-user-data stay off because `system_backtrace_supported` is 0 on Windows. No server change |
 | `integration/aof-race` | default `wintest.tcl` | green (20 TCP clients, `foo` == 20000 live and after AOF reload). `redis-benchmark` adopts hiredis's SOCKET into the RFD map and registers that RFD with the event loop; hiredis still sends on the SOCKET. No server change |
+| `unit/info-keysizes` | default `wintest.tcl` | green (`INFO keysizes` for string, list, set, zset, hash, UNLINK, RDB reload, and key-memory histograms; no Windows change). The `needs:repl` replica pair and both cluster servers stayed denied. The `needs:debug` cases ran |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -102,7 +103,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
