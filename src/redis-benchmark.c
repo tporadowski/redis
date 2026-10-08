@@ -130,6 +130,8 @@ typedef struct _client {
     int thread_id;
     struct clusterNode *cluster_node;
     int slots_last_update;
+    int ae_fd;              /* ae/IOCP descriptor. On Windows this is the RFD
+                             * for context->fd, which hiredis keeps as a SOCKET. */
 } *client;
 
 /* Threads. */
@@ -333,11 +335,27 @@ static void freeRedisConfig(redisConfig *cfg) {
     zfree(cfg);
 }
 
+/* hiredis stores a Winsock SOCKET. ae on this port indexes RFDs, so a raw
+ * handle never becomes writable and the client sits in connect forever. */
+static int bench_event_fd(redisContext *c) {
+#ifdef _WIN32
+    int rfd;
+    if (c == NULL || (uintptr_t)c->fd == (uintptr_t)REDIS_INVALID_FD)
+        return -1;
+    rfd = FDAPI_AdoptSocket((intptr_t)c->fd);
+    return rfd;
+#else
+    if (c == NULL || c->fd == REDIS_INVALID_FD)
+        return -1;
+    return (int)c->fd;
+#endif
+}
+
 static void freeClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
     listNode *ln;
-    aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
+    aeDeleteFileEvent(el,c->ae_fd,AE_WRITABLE);
+    aeDeleteFileEvent(el,c->ae_fd,AE_READABLE);
     if (c->thread_id >= 0) {
         int requests_finished = 0;
         atomicGet(config.requests_finished, requests_finished);
@@ -370,9 +388,9 @@ static void freeAllClients(void) {
 
 static void resetClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
-    aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
-    aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeDeleteFileEvent(el,c->ae_fd,AE_WRITABLE);
+    aeDeleteFileEvent(el,c->ae_fd,AE_READABLE);
+    aeCreateFileEvent(el,c->ae_fd,AE_WRITABLE,writeHandler,c);
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -596,8 +614,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     return;
                 }
             } else {
-                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-                aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+                aeDeleteFileEvent(el,c->ae_fd,AE_WRITABLE);
+                aeCreateFileEvent(el,c->ae_fd,AE_READABLE,readHandler,c);
                 return;
             }
         }
@@ -659,6 +677,11 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             fprintf(stderr,"%s:%d: %s\n",ip,port,c->context->errstr);
         else
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
+        exit(1);
+    }
+    c->ae_fd = bench_event_fd(c->context);
+    if (c->ae_fd < 0) {
+        fprintf(stderr, "Could not register benchmark socket with the event loop\n");
         exit(1);
     }
     if (config.tls==1) {
@@ -803,10 +826,10 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         el = thread->el;
     }
     if (config.idlemode == 0)
-        aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+        aeCreateFileEvent(el,c->ae_fd,AE_WRITABLE,writeHandler,c);
     else
         /* In idle mode, clients still need to register readHandler for catching errors */
-        aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+        aeCreateFileEvent(el,c->ae_fd,AE_READABLE,readHandler,c);
 
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);

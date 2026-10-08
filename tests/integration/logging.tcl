@@ -69,17 +69,29 @@ if {!$::valgrind} {
         set check_cb check_crash_log
     }
 
+    # Windows reports an SEH stack ("--- STACK TRACE"), not the POSIX
+    # "crashed by signal" line. kill -SIGABRT / -SIGALRM never reach the
+    # process: there is no POSIX signal delivery, and the test kill shim
+    # only carries SIGINT and SIGTERM.
+    if {$::tcl_platform(platform) eq "windows"} {
+        set crash_pattern "*STACK TRACE*"
+    } else {
+        set crash_pattern "*crashed by signal*"
+    }
+
     # test being killed by a SIGABRT from outside
-    set server_path [tmpdir server1.log]
-    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
-        test "Crash report generated on SIGABRT" {
-            set pid [s process_id]
-            r deferred 1
-            r debug sleep 10 ;# so that we see the function in the stack trace
-            r flush
-            after 100 ;# wait for redis to get into the sleep
-            exec kill -SIGABRT $pid
-            $check_cb "*crashed by signal*"
+    if {$::tcl_platform(platform) ne "windows"} {
+        set server_path [tmpdir server1.log]
+        start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
+            test "Crash report generated on SIGABRT" {
+                set pid [s process_id]
+                r deferred 1
+                r debug sleep 10 ;# so that we see the function in the stack trace
+                r flush
+                after 100 ;# wait for redis to get into the sleep
+                exec kill -SIGABRT $pid
+                $check_cb "*crashed by signal*"
+            }
         }
     }
 
@@ -88,25 +100,27 @@ if {!$::valgrind} {
     start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on DEBUG SEGFAULT" {
             catch {r debug segfault}
-            $check_cb "*crashed by signal*"
+            $check_cb $crash_pattern
         }
     }
 
     # test DEBUG SIGALRM being non-fatal
-    set server_path [tmpdir server3.log]
-    start_server [list overrides [list dir $server_path]] {
-        test "Stacktraces generated on SIGALRM" {
-            set pid [s process_id]
-            r deferred 1
-            r debug sleep 10 ;# so that we see the function in the stack trace
-            r flush
-            after 100 ;# wait for redis to get into the sleep
-            exec kill -SIGALRM $pid
-            $check_cb "*Received SIGALRM*"
-            r read
-            r deferred 0
-            # make sure redis is still alive
-            assert_equal "PONG" [r ping]
+    if {$::tcl_platform(platform) ne "windows"} {
+        set server_path [tmpdir server3.log]
+        start_server [list overrides [list dir $server_path]] {
+            test "Stacktraces generated on SIGALRM" {
+                set pid [s process_id]
+                r deferred 1
+                r debug sleep 10 ;# so that we see the function in the stack trace
+                r flush
+                after 100 ;# wait for redis to get into the sleep
+                exec kill -SIGALRM $pid
+                $check_cb "*Received SIGALRM*"
+                r read
+                r deferred 0
+                # make sure redis is still alive
+                assert_equal "PONG" [r ping]
+            }
         }
     }
 }

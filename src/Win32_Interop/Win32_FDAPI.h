@@ -346,6 +346,9 @@ int FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen,
                     unsigned long *sent, void *overlapped);
 /* Native SOCKET as intptr_t; (intptr_t)-1 if rfd is not a socket. */
 intptr_t FDAPI_GetSocket(int rfd);
+/* Register an existing SOCKET in the RFD map. Does not duplicate or close it.
+ * Returns the RFD, or -1. */
+int FDAPI_AdoptSocket(intptr_t sock);
 /* 1 if send can make progress or an error is pending, 0 if not, -1 on error. */
 int FDAPI_IsSocketWritable(int rfd);
 /* CancelIoEx on the SOCKET. ov NULL cancels all. Returns 1 on success. */

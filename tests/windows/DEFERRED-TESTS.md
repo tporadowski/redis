@@ -78,6 +78,8 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/acl` | default `wintest.tcl` | green. ACL-killed subscribers are freed once the final reply is flushed, not held 100ms. Startup duplicate-user check uses `redis_server_bin`. The `repl` server stays denied |
 | `unit/tracking` | default `wintest.tcl` | green (`CLIENT TRACKING`, BCAST, NOLOOP, OPTIN/OPTOUT, RESP3 invalidation, tracking-table eviction, ACL flush of pending keys; no Windows change). The three `needs:debug` cases ran |
 | `unit/wait` | default `wintest.tcl` | green (`WAIT`/`WAITAOF`, replica suspend via the test launcher, postponed AOFRW, and the failover-tagged trio; no Windows change). These servers are not tagged `needs:repl`, so the replica pairs actually ran |
+| `integration/logging` | default `wintest.tcl` | green (`DEBUG SEGFAULT` logs `--- STACK TRACE`). External `SIGABRT` and `SIGALRM` are skipped: the kill shim only delivers SIGINT and SIGTERM. Watchdog, `DEBUG ASSERT`, and hide-user-data stay off because `system_backtrace_supported` is 0 on Windows. No server change |
+| `integration/aof-race` | default `wintest.tcl` | green (20 TCP clients, `foo` == 20000 live and after AOF reload). `redis-benchmark` adopts hiredis's SOCKET into the RFD map and registers that RFD with the event loop; hiredis still sends on the SOCKET. No server change |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -104,6 +106,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
+`integration/logging`, `integration/aof-race`,
 `windows/iocp`, `windows/aof`, `windows/regression`.
 `unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.

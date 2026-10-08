@@ -860,6 +860,22 @@ int FDAPI_UpdateAcceptContext(int acceptfd, int listenfd) {
     return 0;
 }
 
+int FDAPI_AdoptSocket(intptr_t sock) {
+    SOCKET s = (SOCKET)sock;
+    RFD rfd;
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return -1;
+    }
+    FDAPI_Init();
+    rfd = RFDMap::getInstance().addSocket(s);
+    if (rfd == INVALID_FD) {
+        errno = EMFILE;
+        return -1;
+    }
+    return rfd;
+}
+
 intptr_t FDAPI_GetSocket(int rfd) {
     SOCKET s = sock_of(rfd);
     return (s == INVALID_SOCKET) ? (intptr_t)-1 : (intptr_t)s;

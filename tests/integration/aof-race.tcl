@@ -8,7 +8,14 @@ tags {"aof external:skip"} {
     # was subsequently appended to the new AOF, resulting in duplicate commands.
     start_server_aof [list dir $server_path] {
         set client [redis [srv host] [srv port] 0 $::tls]
-        set bench [open "|src/redis-benchmark -q -s [srv unixsocket] -c 20 -n 20000 incr foo" "r+"]
+        # The CMake tree has no src/redis-benchmark, and AF_UNIX is off.
+        # Twenty TCP clients is the same race the Unix socket was driving.
+        if {$::tcl_platform(platform) eq "windows"} {
+            set bench_exe [string map [list \\ /] [file join [file dirname [redis_server_bin]] redis-benchmark.exe]]
+            set bench [open "|[list $bench_exe -q -h [srv host] -p [srv port] -c 20 -n 20000 incr foo]" r+]
+        } else {
+            set bench [open "|src/redis-benchmark -q -s [srv unixsocket] -c 20 -n 20000 incr foo" "r+"]
+        }
 
         wait_for_condition 100 1 {
             [$client get foo] > 0
