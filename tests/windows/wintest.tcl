@@ -84,6 +84,7 @@ set units {
     unit/type/zset
     unit/type/stream
     unit/scripting
+    unit/acl-v2
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

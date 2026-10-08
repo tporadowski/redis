@@ -92,7 +92,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `integration/backup` | default `wintest.tcl` | green (BACKUP lifecycle, preload of RDB/AOF/manifest, and AOFRW overlap; 29 tests). Startup checks use `redis_server_bin`. Same-path preload compares `'/'` and `'\'` as one file. `getFilePath` splits on both separators, so a backslash manifest is not sized as a wrapped pointer difference |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | default `unit/scan` | COUNT is `long long` (17.1). TYPE+PATTERN expire, write-load, and #4906 stay skipped |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
-| `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
+| `unit/acl-v2` | default `wintest.tcl` | green (about 2 seconds, no server change). Selectors, `%R`/`%W`/`%RW` on SET and BITFIELD, ACL LOG, DRYRUN, keyspecs for MIGRATE/SORT/GEORADIUS/XREADGROUP, and ACL-file load. The old note about an 8-minute BITFIELD sweep does not match this file: the three BITFIELD cases are a few commands each and finished in a few milliseconds |
 | `unit/limits` maxclients refuse | default `wintest` | green (`rejectConnection` + delayed close) |
 | `unit/introspection` (full) | default `wintest.tcl` | maxAGE green. Still skipped: bgsave kill, config-during-loading, io-threads 2/4 start hang, EVAL/FUNCTION MONITOR writes |
 | `unit/dump` MIGRATE | skip-list; DUMP/RESTORE is default | `--tags -repl` skips the second server but the outer test still 40k-RPUSH + mapped-heap FLUSHDB (I/O error) |
@@ -112,7 +112,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`, `unit/info`, `unit/networking`, `unit/scan`, `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`, `unit/type/zset`, `unit/type/stream`, `unit/scripting`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`, `unit/info`, `unit/networking`, `unit/scan`, `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`, `unit/type/zset`, `unit/type/stream`, `unit/scripting`, `unit/acl-v2`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
