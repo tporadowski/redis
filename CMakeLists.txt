@@ -87,7 +87,9 @@ set(LUA_LIB
     deps/lua/src/lua_cmsgpack.c deps/lua/src/lua_bit.c)
 add_library(lua STATIC ${LUA_CORE} ${LUA_LIB})
 target_include_directories(lua PRIVATE deps/lua/src)
-target_compile_definitions(lua PRIVATE LUA_USE_APICHECK= strncasecmp=_strnicmp strcasecmp=_stricmp)
+# luaopen_cjson installs the global only when this is set. deps/Makefile
+# passes it; luaLoadLib discards the library return value.
+target_compile_definitions(lua PRIVATE LUA_USE_APICHECK= strncasecmp=_strnicmp strcasecmp=_stricmp ENABLE_CJSON_GLOBAL)
 target_compile_options(lua PRIVATE /FIstdint.h)
 
 add_library(hdr_histogram STATIC deps/hdr_histogram/hdr_histogram.c)

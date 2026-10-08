@@ -52,7 +52,8 @@ MSET spanning multiple prefetch batches (batch size 16)
 /Big Quicklist:
 
 # SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
-# (script.c SCRIPT_READ_ONLY). Investigate with unit/scripting.
+# (script.c SCRIPT_READ_ONLY). unit/scripting's own SORT cases passed.
+# Re-enable this sort.tcl name only as a timed solo.
 SORT sorted set BY nosort works as expected from scripts
 publish to self inside script
 MONITOR can log commands issued by the scripting engine
