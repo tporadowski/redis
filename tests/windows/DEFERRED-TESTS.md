@@ -70,6 +70,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/type/set` | default `wintest.tcl` | green (about 29 seconds). Still skipped: `SRANDMEMBER` long chain (100k members and `BGSAVE` with `rdb-key-save-delay` at `INT_MAX`). The 4GB `SADD` stays ignored without `--large-memory`. `needs:repl` propagation stayed denied |
 | `unit/type/zset` | default `wintest.tcl` | green (about 59 seconds), including one- and two-waiter `BZPOP`/`BZMPOP`. Still skipped: four-waiter `BZMPOP`. `needs:repl` propagation stayed denied |
 | `unit/type/stream` | default `wintest.tcl` | green (about 59 seconds), including blocking `XREAD`, `XDEL`/`XRANGE` fuzz, 10k `XADD`, and `DEBUG LOADAOF`. No extra skip. The `repl` diskless pair stayed denied |
+| `unit/type/array` | default `wintest.tcl` | green (143 tests, about 13 seconds, no server change). Sparse and dense slices, superdir, rings, `ARDELRANGE`, RDB reload, AOF rewrite, and the 32-bit RDB fixture. No extra skip |
 | `unit/scripting` | default `wintest.tcl` | green (about 74 seconds), both function and eval passes, including `SCRIPT KILL`, `SHUTDOWN NOSAVE` of a timed-out script, `os.clock`, 50k script GC, and the no-writes replica shebang. `cjson` is a global only when the Lua library is built with `ENABLE_CJSON_GLOBAL` (the Unix makefile flag; CMake was missing it). Still ignored: the `large-memory` server (2GB JSON and the 1GB parsers). Still denied: `repl` servers and the `needs:repl` propagation cases. The sort.tcl `SORT` from scripts name stays in the skip-list |
 | `unit/scan` | default `wintest.tcl` | green without the three bombs (23 standalone tests, about 2 seconds; cluster server denied). Still skipped: TYPE+PATTERN expire scan, write-load guarantees, issue #4906 (2026-08-18 LiveKernel 141) |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
@@ -112,7 +113,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`, `unit/info`, `unit/networking`, `unit/scan`, `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`, `unit/type/zset`, `unit/type/stream`, `unit/scripting`, `unit/acl-v2`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`, `unit/info`, `unit/networking`, `unit/scan`, `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`, `unit/type/zset`, `unit/type/stream`, `unit/type/array`, `unit/scripting`, `unit/acl-v2`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
