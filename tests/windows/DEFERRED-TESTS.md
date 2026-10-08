@@ -77,6 +77,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `unit/client-eviction` | default `wintest.tcl` | green (`maxmemory-clients` eviction by argv, query buffer, watch, pubsub, tracking, and output buffer; no Windows change). The output-buffer case took ~71s |
 | `unit/acl` | default `wintest.tcl` | green. ACL-killed subscribers are freed once the final reply is flushed, not held 100ms. Startup duplicate-user check uses `redis_server_bin`. The `repl` server stays denied |
 | `unit/tracking` | default `wintest.tcl` | green (`CLIENT TRACKING`, BCAST, NOLOOP, OPTIN/OPTOUT, RESP3 invalidation, tracking-table eviction, ACL flush of pending keys; no Windows change). The three `needs:debug` cases ran |
+| `unit/wait` | default `wintest.tcl` | green (`WAIT`/`WAITAOF`, replica suspend via the test launcher, postponed AOFRW, and the failover-tagged trio; no Windows change). These servers are not tagged `needs:repl`, so the replica pairs actually ran |
 | `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
@@ -99,7 +100,7 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,

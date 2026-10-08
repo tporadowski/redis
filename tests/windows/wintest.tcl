@@ -72,6 +72,7 @@ set units {
     unit/client-eviction
     unit/acl
     unit/tracking
+    unit/wait
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
