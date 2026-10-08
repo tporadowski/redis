@@ -85,6 +85,8 @@ set units {
     unit/type/stream
     unit/type/array
     unit/type/hash-field-expire
+    unit/type/hash-templates
+    unit/type/stream-cgroups
     unit/scripting
     unit/acl-v2
     integration/convert-zipmap-hash-on-load
