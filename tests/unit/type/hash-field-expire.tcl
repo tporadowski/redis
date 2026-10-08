@@ -1034,7 +1034,12 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HGETEX - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 field3] [list "value3"]
+            # Use the server clock for the absolute timestamp. A client-side
+            # clock can be a millisecond ahead of the server on Windows, and
+            # HTTL rounds up, so now+10000ms reads back as 11 seconds.
+            set t [r time]
+            set at [expr {[lindex $t 0] * 1000 + [lindex $t 1] / 1000 + 10000}]
+            assert_equal [r hgetex myhash PXAT $at FIELDS 1 field3] [list "value3"]
             assert_range [r httl myhash FIELDS 1 field3] 5 10
         }
 
@@ -1318,7 +1323,10 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETEX - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v2 f2 v2 f3 v3
-            assert_equal [r hsetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 f2 v2] 1
+            # Use the server clock. See the HGETEX PXAT test above.
+            set t [r time]
+            set at [expr {[lindex $t 0] * 1000 + [lindex $t 1] / 1000 + 10000}]
+            assert_equal [r hsetex myhash PXAT $at FIELDS 1 f2 v2] 1
             assert_range [r httl myhash FIELDS 1 f2] 5 10
         }
 

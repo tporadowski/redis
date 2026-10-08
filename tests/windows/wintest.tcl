@@ -84,6 +84,7 @@ set units {
     unit/type/zset
     unit/type/stream
     unit/type/array
+    unit/type/hash-field-expire
     unit/scripting
     unit/acl-v2
     integration/convert-zipmap-hash-on-load
