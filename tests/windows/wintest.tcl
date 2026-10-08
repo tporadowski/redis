@@ -71,6 +71,7 @@ set units {
     unit/pubsubshard
     unit/client-eviction
     unit/acl
+    unit/tracking
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
