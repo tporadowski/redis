@@ -23,14 +23,17 @@ Hard resets while `redis-server.exe` was under this suite:
   single existing list - quicklist` had already run ~107s) then the machine
   rebooted (Kernel-Power 41 class). QFORK_HEAP_BYTES=512M, no AF_UNIX, and
   the existing skip-list were already on. The AcceptEx re-arm is **reverted**.
-  `runtest-win.ps1` now refuses `unit/type/list`, `set`, `zset`, `stream`,
-  `scan`, `sort`, `multi`, `pubsub` unless `REDIS_TEST_UNSAFE=1`.
+  `runtest-win.ps1` no longer refuses a unit by name. `unit/scan`,
+  `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`,
+  `unit/type/zset`, and `unit/type/stream` are on the default list with
+  their heavy cases still in the skip-list. `unit/pubsub` is on the
+  default list.
 
 Fences: no default AF_UNIX listen, `QFORK_HEAP_BYTES=512M`,
 `--tags -needs:repl -repl -cluster`, this skip-list, one unit per `tclsh`,
-kill leftover `redis-server` between units. Do **not** put `unit/scan` on
-the default `wintest` list until expire+TYPE / write-load are fenced.
-COUNT overflow + `{foo}-*` MATCH are green in isolation (17.1 COUNT is
+kill leftover `redis-server` between units. `unit/scan` is on the default
+list with expire+TYPE, write-load, and issue #4906 still skipped.
+COUNT overflow + `{foo}-*` MATCH are in that fenced run (17.1 COUNT is
 `long long`).
 
 ## How to re-enable a group
@@ -60,12 +63,14 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `GETEX PXAT option` | default `unit/type/string` | green (server `TIME` timestamp) |
 | SWAPDB / FLUSHALL coverage + MULTI WATCH+FLUSH/SWAP | skip-list | faster FLUSHALL on mapped heap |
 | HINCRBYFLOAT 1.23 pretty-print | test gate (Windows `long double` is 64-bit) | 80-bit `long double` (Linux x86_64 only) |
-| `unit/sort` (10k hash-table SORT + issue #19 floats + EVAL SORT) | not in default `wintest.tcl` | faster SORT BY; scripting write flags |
-| `unit/multi` (script timeout + remaining after WATCH) | not in default `wintest.tcl` | Lua `lua-time-limit` abort on Windows |
+| `unit/sort` | default `wintest.tcl` | green (listpack/quicklist/intset/hashtable SORT and SORT_RO, issue #19 floats, 100-element speed; about 23 seconds). Still skipped: 10k quicklist and hash-table SORT BY, and SORT from scripts. Cluster server denied |
+| `unit/multi` | default `wintest.tcl` | green (WATCH, MULTI/EXEC, OOM, `BGREWRITEAOF`, AOF `FLUSHALL`; about 3 seconds). Still skipped: watched-key `FLUSHALL`/`FLUSHDB`/`SWAPDB` (mapped heap) and the four `lua-time-limit` busy loops. `needs:repl` propagation stays denied |
 | `unit/pubsub` | default `wintest.tcl` | green after write rearm; EVAL-write “publish to self inside script” skipped |
-| `unit/type/list` (BLPOP/BLMPOP extra-client) | skip-list + runner deny | **2026-08-22 reboot.** One-shot AcceptEx is in; `windows/blpop_one` (1–2 extra clients) is green. Do not `-Single` the full official unit |
-| `unit/type/set`, `zset`, `stream` | runner deny (`REDIS_TEST_UNSAFE`) | same watchdog class as list; not started |
-| `unit/scan` (whole unit) | not in default `wintest.tcl` | timed solo **without** expire+TYPE / write-load / #4906; 2026-08-18 22:23 LiveKernel 141 during full unit |
+| `unit/type/list` | default `wintest.tcl` | green (about 8 seconds) with the 2026-08-22 storm still skipped: `BLPOP:` / `BLMPOP_` / `BRPOP:` / `BRPOPLPUSH`, plain-node `DEBUG RELOAD`, and the 4GB cases. Also still skipped: four-waiter `BLMPOP` and three-waiter nested unblock. One- and two-waiter cases ran, including `BLMOVE` and `CLIENT NO-TOUCH` |
+| `unit/type/set` | default `wintest.tcl` | green (about 29 seconds). Still skipped: `SRANDMEMBER` long chain (100k members and `BGSAVE` with `rdb-key-save-delay` at `INT_MAX`). The 4GB `SADD` stays ignored without `--large-memory`. `needs:repl` propagation stayed denied |
+| `unit/type/zset` | default `wintest.tcl` | green (about 59 seconds), including one- and two-waiter `BZPOP`/`BZMPOP`. Still skipped: four-waiter `BZMPOP`. `needs:repl` propagation stayed denied |
+| `unit/type/stream` | default `wintest.tcl` | green (about 59 seconds), including blocking `XREAD`, `XDEL`/`XRANGE` fuzz, 10k `XADD`, and `DEBUG LOADAOF`. No extra skip. The `repl` diskless pair stayed denied |
+| `unit/scan` | default `wintest.tcl` | green without the three bombs (23 standalone tests, about 2 seconds; cluster server denied). Still skipped: TYPE+PATTERN expire scan, write-load guarantees, issue #4906 (2026-08-18 LiveKernel 141) |
 | `unit/quit` | default `wintest.tcl` (14.1) | green |
 | `unit/shutdown` | default `wintest.tcl` | green (QFork SIGUSR1 abort, share-delete temp RDB, `kill.exe` signal pipe) |
 | `unit/aofrw` | default `wintest.tcl` | green (`DEBUG LOADAOF` no longer closes a socket whose fd number matches the AOF file) |
@@ -81,7 +86,10 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 | `integration/logging` | default `wintest.tcl` | green (`DEBUG SEGFAULT` logs `--- STACK TRACE`). External `SIGABRT` and `SIGALRM` are skipped: the kill shim only delivers SIGINT and SIGTERM. Watchdog, `DEBUG ASSERT`, and hide-user-data stay off because `system_backtrace_supported` is 0 on Windows. No server change |
 | `integration/aof-race` | default `wintest.tcl` | green (20 TCP clients, `foo` == 20000 live and after AOF reload). `redis-benchmark` adopts hiredis's SOCKET into the RFD map and registers that RFD with the event loop; hiredis still sends on the SOCKET. No server change |
 | `unit/info-keysizes` | default `wintest.tcl` | green (`INFO keysizes` for string, list, set, zset, hash, UNLINK, RDB reload, and key-memory histograms; no Windows change). The `needs:repl` replica pair and both cluster servers stayed denied. The `needs:debug` cases ran |
-| `SCAN COUNT overflow` / `{foo}-*` MATCH | green in isolation (not default list) | COUNT is `long long` (17.1). Full `unit/scan` still parked |
+| `unit/info` | default `wintest.tcl` | green (latency and error stats, eventloop and client metrics, `active_clients` with `io-threads 4`, and memory overhead while rehashing; no Windows change). The cluster server stayed denied. 30 tests, about 5 seconds |
+| `unit/networking` | default `wintest.tcl` | green (`CONFIG SET` port and bind, empty bind without an AF_UNIX listener, `io-threads 2` prefetch while the process is suspended, idle timeout, and the pending-command pool; no Windows change). `bind-source-addr` runs only when `uname` is Linux. Protected mode looks up a non-loopback address with `hostname -I`, which fails here, so that body does not run. 13 tests, about 14 seconds |
+| `integration/backup` | default `wintest.tcl` | green (BACKUP lifecycle, preload of RDB/AOF/manifest, and AOFRW overlap; 29 tests). Startup checks use `redis_server_bin`. Same-path preload compares `'/'` and `'\'` as one file. `getFilePath` splits on both separators, so a backslash manifest is not sized as a wrapped pointer difference |
+| `SCAN COUNT overflow` / `{foo}-*` MATCH | default `unit/scan` | COUNT is `long long` (17.1). TYPE+PATTERN expire, write-load, and #4906 stay skipped |
 | `RANDOMKEY` + long `KEYS` globs | skip-list | timed solo run after fences stay green |
 | `unit/acl-v2` BITFIELD selector sweep | not in default `wintest` | server dropped after ~8 min of increasingly slow BITFIELD ACL cases |
 | `unit/limits` maxclients refuse | default `wintest` | green (`rejectConnection` + delayed close) |
@@ -103,11 +111,10 @@ servers. `smoke_unix.ps1` already sets `unixsocket` itself.
 `unit/bitops`, `unit/bitfield`, `unit/geo`, `unit/hyperloglog`, `unit/slowlog`,
 `unit/info-command`, `unit/latency-monitor`, `unit/introspection-2`,
 `unit/hotkeys`, `unit/dump`, `unit/replybufsize`, `unit/querybuf`,
-`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`,
+`unit/functions`, `unit/aofrw`, `unit/lazyfree`, `unit/pause`, `unit/other`, `unit/obuf-limits`, `unit/pubsubshard`, `unit/client-eviction`, `unit/acl`, `unit/tracking`, `unit/wait`, `unit/info-keysizes`, `unit/info`, `unit/networking`, `unit/scan`, `unit/multi`, `unit/sort`, `unit/type/list`, `unit/type/set`, `unit/type/zset`, `unit/type/stream`,
 `integration/convert-zipmap-hash-on-load`,
 `integration/convert-ziplist-hash-on-load`,
 `integration/convert-ziplist-zset-on-load`,
-`integration/logging`, `integration/aof-race`,
+`integration/logging`, `integration/aof-race`, `integration/backup`,
 `windows/iocp`, `windows/aof`, `windows/regression`.
-`unit/scan` hung mid-unit (TUI died).
 More 8.10 units are added to `wintest.tcl` as they pass under the fences.

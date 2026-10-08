@@ -46,7 +46,10 @@ MSET spanning multiple prefetch batches (batch size 16)
 /GEOSEARCH box edges fuzzy
 # 10k-set SORT BY weight_* / wobj_*->weight: 172s + 123s then the
 # hash-field case exceeded the harness and dropped the client.
+# Big Quicklist is the same 10k-element SORT BY. Dataset creation still
+# runs; only the SORT commands are skipped.
 /Big Hash table: SORT
+/Big Quicklist:
 
 # SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
 # (script.c SCRIPT_READ_ONLY). Investigate with unit/scripting.
@@ -82,10 +85,13 @@ FUNCTION can processes create, delete and flush commands in AOF when doing "debu
 # 2026-08-22 Kernel-Power 41 reboot during unit/type/list BLPOP/BLMPOP
 # extra-client storm (AcceptEx + mapped heap). Do not re-run these.
 # Do not use /BLMOVE — that would skip green list-4 BLMOVEM.
+# blpop_one covers one and two waiters. Three or four waiters stay out.
 /BLPOP:
 /BLMPOP_
 /BRPOP:
 /BRPOPLPUSH
+BLMPOP with multiple blocked clients
+Unblock fairness is kept during nested unblock
 
 # --- DEFERRED: SWAPDB/FLUSHALL very slow on mapped heap (61s / >180s timeout) ---
 Coverage: basic SWAPDB test and unhappy path
@@ -115,6 +121,20 @@ query buffer resized correctly with fat argv
 # Re-enable with the replica start_server, not the setup-only path.
 /MIGRATE
 
+
+# --- DEFERRED: unit/scan bombs (2026-08-18 LiveKernel 141) ---
+# The TYPE+PATTERN expire scan ran ~75s; the machine rebooted before
+# write-load finished. #4906 is 100 SSCAN passes over ~1k elements.
+# Re-enable only as a timed solo, never inside the default list.
+/SCAN with expired keys with TYPE filter and PATTERN filter
+/SCAN guarantees check under write load
+/SCAN regression test for issue #4906
+
+# --- DEFERRED: set/zset bombs (same watchdog class as the list storm) ---
+# 100k-member set plus BGSAVE with rdb-key-save-delay at INT_MAX.
+# Four blocked BZMPOP clients; blpop_one only proved one and two waiters.
+SRANDMEMBER with a dict containing long chain
+BZMPOP with multiple blocked clients
 
 # --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---
 # Re-enable after the 13.x harness fences are proven and these are timed alone.

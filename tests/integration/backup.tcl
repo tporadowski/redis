@@ -20,14 +20,31 @@ proc create_local_aof {dir} {
     set aof_dir [file join $dir appendonlydir]
     file mkdir $aof_dir
     set fp [open [file join $aof_dir appendonly.aof.1.incr.aof] w]
+    fconfigure $fp -translation binary
     # the client uses db 9 by default
     puts -nonewline $fp [formatCommand select 9]
     puts -nonewline $fp [formatCommand set local-aof-key value]
     close $fp
 
     set fp [open [file join $aof_dir appendonly.aof.manifest] w]
+    fconfigure $fp -translation binary
     puts -nonewline $fp "file appendonly.aof.1.incr.aof seq 1 type i\n"
     close $fp
+}
+
+# BACKUP LIST is absolute. On Windows getcwd() and GetFullPathName use
+# backslashes, so a slash-joined pattern does not match and string match
+# would treat '\' as an escape.
+proc assert_backup_path {dir path} {
+    assert_equal "absolute" [file pathtype $path]
+    if {$::tcl_platform(platform) eq "windows"} {
+        set dir_norm [string tolower [string map [list \\ /] [file nativename [file normalize $dir]]]]
+        set path_norm [string tolower [string map [list \\ /] $path]]
+        assert_match "$dir_norm/*" $path_norm
+    } else {
+        assert_match "$dir/*" $path
+    }
+    assert {[file exists $path]}
 }
 
 tags {"backup external:skip"} {
@@ -166,6 +183,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         # handling when Redis creates a fresh INCR after the preload.
         set preload_aof [file join $preload_dir appendonly.aof.1.incr.aof]
         set fp [open $preload_aof w]
+        fconfigure $fp -translation binary
         puts -nonewline $fp [formatCommand select 9]
         puts -nonewline $fp [formatCommand set single-aof-key value]
         close $fp
@@ -278,20 +296,37 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {Preload file validates prefix, path, and extension} {
         # Reject ambiguous preload-file values before startup loading dispatches
-        # to the RDB or AOF path.
-        catch {exec src/redis-server --port 0 --preload-file aof:/tmp/foo} err
+        # to the RDB or AOF path. The CMake tree has no src/redis-server.
+        # On Windows a normalized absolute path is drive-absolute, so /tmp/foo
+        # fails the path check before the extension check.
+        set srvbin [redis_server_bin]
+        if {$::tcl_platform(platform) eq "windows"} {
+            set abs [string map [list \\ /] [file nativename [file normalize [pwd]]]]
+            set noext_aof "aof:$abs/noext"
+            set noext_rdb "rdb:$abs/noext"
+            set bad_paths [list \
+                "aof:$abs/./foo.aof" \
+                "aof:$abs/../foo.aof" \
+                "aof:$abs//foo.aof" \
+            ]
+        } else {
+            set noext_aof "aof:/tmp/foo"
+            set noext_rdb "rdb:/tmp/foo"
+            set bad_paths {
+                aof://tmp/foo.aof
+                aof:/tmp/./foo.aof
+                aof:/tmp/../foo.aof
+                aof:/tmp//foo.aof
+            }
+        }
+        catch {exec {*}[list $srvbin --port 0 --preload-file $noext_aof]} err
         assert_match {*preload-file must end with an extension*} $err
-        catch {exec src/redis-server --port 0 --preload-file rdb:/tmp/foo} err
+        catch {exec {*}[list $srvbin --port 0 --preload-file $noext_rdb]} err
         assert_match {*preload-file must end with an extension*} $err
-        catch {exec src/redis-server --port 0 --preload-file invalid:/tmp/foo.rdb} err
+        catch {exec {*}[list $srvbin --port 0 --preload-file invalid:/tmp/foo.rdb]} err
         assert_match {*argument must be in the format*} $err
-        foreach path {
-            aof://tmp/foo.aof
-            aof:/tmp/./foo.aof
-            aof:/tmp/../foo.aof
-            aof:/tmp//foo.aof
-        } {
-            catch {exec src/redis-server --port 0 --preload-file $path} err
+        foreach path $bad_paths {
+            catch {exec {*}[list $srvbin --port 0 --preload-file $path]} err
             assert_match {*normalized absolute file path*} $err
         }
     }
@@ -479,9 +514,11 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {backupdirname rejects paths at startup} {
         # backupdirname is a dirname under server dir, not a configurable path.
-        catch {exec src/redis-server --backupdirname /tmp/mybackup} err
+        # The CMake tree has no src/redis-server.
+        set srvbin [redis_server_bin]
+        catch {exec {*}[list $srvbin --backupdirname /tmp/mybackup]} err
         assert_match {*backupdirname can't be a path*} $err
-        catch {exec src/redis-server --backupdirname nested/mybackup} err
+        catch {exec {*}[list $srvbin --backupdirname nested/mybackup]} err
         assert_match {*backupdirname can't be a path*} $err
     }
 
@@ -496,17 +533,13 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
         set files [r backup list]
         assert_equal 1 [llength $files]
-        assert_equal "absolute" [file pathtype [lindex $files 0]]
-        assert_match "$server_dir/$bdirname/*" [lindex $files 0]
-        assert {[file exists [lindex $files 0]]}
+        assert_backup_path [file join $server_dir $bdirname] [lindex $files 0]
 
         assert_equal "OK" [r backup seal]
         set files [r backup list]
         assert_equal 3 [llength $files]
         foreach f $files {
-            assert_equal "absolute" [file pathtype $f]
-            assert_match "$server_dir/$bdirname/*" $f
-            assert {[file exists $f]}
+            assert_backup_path [file join $server_dir $bdirname] $f
         }
         assert_equal "OK" [r backup cleanup]
     }

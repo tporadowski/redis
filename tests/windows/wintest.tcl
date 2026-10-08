@@ -74,11 +74,21 @@ set units {
     unit/tracking
     unit/wait
     unit/info-keysizes
+    unit/info
+    unit/networking
+    unit/scan
+    unit/multi
+    unit/sort
+    unit/type/list
+    unit/type/set
+    unit/type/zset
+    unit/type/stream
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
     integration/logging
     integration/aof-race
+    integration/backup
     windows/iocp
     windows/aof
     windows/regression
@@ -119,7 +129,8 @@ if {![info exists ::env(QFORK_HEAP_BYTES)] || $::env(QFORK_HEAP_BYTES) eq ""} {
 
 # SYNC / replica-stream / cluster stay denied until DEFERRED-TESTS.md says otherwise.
 # Progress timeout is 600s so 10k-key SORT / list stress can finish on the
-# mapped heap. unit/scan still needs 900s (write-load + issue #4906).
+# mapped heap. A solo unit/scan still uses 900s; write-load and issue #4906
+# stay in the skip-list, so the fenced unit itself finishes in a few seconds.
 set has_single 0
 set singles {}
 for {set i 0} {$i < [llength $rest]} {incr i} {

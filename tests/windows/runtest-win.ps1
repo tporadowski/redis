@@ -54,17 +54,10 @@ if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }
 Set-Location $Root
 $wintest = Join-Path $PSScriptRoot "wintest.tcl"
 
-# Units that have caused 0x133 / LiveKernel 141 / Kernel-Power 41 reboots
-# on this machine. Solo runs still need REDIS_TEST_UNSAFE=1.
-$watchdogDeny = @(
-    "unit/scan",
-    "unit/sort",
-    "unit/multi",
-    "unit/type/list",
-    "unit/type/set",
-    "unit/type/zset",
-    "unit/type/stream"
-)
+# Former reboot units are on the default list. Their heavy cases stay in
+# skip-list.txt. Add a name here only after a solo run reboots the machine.
+# A listed unit still needs REDIS_TEST_UNSAFE=1, and only for a fenced subset.
+$watchdogDeny = @()
 
 if ($Single) {
     $units = @($Single)

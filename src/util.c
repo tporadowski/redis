@@ -1131,17 +1131,32 @@ char *getFileExtension(char *path) {
         return pch+1;
 }
 
-char *getFileBaseName(char *path) {
-    if (pathIsBaseName(path)) return path;
+/* pathIsBaseName rejects both separators. A Windows absolute path often
+ * contains only '\', so looking for '/' alone yields NULL and a wrapped
+ * length in getFilePath. */
+static char *lastPathSeparator(char *path) {
+    char *slash = strrchr(path, '/');
+    char *bslash = strrchr(path, '\\');
+    if (bslash != NULL && (slash == NULL || bslash > slash))
+        return bslash;
+    return slash;
+}
 
-    char *pch = strrchr(path,'/');
-    return pch+1;
+char *getFileBaseName(char *path) {
+    char *pch;
+
+    if (pathIsBaseName(path)) return path;
+    pch = lastPathSeparator(path);
+    if (pch == NULL) return path;
+    return pch + 1;
 }
 
 sds getFilePath(char *path) {
-    if (pathIsBaseName(path)) return NULL;
+    char *pch;
 
-    char *pch = strrchr(path,'/');
+    if (pathIsBaseName(path)) return NULL;
+    pch = lastPathSeparator(path);
+    if (pch == NULL) return NULL;
     return sdsnewlen(path, pch - path);
 }
 

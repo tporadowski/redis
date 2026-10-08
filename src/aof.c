@@ -863,8 +863,10 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
     sdsfree(relative_path);
     int ret = C_ERR;
 
-    /* Avoid unlinking the preload source when it is already at the target path. */
-    if (!strcmp(source_path, target_path)) {
+    /* Avoid unlinking the preload source when it is already at the target path.
+     * On Windows the preload spelling may use '/' while getAbsolutePath
+     * returns '\'; those are the same file. */
+    if (aofPathsEqual(source_path, target_path)) {
         ret = C_OK;
         goto cleanup;
     }
