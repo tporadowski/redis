@@ -108,14 +108,18 @@ proc start_server_and_kill_it {overrides code} {
     kill_server $srv
 }
 
-# Make the RDB file unreadable
-file attributes [file join $server_path dump.rdb] -permissions 0222
-
-# Detect root account (it is able to read the file even with 002 perm)
+# Make the RDB file unreadable. Windows Tcl has no Unix -permissions
+# option, so this case cannot be constructed; skip it the same way the
+# root account is skipped below.
 set isroot 0
-catch {
-    open [file join $server_path dump.rdb]
+if {[catch {file attributes [file join $server_path dump.rdb] -permissions 0222}]} {
     set isroot 1
+} else {
+    # Detect root account (it is able to read the file even with 002 perm)
+    catch {
+        open [file join $server_path dump.rdb]
+        set isroot 1
+    }
 }
 
 # Now make sure the server aborted with an error
@@ -132,8 +136,8 @@ if {!$isroot} {
     }
 }
 
-# Fix permissions of the RDB file.
-file attributes [file join $server_path dump.rdb] -permissions 0666
+# Fix permissions of the RDB file. No-op where -permissions is absent.
+catch {file attributes [file join $server_path dump.rdb] -permissions 0666}
 
 # Corrupt its CRC64 checksum.
 set filesize [file size [file join $server_path dump.rdb]]

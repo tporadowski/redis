@@ -130,6 +130,7 @@ set units {
     integration/psync2
     integration/replication-iothreads
     integration/replication-buffer
+    integration/rdb
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
