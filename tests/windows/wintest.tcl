@@ -128,6 +128,7 @@ set units {
     integration/dismiss-mem
     integration/corrupt-dump-fuzzer
     integration/psync2
+    integration/replication-iothreads
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
