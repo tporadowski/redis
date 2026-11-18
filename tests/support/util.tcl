@@ -203,13 +203,18 @@ proc count_log_lines {srv_idx} {
     set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
 }
 
-# returns the number of times a line with that pattern appears in a file
+# returns the number of times a line with that pattern appears in a file.
+# Callers pass the same expressions upstream gave to grep. A pattern Tcl
+# cannot compile (a leading *) falls back to a substring match.
 proc count_message_lines {file pattern} {
     set res 0
     if {![file exists $file]} { return 0 }
     set fd [open $file r]
     while {[gets $fd line] >= 0} {
-        if {[string match "*$pattern*" $line]} { incr res }
+        if {[catch {regexp -- $pattern $line} matched]} {
+            set matched [string match "*$pattern*" $line]
+        }
+        if {$matched} { incr res }
     }
     close $fd
     return $res

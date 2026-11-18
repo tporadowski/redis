@@ -135,6 +135,7 @@ set units {
     integration/aof
     integration/redis-cli
     integration/corrupt-dump
+    integration/aof-multi-part
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

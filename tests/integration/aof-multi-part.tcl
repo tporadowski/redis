@@ -676,25 +676,38 @@ tags {"external:skip"} {
     }
 
     test {Multi Part AOF can handle appendfilename contains whitespaces} {
-        start_server [list overrides [list appendonly yes appendfilename "\" file seq \\n\\n.aof \""]] {
-            set dir [get_redis_dir]
-            set aof_manifest_name [format "%s/%s/%s%s" $dir "appendonlydir" " file seq \n\n.aof " $::manifest_suffix]
-            set redis [redis [srv host] [srv port] 0 $::tls]
-
-            assert_equal OK [$redis set k1 v1]
-
-            $redis bgrewriteaof
-            waitForBgrewriteaof $redis
-
-            assert_aof_manifest_content $aof_manifest_name {
-                {file " file seq \n\n.aof .2.base.rdb" seq 2 type b}
-                {file " file seq \n\n.aof .2.incr.aof" seq 2 type i}
+        # The quoted config value turns \n into a newline inside the file
+        # name. Windows rejects that name when the base AOF is renamed.
+        if {$::tcl_platform(platform) eq "windows"} {
+            start_server [list overrides [list appendonly yes appendfilename "\" file seq \\n\\n.aof \""] wait_ready false] {
+                wait_for_condition 100 50 {
+                    ! [is_alive [srv pid]]
+                } else {
+                    fail "Server kept running with a newline in appendfilename"
+                }
+                assert_equal 1 [count_message_lines [srv 0 stdout] "Error moving temp append only file on the final destination"]
             }
+        } else {
+            start_server [list overrides [list appendonly yes appendfilename "\" file seq \\n\\n.aof \""]] {
+                set dir [get_redis_dir]
+                set aof_manifest_name [format "%s/%s/%s%s" $dir "appendonlydir" " file seq \n\n.aof " $::manifest_suffix]
+                set redis [redis [srv host] [srv port] 0 $::tls]
 
-            set d1 [$redis debug digest]
-            $redis debug loadaof
-            set d2 [$redis debug digest]
-            assert {$d1 eq $d2}
+                assert_equal OK [$redis set k1 v1]
+
+                $redis bgrewriteaof
+                waitForBgrewriteaof $redis
+
+                assert_aof_manifest_content $aof_manifest_name {
+                    {file " file seq \n\n.aof .2.base.rdb" seq 2 type b}
+                    {file " file seq \n\n.aof .2.incr.aof" seq 2 type i}
+                }
+
+                set d1 [$redis debug digest]
+                $redis debug loadaof
+                set d2 [$redis debug digest]
+                assert {$d1 eq $d2}
+            }
         }
 
         clean_aof_persistence $aof_dirpath
