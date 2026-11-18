@@ -124,6 +124,7 @@ set units {
     integration/shutdown
     integration/psync2-pingoff
     integration/failover
+    integration/replication-4
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
