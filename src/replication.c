@@ -199,6 +199,19 @@ void putReplicasInPendingClientsToIOThreads(void) {
             replicaFromIOThreadHasPendingRead(replica) ||
             clientHasPendingCompressionFlush(replica))
         {
+#ifdef _WIN32
+            /* The read event already fired while this replica sat on the
+             * main thread, and IOCP will not fire it again. Drop the probe
+             * so the IO thread's recv() can take the buffered ack. */
+            if (replicaFromIOThreadHasPendingRead(replica) &&
+                replica->conn && replica->conn->fd >= 0)
+            {
+                pauseIOThread(replica->tid);
+                WSIOCP_CancelQueuedRead(replica->conn->fd);
+                WSIOCP_HoldReadKick(replica->conn->fd);
+                resumeIOThread(replica->tid);
+            }
+#endif
             enqueuePendingClienstToIOThreads(replica);
         }
     }

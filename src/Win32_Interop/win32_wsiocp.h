@@ -101,6 +101,8 @@ int WSIOCP_QueueWriteReady(int rfd);
 int WSIOCP_CancelAndDrainRead(int rfd);
 /* Cancel outstanding zero-byte WSARecv; do not drain IOCP (ConnectEx/AcceptEx). */
 void WSIOCP_CancelQueuedRead(int rfd);
+/* Keep the stuck-read kick from posting a new probe for one interval. */
+void WSIOCP_HoldReadKick(int rfd);
 /* Re-arm zero-byte WSARecv if AE_READABLE and nothing is queued. */
 int WSIOCP_RearmRead(int rfd);
 /* 1 if the TCP peer has sent FIN or the connection is already closing.

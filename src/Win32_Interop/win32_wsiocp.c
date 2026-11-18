@@ -644,6 +644,19 @@ void WSIOCP_CancelQueuedRead(int rfd) {
     WSIOCP_CancelAndDrainRead(rfd);
 }
 
+void WSIOCP_HoldReadKick(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    ULONGLONG now;
+
+    if (!ss) return;
+    now = GetTickCount64();
+    /* The caller is about to recv() the bytes a probe was holding.
+     * A kick in that window would post another probe and recv()
+     * would return EAGAIN. */
+    ss->read_idle_since = now;
+    ss->read_kicked_ms = now;
+}
+
 int WSIOCP_RearmRead(int rfd) {
     iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
     if (!ss) return 0;
@@ -1182,6 +1195,34 @@ static int forward_pending(aeEventLoop *el) {
     return n > 0;
 }
 
+/* Post a 0-byte probe when this socket is readable and none is queued.
+ * Returns 1 if a probe was posted. */
+static int requeue_idle_read(iocpSockState *ss, int fd, ULONGLONG now) {
+    int payload;
+
+    if (ss->read_kicked_ms != 0 && now - ss->read_kicked_ms < READ_KICK_MS)
+        return 0;
+    if (InterlockedCompareExchange(&ss->read_inflight, 0, 0) != 0)
+        return 0;
+    if (ss->masks & (READ_QUEUED | CONNECT_PENDING | CLOSE_PENDING | LISTEN_SOCK))
+        return 0;
+    if ((ss->masks & AE_READABLE) == 0)
+        return 0;
+    /* A probe that just completed is rearmed by its handler. Posting
+     * another one here races that recv(). */
+    if (ss->read_idle_since != 0 && now - ss->read_idle_since < READ_KICK_MS)
+        return 0;
+    payload = socket_payload_pending(fd);
+    /* idle_since stays 0 when the probe was lost before any completion.
+     * Bytes already buffered still need a probe; an empty socket does
+     * not, until a completion has been observed. */
+    if (!payload && ss->read_idle_since == 0)
+        return 0;
+    ss->read_kicked_ms = now;
+    WSIOCP_QueueNextRead(fd);
+    return 1;
+}
+
 /* A readable socket with no probe never wakes. One whose probe has
  * already seen bytes (FIONREAD > 0) but no completion is stuck; cancel
  * that probe so this poll can deliver it. Idle probes stay queued. */
@@ -1209,7 +1250,15 @@ static void kick_stuck_reads(aeEventLoop *el) {
         SOCKET s;
         ULONGLONG queued;
 
-        if (!ss || ss->iocp != state->iocp) continue;
+        if (!ss) continue;
+        /* IO-thread clients stay on the main port. Their handler loop
+         * still has to repost a missing probe; the completion is
+         * forwarded back from the port that owns the socket. */
+        if (ss->iocp != state->iocp) {
+            if (ss->dest_el == el)
+                requeue_idle_read(ss, fd, now);
+            continue;
+        }
         if ((ss->masks & AE_READABLE) == 0) continue;
         if (ss->masks & (CONNECT_PENDING | CLOSE_PENDING | LISTEN_SOCK))
             continue;
@@ -1218,13 +1267,7 @@ static void kick_stuck_reads(aeEventLoop *el) {
 
         if (InterlockedCompareExchange(&ss->read_inflight, 0, 0) == 0 &&
             (ss->masks & READ_QUEUED) == 0) {
-            if (ss->read_idle_since != 0 &&
-                now - ss->read_idle_since >= READ_KICK_MS &&
-                (ss->read_kicked_ms == 0 ||
-                 now - ss->read_kicked_ms >= READ_KICK_MS)) {
-                ss->read_kicked_ms = now;
-                WSIOCP_QueueNextRead(fd);
-            }
+            requeue_idle_read(ss, fd, now);
             continue;
         }
 

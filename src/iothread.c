@@ -823,6 +823,24 @@ int processClientsFromMainThread(IOThread *t) {
             connSetReadHandler(c->conn, readQueryFromClient);
         }
 
+#ifdef _WIN32
+        /* One-shot read readiness was consumed while reads were disabled.
+         * The main thread dropped that probe; take the bytes now. */
+        if ((c->flags & (CLIENT_SLAVE | CLIENT_MASTER)) &&
+            replicaFromIOThreadHasPendingRead(c) &&
+            c->conn && c->conn->fd >= 0)
+        {
+            int fd = c->conn->fd;
+            readQueryFromClient(c->conn);
+            if (c->conn && c->conn->fd == fd &&
+                (c->io_flags & CLIENT_IO_READ_ENABLED) &&
+                c->conn->read_handler)
+                WSIOCP_QueueNextRead(fd);
+            if (c->io_thread_client_list_node == NULL)
+                continue;
+        }
+#endif
+
         /* Add the client to the compression clients list. */
         if (c->compression_state != NULL &&
             c->io_thread_compression_clients_node == NULL)
