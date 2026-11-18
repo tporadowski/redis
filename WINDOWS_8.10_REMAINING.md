@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
-| **Date** | 2026-08-22 |
-| **Status** | 18.1 widening default wintest |
+| **Date** | 2026-11-18 |
+| **Status** | 18.1 done — default wintest is the Windows-runnable suite |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -16,16 +16,18 @@ Do **not** introduce `PORT_LONG`. Do **not** start Rust modules unless asked. Do
 
 ## What is already at core parity
 
-TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF + `BACKUP`, mapped-heap QFork COW (`BGSAVE` / `BGREWRITEAOF`), cluster (MEET / slots / failover smoked), Sentinel + scripts, IO threads (including TLS + `io-threads 4`), Windows Service + Event Log, zip layout, 5.0 RDB load.
+TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF + `BACKUP`, mapped-heap QFork COW (`BGSAVE` / `BGREWRITEAOF`), cluster (MEET / slots / failover smoked, plus `tests/unit/cluster`), Sentinel + scripts, IO threads (including TLS + `io-threads 4`), Windows Service + Event Log, zip layout, 5.0 RDB load.
+
+Default `tests/windows/runtest-win.ps1` runs 94 Tcl units: every `tests/unit`, `tests/unit/type`, and `tests/unit/cluster` stem except `tests/unit/moduleapi`, the Windows non-blocking type files, and the integration files named in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). `needs:repl`, `repl`, and `cluster` are not denied. Two consecutive full runs on 2026-11-18 exited 0.
 
 ---
 
 ## Priority
 
-13.x–14.x and 17.1–17.6 are **Done**. **18.1** is in progress: more Linux `tests/unit` files on the default `wintest` list.
+13.x–14.x, 17.1–17.6, and **18.1** are **Done**. The default Tcl run is no longer a fenced subset.
 
-1. **18.x** — widen the fenced Tcl suite **without** extra-client storms (no full `unit/type/list`, no `scan`). Next safe slice is named non-blocking tests only.
-2. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
+1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
+2. **Still outside the default run** — `tests/unit/moduleapi`, top-level `tests/cluster`, `tests/sentinel`, `tests/modules`, integration files not named in `DEFERRED-TESTS.md`, and passes that need `--tls` or `--large-memory`. GitHub Actions `windows.yml` builds and smokes; it does not run `runtest-win.ps1`.
 
 ---
 
@@ -38,21 +40,21 @@ TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF 
 | 11.3 | QFork | Done | QFork-child `BGREWRITEAOF`; restart loads MP-AOF |
 | 12.1 | Replication | Done | Diskful `PSYNC`; `SET` after full sync visible on replica |
 | 12.2 | Replication | Done | Diskless `PSYNC` + `rdbchannel`; live `SET` after sync |
-| 13.1 | Tests | Done | Fenced `wintest`: printver, incr, string, keyspace, expire, auth, protocol. Inventory: `tests/windows/DEFERRED-TESTS.md` |
-| 13.2 | Tests | Done | AUTH replica sync, binary `MASTERAUTH` (rdbchannel yes/no), AUTH-fail `maxclients`. Handshake: `connRead` + `WSIOCP_CancelQueuedRead` (no IOCP drain). Windows test waits on replica log, not INFO poll. |
-| 14.1 | Client | Done | `shutdown(SD_SEND)` + drain before `closesocket`; protocol `-ERR` / QUIT `+OK` visible. Desync flood tests still skip (raw Tcl) |
+| 13.1 | Tests | Done | `wintest` started at printver, incr, string, keyspace, expire, auth, protocol. Inventory: `tests/windows/DEFERRED-TESTS.md` |
+| 13.2 | Tests | Done | AUTH replica sync, binary `MASTERAUTH` (rdbchannel yes/no), AUTH-fail `maxclients`. Handshake: `connRead` + `WSIOCP_CancelQueuedRead` (no IOCP drain). Windows test waits on replica log, not INFO poll. Replication Tcl stays on the default run (18.1). |
+| 14.1 | Client | Done | `shutdown(SD_SEND)` + drain before `closesocket`; protocol `-ERR` / QUIT `+OK` visible. Desync flood cases run inside `unit/protocol`. |
 | 14.2 | Vecsets | Done | clang-cl AVX2 via `__cpuid`/`_xgetbv`; AVX-512 stays off |
 | 14.3 | AF_UNIX | Done | `smoke_unix.ps1` checks socket exists + NTFS owner/DACL; `unixsocketperm` is not Linux `0700` |
 | 15.1 | Product | Deferred | Tag `v8.10.0-win.1` + switch default branch — **only when asked** |
 | 16.1 | Modules | Out of queue | Bundled Rust Search/JSON/TS/Bloom — next program |
 | 16.2 | Modules | Out of queue | Faithful `RedisModule_Fork` stack continuation — Decision 26; `SetForkChildFn` stays the contract |
-| 17.1 | SCAN | Partial | COUNT parsed as `long long` (LLP64). Isolated COUNT overflow + `{foo}-*` MATCH green. Full `unit/scan` parked (LiveKernel 141) |
+| 17.1 | SCAN | Done | COUNT parsed as `long long` (LLP64). Full `unit/scan` is on the default run (18.1), including the expire+TYPE case that previously bugchecked. |
 | 17.2 | QFork | Done | Block-first alloc: search 4 MB blocks, then bit-run in `used[]`. No per-slot walk of the heap |
 | 17.3 | QFork | Done | Unmap a 4 MB block when all 64 slots are free; hold the VA with `MEM_RESERVE`. No unmap while a COW child is live (`QForkHoldUnmap`) |
 | 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 | 17.5 | QFork | Done | `dirty_decay_ms:0,muzzy_decay_ms:0`; `CommitHeapBlock` decommit is `PurgePages` so `arena.purge` / decay actually discard |
 | 17.6 | QFork | Done | jemalloc `LG_PAGE=20` (1 MB); 4 slots per 4 MB map. 22 still OOM-risk; 16 was 64 slots |
-| 18.1 | Tests | Partial | Default `wintest` also has dump, replybufsize, querybuf, functions (MIGRATE / function-kill / querybuf-shrink skipped). EVAL-write cases stay skipped (script flags). `acl-v2` parked (server drop). Full list/set/zset/stream/scan denied. `introspection` parked (`DEBUG SLEEP` maxAGE hang). |
+| 18.1 | Tests | Done | Default `wintest` is 94 units: all `unit` / `unit/type` / `unit/cluster` stems except `moduleapi`, plus Windows type files and the named integration files. Replication, cluster, blocking pops, SCAN, KEYS, RANDOMKEY, SORT, MIGRATE, FLUSH/SWAPDB, query-buffer shrink, script and function kill, MONITOR, and extra clients run. Skip-list is OS-impossible only. Two consecutive `runtest-win.ps1` runs exited 0 (2026-11-18). |
 
 ---
 
@@ -70,25 +72,29 @@ jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the ma
 
 **DoD for 12.1:** Two processes, `repl-diskless-sync no` + `repl-rdb-channel no`, `REPLICAOF`, log “Finished with success”, `SET` on master visible on replica. **Met.**
 
-**DoD for 12.2:** `repl-diskless-sync yes` (rdbchannel on and off) completes the same check, including a live `SET` after the link is up. Replica `repl-diskless-load flushdb` also loaded from the socket. **Met.** Replica AUTH / `MASTERAUTH` Tcl is in the 13.2 default run. `SYNC` stream / `attach_to_replication_stream` stay skipped.
+**DoD for 12.2:** `repl-diskless-sync yes` (rdbchannel on and off) completes the same check, including a live `SET` after the link is up. Replica `repl-diskless-load flushdb` also loaded from the socket. **Met.** Replica AUTH / `MASTERAUTH` Tcl is in the default run. `attach_to_replication_stream` cases inside units such as `dump` and `expire` run with the rest of 18.1. A busy script sees `connected_slaves` reach 0 after the replica drops: `connBlock` cancels the queued IOCP read before diskless load, and `whileBlockedCron` drops a replica whose TCP peer has already closed.
 
 ---
 
 ## 13 — Test suite
 
-Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has smokes plus a widening 13.1 `wintest.tcl` list.
+Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port's default runner is `tests/windows/runtest-win.ps1`: `smoke_rdb50`, then one `wintest.tcl` unit per process, with leftover `redis-server.exe` killed between units. Progress timeout is 1800s. `QFORK_HEAP_BYTES` defaults to 512M and is raised only when a correct workload does not fit.
 
-**DoD for 13.1:** Met under fences. **13.2:** Met. AUTH replica sync, binary `MASTERAUTH`, and AUTH-fail `maxclients` are in the default fenced run. Remaining replica Tcl is the `SYNC` stream group (`DEFERRED-TESTS.md`).
+**DoD for 13.1:** Met. **13.2:** Met. **18.1:** Met. AUTH replica sync, binary `MASTERAUTH`, AUTH-fail `maxclients`, and the rest of the replication and cluster units are in that run.
 
-**Stay skipped unless the OS grows the feature:** abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize`, `SIGSTOP` process-state tests, gcc `.so` moduleapi.
+**Stay skipped unless the OS grows the feature:** abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize`, `SIGSTOP`/`SIGCONT` process-state tests (`pause process`, `resume process`, stopped clients, `DEBUG SLEEP` while stopped). `tests/unit/moduleapi` is not on the list: those files load `tests/modules/*.so`, and this CMake build does not build those test modules as DLLs. `pause_process` / `resume_process` in `tests/support/util.tcl` go through `redis-test-launcher.exe` and do run.
 
-**Deferred, not dropped:** every other skip is inventoried in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). Re-run those groups when the unblock column is done. Two `0x133 DPC_WATCHDOG_VIOLATION` resets (2026-08-17 12.x, 2026-08-18 13.x probe) are why the default run now: omits AF_UNIX unless `REDIS_TEST_UNIXSOCKET=1`, caps QFork at `QFORK_HEAP_BYTES=512M`, denies `needs:repl`/`repl`/`cluster`, skips `SYNC`/long `KEYS`/`RANDOMKEY`, runs one unit per process, kills leftover `redis-server`, and expects Defender exclusions (`tests/windows/defender-exclude.ps1`).
+**Still not the default run:** top-level `tests/cluster`, `tests/sentinel`, `tests/modules`, and integration files other than the ones named in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). Upstream-style ignores stay: `large-memory` without `--large-memory`, `if {$::tls}` bodies without `--tls`, the `if 0` block in `unit/gcra.tcl`, and branches the file already takes only when `uname` is Linux or `/proc` exists. `unit/oom-score-adj.tcl` hits `exec uname -s` first; Git Tcl reports `MSYS_NT-…`, so the Linux body does not run.
+
+`start_server` does not listen on AF_UNIX unless the test sets `REDIS_TEST_UNIXSOCKET=1` or passes `unixsocket`. Tests that need a pathname socket do that themselves.
+
+Earlier passes on this host bugchecked during blocking-pop storms, SCAN write-load, and long KEYS patterns (`0x133` DPC_WATCHDOG_VIOLATION, LiveKernel 141, Kernel-Power 41). Those cases are in the default run. A reboot is not a reason to put them back on the skip list. The one-unit-per-process loop and leftover `redis-server` kill stay.
 
 ---
 
 ## 14 — Smaller contracts
 
-- **14.1** Met: `fdapi_close` does `shutdown(SD_SEND)` then non-blocking recv drain so Windows does not RST and drop the just-written `-ERR` / `+OK`. `unit/protocol` (minus the three desync flood cases), `unit/quit`, and unauthenticated multibulk are green. Desync tests stay on the skip-list: the client keeps writing after close and `gets` is empty.
+- **14.1** Met: `fdapi_close` does `shutdown(SD_SEND)` then non-blocking recv drain so Windows does not RST and drop the just-written `-ERR` / `+OK`. `unit/protocol` (including the desync flood cases), `unit/quit`, and unauthenticated multibulk are on the default run.
 - **14.2** Met: HNSW AVX2 on clang-cl uses `__cpuid`/`_xgetbv` (OSXSAVE + YMM). `__builtin_cpu_supports` is not used on `_WIN32`. AVX-512 stays scalar-off.
 - **14.3** Met: `smoke_unix.ps1` asserts the socket file exists and prints NTFS owner/DACL. `unixsocketperm` still goes through CRT `_chmod` (owner write bit only), not POSIX `0700`.
 
@@ -98,7 +104,7 @@ Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port has
 
 ## 17 — SCAN / QFork heap
 
-**17.1** Met: `SCAN COUNT` uses `long long` so LLP64 accepts the same values as Linux `long`. Isolated Tcl green. Full `unit/scan` stays off default `wintest` (2026-08-18 LiveKernel 141 during expire+TYPE).
+**17.1** Met: `SCAN COUNT` uses `long long` so LLP64 accepts the same values as Linux `long`. Full `unit/scan` is on the default run and passed with the rest of 18.1, including the expire+TYPE case from the 2026-08-18 LiveKernel 141.
 
 **17.2** Met: `AllocHeapBlock` searches **4 MB blocks** first (skip `used == ~0` in O(1)), then a bit-run inside the block. Cross-block seam and multi-block requests stay correct. Smoke: `qfork_heap_smoke` (burst + holes + 8 MB + seam) and `mapped_jemalloc_smoke`.
 
