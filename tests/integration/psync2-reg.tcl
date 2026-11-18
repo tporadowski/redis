@@ -40,7 +40,15 @@ start_server {} {
     }
 
     set cycle_start_time [clock milliseconds]
-    set bench_pid [exec src/redis-benchmark -s $R_unixsocket(0) -n 10000000 -r 1000 incr __rand_int__ > /dev/null &]
+    # The CMake tree has no src/redis-benchmark. TCP is the same traffic
+    # the Unix socket was driving, and start_server does not listen on
+    # AF_UNIX unless the test asks.
+    if {$::tcl_platform(platform) eq "windows"} {
+        set bench_exe [file nativename [file join [file dirname [redis_server_bin]] redis-benchmark.exe]]
+        set bench_pid [exec $bench_exe -h $R_host(0) -p $R_port(0) -n 10000000 -r 1000 incr __rand_int__ > NUL &]
+    } else {
+        set bench_pid [exec src/redis-benchmark -s $R_unixsocket(0) -n 10000000 -r 1000 incr __rand_int__ > /dev/null &]
+    }
     while 1 {
         set elapsed [expr {[clock milliseconds]-$cycle_start_time}]
         if {$elapsed > $duration*1000} break
