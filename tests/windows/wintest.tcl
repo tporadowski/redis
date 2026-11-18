@@ -126,6 +126,7 @@ set units {
     integration/failover
     integration/replication-4
     integration/dismiss-mem
+    integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
