@@ -66,6 +66,9 @@ typedef struct aeApiState {
     int accept_rearm_pending;
     int write_rearm_pending;
     int write_rearm_cursor;
+    /* 0-byte reads stuck after NtSuspendProcess. */
+    unsigned long long next_read_kick_ms;
+    int read_kick_cursor;
     /* Completions already pulled from this loop's port. A nested poll
      * (busy script) must see them; they must not all be delivered before
      * the handler runs. */

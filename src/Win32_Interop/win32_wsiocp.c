@@ -47,6 +47,23 @@
 #define WRITE_REARM_BATCH 64
 #define ACCEPT_REARM_MS 100
 #define WRITE_REARM_MS 10
+#define READ_KICK_MS 50
+#define READ_KICK_STALE_MS 100
+#define READ_KICK_BATCH 32
+/* Highest rfd that has ever had socket state. IO-thread clients stay on
+ * the main port, so the main loop's maxfd does not include them. */
+static volatile LONG iocp_fd_limit;
+
+static void note_iocp_fd(int fd) {
+    LONG cur;
+    if (fd < 0) return;
+    cur = iocp_fd_limit;
+    while (fd > cur) {
+        LONG prev = InterlockedCompareExchange(&iocp_fd_limit, (LONG)fd, cur);
+        if (prev == cur) break;
+        cur = prev;
+    }
+}
 #define SUCCEEDED_WITH_IOCP(ok) ((ok) || (GetLastError() == ERROR_IO_PENDING))
 #define WSIOCP_WAKE_KEY ((ULONG_PTR)(INT_PTR)-2)
 
@@ -79,6 +96,10 @@ typedef struct iocpSockState {
     int connect_err;
     int accept_rearm_logged;
     int write_rearm_logged;
+    unsigned long long read_queued_ms;
+    unsigned long long read_kicked_ms;
+    unsigned long long read_idle_since;
+    volatile LONG read_inflight;
 } iocpSockState;
 
 typedef struct iocpPendingComp {
@@ -141,6 +162,21 @@ static void clear_write_rearm(iocpSockState *ss) {
         st->write_rearm_pending--;
 }
 
+static void mark_read_queued(iocpSockState *ss) {
+    ss->masks |= READ_QUEUED;
+    ss->read_queued_ms = GetTickCount64();
+    ss->read_idle_since = 0;
+}
+
+static void clear_read_queued(iocpSockState *ss) {
+    int was = (ss->masks & READ_QUEUED) != 0;
+    LONG inflight = InterlockedExchange(&ss->read_inflight, 0);
+    ss->masks &= ~READ_QUEUED;
+    ss->read_queued_ms = 0;
+    if (was || inflight)
+        ss->read_idle_since = GetTickCount64();
+}
+
 static void unix_listen_add(int rfd) {
     int i;
     for (i = 0; i < unix_listen_n; i++)
@@ -187,6 +223,7 @@ static iocpSockState *WSIOCP_GetSocketState(int fd) {
         *slot = (iocpSockState *)walloc(sizeof(iocpSockState));
         if (*slot) (*slot)->fd = fd;
     }
+    note_iocp_fd(fd);
     return *slot;
 }
 
@@ -277,18 +314,17 @@ int WSIOCP_Associate(int fd, void *iocp) {
     return 0;
 }
 
-static void wsiocp_fwd_cb(aeEventLoop *el, int fd, void *data, int mask) {
+static void drain_forwarded(aeEventLoop *el) {
     aeApiState *st = (aeApiState *)el->apidata;
-    char buf[32];
     int i, n;
     int *fds, *masks;
-    UNUSED(fd);
-    UNUSED(data);
-    UNUSED(mask);
     if (!st || !st->fwd_cs) return;
-    while (read(st->fwd_rfd, buf, sizeof(buf)) > 0) {}
     EnterCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
     n = st->fwd_n;
+    if (n == 0) {
+        LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+        return;
+    }
     fds = st->fwd_fds;
     masks = st->fwd_masks;
     st->fwd_fds = NULL;
@@ -302,13 +338,26 @@ static void wsiocp_fwd_cb(aeEventLoop *el, int fd, void *data, int mask) {
         aeFileEvent *fe;
         if (rfd < 0 || rfd > el->maxfd) continue;
         fe = &el->events[rfd];
-        if ((ev & AE_READABLE) && (fe->mask & AE_READABLE) && fe->rfileProc)
+        if ((ev & AE_READABLE) && (fe->mask & AE_READABLE) && fe->rfileProc) {
             fe->rfileProc(el, rfd, fe->clientData, AE_READABLE);
+            fe = &el->events[rfd];
+        }
         if ((ev & AE_WRITABLE) && (fe->mask & AE_WRITABLE) && fe->wfileProc)
             fe->wfileProc(el, rfd, fe->clientData, AE_WRITABLE);
     }
     wfree(fds);
     wfree(masks);
+}
+
+static void wsiocp_fwd_cb(aeEventLoop *el, int fd, void *data, int mask) {
+    aeApiState *st = (aeApiState *)el->apidata;
+    char buf[32];
+    UNUSED(fd);
+    UNUSED(data);
+    UNUSED(mask);
+    if (!st || !st->fwd_cs) return;
+    while (read(st->fwd_rfd, buf, sizeof(buf)) > 0) {}
+    drain_forwarded(el);
 }
 
 static void wsiocp_forward(aeEventLoop *dest, int rfd, int mask) {
@@ -336,6 +385,9 @@ static void wsiocp_forward(aeEventLoop *dest, int rfd, int mask) {
     st->fwd_masks[st->fwd_n] = mask;
     st->fwd_n++;
     LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    /* The pipe's 0-byte recv can miss this byte after a suspend. Wake the
+     * destination port directly; poll drains the queue without it too. */
+    WSIOCP_WakeLoop(dest);
     (void)write(st->fwd_wfd, &b, 1);
 }
 
@@ -460,17 +512,19 @@ int WSIOCP_QueueNextRead(int fd) {
     if ((ss->masks & SOCKET_ATTACHED) == 0 ||
         (ss->masks & (READ_QUEUED | CONNECT_PENDING | CLOSE_PENDING)) != 0)
         return 0;
+    if (InterlockedCompareExchange(&ss->read_inflight, 1, 0) != 0)
+        return 0;
 
     memset(&ss->ov_read, 0, sizeof(ss->ov_read));
     zbuf.buf = zreadchar;
     zbuf.len = 0;
     rc = FDAPI_WSARecv(fd, &zbuf, 1, &recvd, &flags, &ss->ov_read, NULL);
     if (SUCCEEDED_WITH_IOCP(rc == 0)) {
-        ss->masks |= READ_QUEUED;
+        mark_read_queued(ss);
         return 0;
     }
     errno = FDAPI_WSAGetLastError();
-    ss->masks &= ~READ_QUEUED;
+    clear_read_queued(ss);
     return -1;
 }
 
@@ -554,7 +608,7 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
             for (k = q->i; k < q->n; k++) {
                 if (q->items[k].entry.lpOverlapped == &ss->ov_read) {
                     q->items[k].entry.lpOverlapped = NULL;
-                    ss->masks &= ~READ_QUEUED;
+                    clear_read_queued(ss);
                     return 0;
                 }
             }
@@ -572,13 +626,13 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
         if (!GetQueuedCompletionStatusEx(iocp, &ent, 1, &n, left, FALSE) || n == 0)
             break;
         if (ent.lpOverlapped == &ss->ov_read) {
-            ss->masks &= ~READ_QUEUED;
+            clear_read_queued(ss);
             break;
         }
         PostQueuedCompletionStatus(iocp, ent.dwNumberOfBytesTransferred,
                                    ent.lpCompletionKey, ent.lpOverlapped);
     }
-    ss->masks &= ~READ_QUEUED;
+    clear_read_queued(ss);
     return 0;
 }
 
@@ -1093,6 +1147,128 @@ int WSIOCP_FiredEventValid(aeEventLoop *el, int fd, void *backend_data) {
            (ss->masks & CLOSE_PENDING) == 0;
 }
 
+/* True when this loop already pulled the read probe's completion. */
+static int read_completion_pending(aeEventLoop *el, OVERLAPPED *ov) {
+    aeApiState *st = (aeApiState *)el->apidata;
+    iocpPendingQueue *q;
+    int k;
+
+    if (!st) return 0;
+    q = (iocpPendingQueue *)st->pending_comps;
+    if (!q) return 0;
+    for (k = q->i; k < q->n; k++) {
+        if (q->items[k].entry.lpOverlapped == ov)
+            return 1;
+    }
+    return 0;
+}
+
+static int socket_payload_pending(int rfd) {
+    SOCKET s = (SOCKET)FDAPI_GetSocket(rfd);
+    u_long avail = 0;
+
+    if (s == INVALID_SOCKET) return 0;
+    if (ioctlsocket(s, FIONREAD, &avail) != 0) return 0;
+    return avail > 0;
+}
+
+static int forward_pending(aeEventLoop *el) {
+    aeApiState *st = (aeApiState *)el->apidata;
+    int n;
+    if (!st || !st->fwd_cs) return 0;
+    EnterCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    n = st->fwd_n;
+    LeaveCriticalSection((CRITICAL_SECTION *)st->fwd_cs);
+    return n > 0;
+}
+
+/* A readable socket with no probe never wakes. One whose probe has
+ * already seen bytes (FIONREAD > 0) but no completion is stuck; cancel
+ * that probe so this poll can deliver it. Idle probes stay queued. */
+static void kick_stuck_reads(aeEventLoop *el) {
+    aeApiState *state = (aeApiState *)el->apidata;
+    ULONGLONG now;
+    int fd_count, offset, checked;
+
+    if (!state) return;
+    now = GetTickCount64();
+    if (state->next_read_kick_ms != 0 && now < state->next_read_kick_ms)
+        return;
+    state->next_read_kick_ms = now + READ_KICK_MS;
+
+    /* Client fds are registered on the IO thread, but their completions
+     * stay on this port. maxfd here does not cover them. */
+    fd_count = (int)iocp_fd_limit + 1;
+    if (el->maxfd + 1 > fd_count)
+        fd_count = el->maxfd + 1;
+    if (fd_count <= 0) return;
+    checked = 0;
+    for (offset = 0; offset < fd_count && checked < READ_KICK_BATCH; offset++) {
+        int fd = (state->read_kick_cursor + offset) % fd_count;
+        iocpSockState *ss = WSIOCP_GetExistingSocketState(fd);
+        SOCKET s;
+        ULONGLONG queued;
+
+        if (!ss || ss->iocp != state->iocp) continue;
+        if ((ss->masks & AE_READABLE) == 0) continue;
+        if (ss->masks & (CONNECT_PENDING | CLOSE_PENDING | LISTEN_SOCK))
+            continue;
+        checked++;
+        state->read_kick_cursor = (fd + 1) % fd_count;
+
+        if (InterlockedCompareExchange(&ss->read_inflight, 0, 0) == 0 &&
+            (ss->masks & READ_QUEUED) == 0) {
+            if (ss->read_idle_since != 0 &&
+                now - ss->read_idle_since >= READ_KICK_MS &&
+                (ss->read_kicked_ms == 0 ||
+                 now - ss->read_kicked_ms >= READ_KICK_MS)) {
+                ss->read_kicked_ms = now;
+                WSIOCP_QueueNextRead(fd);
+            }
+            continue;
+        }
+
+        queued = ss->read_queued_ms;
+        if (queued == 0 || now - queued < READ_KICK_STALE_MS)
+            continue;
+        if (!socket_payload_pending(fd))
+            continue;
+        if (read_completion_pending(el, &ss->ov_read))
+            continue;
+        ss->read_kicked_ms = now;
+        s = (SOCKET)FDAPI_GetSocket(fd);
+        if (s == INVALID_SOCKET) continue;
+        if (CancelIoEx((HANDLE)s, &ss->ov_read))
+            return;
+        if (GetLastError() != ERROR_NOT_FOUND)
+            continue;
+        /* Not pending. If its completion is already on the port, leave
+         * ov_read alone. If the port is empty, the packet was lost. */
+        {
+            OVERLAPPED_ENTRY got[MAX_COMPLETE_PER_POLL];
+            ULONG n = 0;
+            int i, found = 0;
+            HANDLE iocp = (HANDLE)state->iocp;
+
+            if (GetQueuedCompletionStatusEx(iocp, got, MAX_COMPLETE_PER_POLL,
+                                            &n, 0, FALSE) && n > 0) {
+                for (i = 0; i < (int)n; i++) {
+                    if (got[i].lpOverlapped == &ss->ov_read)
+                        found = 1;
+                    PostQueuedCompletionStatus(iocp,
+                        got[i].dwNumberOfBytesTransferred,
+                        got[i].lpCompletionKey, got[i].lpOverlapped);
+                }
+                if (found) return;
+                continue;
+            }
+        }
+        clear_read_queued(ss);
+        WSIOCP_QueueNextRead(fd);
+        return;
+    }
+}
+
 int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)el->apidata;
     int numevents = 0;
@@ -1117,6 +1293,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     }
     retry_accepts(el);
     retry_writes(el);
+    kick_stuck_reads(el);
+    /* A missed pipe completion must not sit until the timer: the queue is
+     * delivered through the pipe handler below, after afterSleep. */
+    if (forward_pending(el))
+        mswait = 0;
     /* Backpressured writes retry on a short cadence, not a busy loop. */
     if (state->write_rearm_pending > 0 && mswait > WRITE_REARM_MS)
         mswait = WRITE_REARM_MS;
@@ -1191,9 +1372,11 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                     WSIOCP_AddEvent(el, rfd, ss->masks);
                 }
             } else if (ov == &ss->ov_read) {
-                ss->masks &= ~READ_QUEUED;
+                clear_read_queued(ss);
                 /* A cancelled 0-byte probe (NTSTATUS < 0) still means the
-                 * payload is readable with recv(). Wake the handler. */
+                 * payload is readable with recv(). Wake the handler.
+                 * Dropped while unbound: READ_QUEUED is clear, so the next
+                 * arm posts a new probe. */
                 if (ss->masks & AE_READABLE)
                     numevents = fire_or_forward(el, ss, rfd, AE_READABLE,
                                                 numevents);
@@ -1228,7 +1411,7 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 if (ov == &ss->ov_read)
                     ss->masks &= ~CONNECT_PENDING;
             } else if (ov == &ss->ov_read) {
-                ss->masks &= ~READ_QUEUED;
+                clear_read_queued(ss);
             } else if (ov) {
                 asendreq *areq = (asendreq *)ov;
                 if (unlink_wreq(ss, areq)) {
@@ -1242,6 +1425,20 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
                 if (WSIOCP_CloseSocketState(ss))
                     FDAPI_ClearSocketInfo(rfd);
             }
+        }
+    }
+
+    /* Pipe wake can be lost after suspend. Deliver queued forwards through
+     * the handler ae already registered, which runs after afterSleep. */
+    if (numevents == 0 && forward_pending(el) &&
+        state->fwd_rfd >= 0 && state->fwd_rfd <= el->maxfd) {
+        iocpSockState *pss = WSIOCP_GetExistingSocketState(state->fwd_rfd);
+        if (pss && pss->iocp == state->iocp &&
+            (pss->masks & CLOSE_PENDING) == 0) {
+            el->fired[0].fd = state->fwd_rfd;
+            el->fired[0].mask = AE_READABLE;
+            el->fired[0].backend_data = pss;
+            return 1;
         }
     }
 
