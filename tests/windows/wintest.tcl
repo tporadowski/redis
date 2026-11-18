@@ -132,6 +132,7 @@ set units {
     integration/replication-buffer
     integration/rdb
     integration/replication-rdbchannel
+    integration/aof
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

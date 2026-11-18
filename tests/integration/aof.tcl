@@ -107,7 +107,7 @@ tags {"aof external:skip"} {
     ## Test that redis-check-aof indeed sees this AOF is not valid
     test "Short read: Utility should confirm the AOF is not valid" {
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*not valid*" $result
     }
@@ -119,13 +119,13 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*ok_up_to_line=8*" $result
     }
 
     test "Short read: Utility should be able to fix the AOF" {
-        set result [exec src/redis-check-aof --fix $aof_manifest_file << "y\n"]
+        set result [exec [redis_check_aof_bin] --fix $aof_manifest_file << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
     }
 
@@ -426,7 +426,7 @@ tags {"aof external:skip"} {
 
     test {Truncate AOF to specific timestamp} {
         # truncate to timestamp 1628217473
-        exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_manifest_file
+        exec [redis_check_aof_bin] --truncate-to-timestamp 1628217473 $aof_manifest_file
         start_server_aof [list dir $server_path] {
             set c [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $c
@@ -436,7 +436,7 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217471
-        exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_manifest_file
+        exec [redis_check_aof_bin] --truncate-to-timestamp 1628217471 $aof_manifest_file
         start_server_aof [list dir $server_path] {
             set c [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $c
@@ -446,7 +446,7 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217470
-        exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_manifest_file
+        exec [redis_check_aof_bin] --truncate-to-timestamp 1628217470 $aof_manifest_file
         start_server_aof [list dir $server_path] {
             set c [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $c
@@ -455,7 +455,7 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217469
-        catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_manifest_file} e
+        catch {exec [redis_check_aof_bin] --truncate-to-timestamp 1628217469 $aof_manifest_file} e
         assert_match {*aborting*} $e
     }
 
@@ -505,7 +505,7 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_file
+            exec [redis_check_aof_bin] $aof_file
         } result
         assert_match "*Start checking Old-Style AOF*is valid*" $result
     }
@@ -517,14 +517,14 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_file
+            exec [redis_check_aof_bin] $aof_file
         } result
         assert_match "*Start checking Old-Style AOF*is valid*" $result
     }
 
     test {Test redis-check-aof for old style rdb-preamble AOF} {
         catch {
-            exec src/redis-check-aof tests/assets/rdb-preamble.aof
+            exec [redis_check_aof_bin] tests/assets/rdb-preamble.aof
         } result
         assert_match "*Start checking Old-Style AOF*RDB preamble is OK, proceeding with AOF tail*is valid*" $result
     }
@@ -546,7 +546,7 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*Start checking Multi Part AOF*Start to check BASE AOF (RESP format)*BASE AOF*is valid*Start to check INCR files*INCR AOF*is valid*All AOF files and manifest are valid*" $result
     }
@@ -565,7 +565,7 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*Start checking Multi Part AOF*Start to check BASE AOF (RDB format)*DB preamble is OK, proceeding with AOF tail*BASE AOF*is valid*Start to check INCR files*INCR AOF*is valid*All AOF files and manifest are valid*" $result
     }
@@ -578,7 +578,7 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*Invalid AOF manifest file format*" $result
     }
@@ -601,12 +601,12 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof $aof_manifest_file
+            exec [redis_check_aof_bin] $aof_manifest_file
         } result
         assert_match "*not valid*" $result
 
         catch {
-            exec src/redis-check-aof --fix $aof_manifest_file
+            exec [redis_check_aof_bin] --fix $aof_manifest_file
         } result
         assert_match "*Failed to truncate AOF*because it is not the last file*" $result
     }
@@ -634,7 +634,7 @@ tags {"aof external:skip"} {
         }
 
         catch {
-            exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_manifest_file
+            exec [redis_check_aof_bin] --truncate-to-timestamp 1628217473 $aof_manifest_file
         } result
         assert_match "*Failed to truncate AOF*to timestamp*because it is not the last file*" $result
     }
@@ -748,8 +748,11 @@ tags {"aof external:skip"} {
         }
     }
 
-    # Remove all incr AOF files to make the base file being the last file
-    exec rm -f $aof_dirpath/appendonly.aof.*
+    # POSIX rm does not expand this wildcard, so the base file stays.
+    # MSYS rm expands it and deletes that base file too.
+    if {$::tcl_platform(platform) ne "windows"} {
+        exec rm -f $aof_dirpath/appendonly.aof.*
+    }
     start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Corrupted base AOF (last file): should recover" {
             assert_equal 1 [is_alive [srv pid]]

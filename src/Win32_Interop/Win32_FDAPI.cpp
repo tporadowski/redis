@@ -564,16 +564,29 @@ int fdapi_open(const char *pathname, int flags, ...) {
 
 int ftruncate(int fd, off_t length) {
     int crt;
+    int rc;
+    _invalid_parameter_handler prev;
     if (length < 0) {
         errno = EINVAL;
         return -1;
     }
     crt = RFDMap::getInstance().lookupCrtFD(fd);
     if (crt < 0) {
-        errno = EBADF;
+        /* fopen/fileno CRT descriptors are not RFDs. A bad fd makes
+         * UCRT _chsize_s abort, same as _commit in fsync. */
+        prev = _set_thread_local_invalid_parameter_handler(
+            win32_ignore_invalid_parameter);
+        rc = crt_chsize64(fd, length);
+        _set_thread_local_invalid_parameter_handler(prev);
+    } else {
+        rc = crt_chsize64(crt, length);
+    }
+    if (rc != 0) {
+        if (errno == 0)
+            errno = rc;
         return -1;
     }
-    return crt_chsize64(crt, length);
+    return 0;
 }
 
 /* Unread recv data + closesocket() is RST on Windows, which drops any

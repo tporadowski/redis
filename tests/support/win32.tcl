@@ -68,6 +68,21 @@ proc redis_cli_bin {} {
     return "src/redis-cli"
 }
 
+# CMake puts redis-check-aof next to redis-server. Linux keeps src/redis-check-aof.
+proc redis_check_aof_bin {} {
+    if {$::tcl_platform(platform) eq "windows"} {
+        set dir [file dirname [redis_server_bin]]
+        foreach name {redis-check-aof.exe redis-check-aof} {
+            set cand [file join $dir $name]
+            if {[file exists $cand]} {
+                return [file nativename [file normalize $cand]]
+            }
+        }
+        return "redis-check-aof.exe"
+    }
+    return "src/redis-check-aof"
+}
+
 proc redis_test_launcher_bin {} {
     if {[info exists ::env(REDIS_TEST_LAUNCHER)] &&
         $::env(REDIS_TEST_LAUNCHER) ne ""} {

@@ -139,6 +139,9 @@ proc create_aof_manifest {dir aof_manifest_file code} {
     create_aof_dir $dir
     upvar fp fp
     set fp [open $aof_manifest_file w+]
+    # RESP and the manifest are byte strings. Windows text mode would turn
+    # each \n into \r\n and produce \r\r\n.
+    fconfigure $fp -translation binary
     uplevel 1 $code
     close $fp
 }
@@ -152,6 +155,7 @@ proc create_aof {dir aof_file code} {
     create_aof_dir $dir
     upvar fp fp
     set fp [open $aof_file w+]
+    fconfigure $fp -translation binary
     uplevel 1 $code
     close $fp
 }
