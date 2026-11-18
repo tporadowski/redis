@@ -117,6 +117,7 @@ set units {
     integration/block-repl
     integration/psync2-reg
     integration/replication-2
+    integration/replication-3
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
