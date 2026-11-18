@@ -314,7 +314,28 @@ int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
         if (rdb_pipe_write >= 0)
             close(rdb_pipe_write);
         if (safe_to_exit >= 0) {
-            dummy = (int)read(safe_to_exit, &dummy, 1);
+            /* Stay alive until the parent has forwarded the snapshot and
+             * closed its end. A non-blocking read would return EAGAIN and
+             * the parent would treat the transfer as finished. */
+            char b;
+            for (;;) {
+                ssize_t n;
+#ifdef _WIN32
+                (void)fcntl(safe_to_exit, F_SETFL, 0);
+#endif
+                n = read(safe_to_exit, &b, 1);
+                if (n == 0)
+                    break;
+                if (n < 0 && errno == EINTR)
+                    continue;
+#ifdef _WIN32
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    Sleep(1);
+                    continue;
+                }
+#endif
+                break;
+            }
             UNUSED(dummy);
         }
     }
@@ -351,6 +372,47 @@ int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob) {
     return do_rdbSaveToSockets(hdr->rdb_req,
                                hdr->rsi_valid ? (void *)hdr->rsi : NULL,
                                (void **)local, n, 1, -1, -1);
+}
+
+/* Diskless replication without repl-rdb-channel. The child writes the
+ * parent's pipe; the parent copies bytes onto replica sockets and is the
+ * one that notices a dropped or timed-out replica. pipe() is a non-blocking
+ * localhost socket pair, so the child makes both ends block: the writer
+ * must stall when the parent stops reading, and the exit read must wait
+ * until the parent has finished forwarding. */
+int do_rdbSaveToPipeChild(QForkPayloadHeader *hdr, void *proto_blob) {
+    int wfd = -1, sfd = -1;
+    HANDLE ready;
+
+    if (!hdr || !proto_blob)
+        return C_ERR;
+    wfd = FDAPI_WSASocketFromInfo((char *)proto_blob);
+    sfd = FDAPI_WSASocketFromInfo((char *)proto_blob + QFORK_PROTO_INFO_SIZE);
+    ready = (HANDLE)(uintptr_t)hdr->pipe_ready_event;
+    /* pipe() forces FIONBIO on both ends. WSASocket leaves the new RFD's
+     * flags at 0, so anetBlock sees a clear O_NONBLOCK bit and returns
+     * without calling ioctlsocket. rioFdWrite then fails with EAGAIN, and a
+     * non-blocking safe-to-exit read returns before the parent has forwarded
+     * the snapshot. F_SETFL applies FIONBIO even when the stored flags are
+     * already 0. Signal the parent only after that so it can drop its write
+     * end without an early EOF. */
+    if (wfd >= 0 && sfd >= 0 &&
+        fcntl(wfd, F_SETFL, 0) == 0 &&
+        fcntl(sfd, F_SETFL, 0) == 0) {
+        if (ready)
+            SetEvent(ready);
+        return do_rdbSaveToSockets(hdr->rdb_req,
+                                   hdr->rsi_valid ? (void *)hdr->rsi : NULL,
+                                   NULL, 0, 0, wfd, sfd);
+    }
+    serverLog(LL_WARNING,
+              "QFork pipe child: socket handoff failed wfd=%d sfd=%d wsa=%d",
+              wfd, sfd, FDAPI_WSAGetLastError());
+    if (ready)
+        SetEvent(ready);
+    if (wfd >= 0) close(wfd);
+    if (sfd >= 0) close(sfd);
+    return C_ERR;
 }
 
 int do_aofRewrite(const char *filename) {
@@ -516,9 +578,13 @@ int win32RedisFork(int purpose) {
     if (nconns > QFORK_MAX_SOCKET_CONNS) nconns = QFORK_MAX_SOCKET_CONNS;
     int socket_job = (purpose == CHILD_TYPE_RDB &&
                       g_win32_qfork_job.rdb_subtype != QFORK_RDB_DISK);
+    int pipe_job = (purpose == CHILD_TYPE_RDB &&
+                    g_win32_qfork_job.rdb_subtype == QFORK_RDB_SOCKET_PIPE);
+    /* Pipe job carries the write end and the safe-to-exit read end. */
+    int proto_n = pipe_job ? 2 : (socket_job ? nconns : 0);
     size_t payload_size = sizeof(QForkPayloadHeader) + sizeof(server) +
                           sizeof(shared) +
-                          (socket_job ? (size_t)nconns * QFORK_PROTO_INFO_SIZE : 0);
+                          (size_t)proto_n * QFORK_PROTO_INFO_SIZE;
     HANDLE hPayload = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,
                                          PAGE_READWRITE, 0,
                                          (DWORD)payload_size, NULL);
@@ -618,35 +684,89 @@ int win32RedisFork(int purpose) {
         return -1;
     }
 
+    int thawed = 0;
     if (socket_job && hThread) {
         unsigned char *proto = (unsigned char *)(hdr + 1) + sizeof(server) +
                                sizeof(shared);
         int i;
-        for (i = 0; i < nconns; i++) {
-            connection *c = (connection *)g_win32_qfork_job.conns[i];
-            if (!c || FDAPI_WSADuplicateSocket(c->fd, child_pid,
-                                               proto + (size_t)i * QFORK_PROTO_INFO_SIZE) != 0) {
-                serverLog(LL_WARNING, "QFork: WSADuplicateSocket conn %d failed", i);
+        HANDLE ready_parent = NULL;
+        int dup_ok = 1;
+        if (pipe_job) {
+            int pipe_fds[2];
+            HANDLE ready_child = NULL;
+            pipe_fds[0] = g_win32_qfork_job.rdb_pipe_write;
+            pipe_fds[1] = g_win32_qfork_job.safe_to_exit_pipe;
+            ready_parent = CreateEventA(NULL, TRUE, FALSE, NULL);
+            if (!ready_parent ||
+                !DuplicateHandle(GetCurrentProcess(), ready_parent, hProcess,
+                                 &ready_child, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                dup_ok = 0;
+            } else {
+                hdr->pipe_ready_event = (uint64_t)(uintptr_t)ready_child;
+            }
+            for (i = 0; dup_ok && i < 2; i++) {
+                if (pipe_fds[i] < 0 ||
+                    FDAPI_WSADuplicateSocket(pipe_fds[i], child_pid,
+                                             proto + (size_t)i * QFORK_PROTO_INFO_SIZE) != 0)
+                    dup_ok = 0;
+            }
+        } else {
+            for (i = 0; i < nconns; i++) {
+                connection *c = (connection *)g_win32_qfork_job.conns[i];
+                if (!c || FDAPI_WSADuplicateSocket(c->fd, child_pid,
+                                                   proto + (size_t)i * QFORK_PROTO_INFO_SIZE) != 0) {
+                    serverLog(LL_WARNING, "QFork: WSADuplicateSocket conn %d failed", i);
+                    dup_ok = 0;
+                    break;
+                }
+            }
+        }
+        if (!dup_ok) {
+            serverLog(LL_WARNING, "QFork: failed to hand diskless fds to child");
+            TerminateProcess(hProcess, 1);
+            CloseHandle(hThread);
+            CloseHandle(hProcess);
+            if (ready_parent) CloseHandle(ready_parent);
+            QForkRejoinAfterFork();
+            QForkHoldUnmap(0);
+            win32ThawAfterSnapshot();
+            UnmapViewOfFile(hdr);
+            CloseHandle(hPayload);
+            if (abort_ev) CloseHandle(abort_ev);
+            errno = EIO;
+            return -1;
+        }
+        ResumeThread(hThread);
+        CloseHandle(hThread);
+        hThread = NULL;
+        /* Child init reads locks that live in the COW heap. Thaw before the
+         * wait so a suspended parent thread cannot stall that init. The pipe
+         * write end stays open until this function returns, which is after
+         * the child has called WSASocket. */
+        win32ThawAfterSnapshot();
+        thawed = 1;
+        if (ready_parent) {
+            if (WaitForSingleObject(ready_parent, 10000) != WAIT_OBJECT_0) {
+                serverLog(LL_WARNING, "QFork: pipe child did not open the pipe");
                 TerminateProcess(hProcess, 1);
-                CloseHandle(hThread);
                 CloseHandle(hProcess);
+                CloseHandle(ready_parent);
                 QForkRejoinAfterFork();
                 QForkHoldUnmap(0);
-                win32ThawAfterSnapshot();
                 UnmapViewOfFile(hdr);
                 CloseHandle(hPayload);
                 if (abort_ev) CloseHandle(abort_ev);
                 errno = EIO;
                 return -1;
             }
+            CloseHandle(ready_parent);
         }
-        ResumeThread(hThread);
-        CloseHandle(hThread);
     }
 
     /* Stay PAGE_WRITECOPY until waitpid rejoins. Remapping ALL_ACCESS
      * here would let parent writes into the section the child is reading. */
-    win32ThawAfterSnapshot();
+    if (!thawed)
+        win32ThawAfterSnapshot();
 
     UnmapViewOfFile(hdr);
     /* Keep the payload mapping open until waitpid reaps so the child can

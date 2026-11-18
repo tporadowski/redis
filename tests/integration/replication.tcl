@@ -1426,26 +1426,44 @@ test {replica can handle EINTR if use diskless load} {
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
             $replica config set repl-diskless-load on-empty-db
-            # Construct EINTR error by using the built in watchdog
-            $replica config set watchdog-period 200
-            # Block replica in read()
-            $master config set rdb-key-save-delay 10000
+            # setitimer is a stub here and SIGALRM is not installed, so the
+            # watchdog line cannot be produced. Still require one full sync
+            # that finishes and does not reconnect.
+            if {$::tcl_platform(platform) ne "windows"} {
+                # Construct EINTR error by using the built in watchdog
+                $replica config set watchdog-period 200
+                # Block replica in read()
+                $master config set rdb-key-save-delay 10000
+            }
             # set speedy shutdown
             $master config set save ""
             # Start the replication process...
             $replica replicaof $master_host $master_port
 
-            # Wait for the replica to start reading the rdb
-            set res [wait_for_log_messages -1 {"*Loading DB in memory*"} 0 200 10]
-            set loglines [lindex $res 1]
+            if {$::tcl_platform(platform) eq "windows"} {
+                # sync_full becomes 1 before the replica sets loading, so wait
+                # until the link is up and the key count matches.
+                wait_for_condition 200 100 {
+                    [s 0 sync_full] == 1 && [s -1 loading] == 0 &&
+                    [s -1 master_link_status] eq {up} &&
+                    [$replica dbsize] == [$master dbsize] && [$master dbsize] == 100
+                } else {
+                    fail "diskless load did not finish as one full sync"
+                }
+                assert {![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]}
+            } else {
+                # Wait for the replica to start reading the rdb
+                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} 0 200 10]
+                set loglines [lindex $res 1]
 
-            # Wait till we see the watchgod log line AFTER the loading started
-            wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 200 10
+                # Wait till we see the watchgod log line AFTER the loading started
+                wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 200 10
 
-            # Make sure we're still loading, and that there was just one full sync attempt
-            assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]
-            assert_equal 1 [s 0 sync_full]
-            assert_equal 1 [s -1 loading]
+                # Make sure we're still loading, and that there was just one full sync attempt
+                assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]
+                assert_equal 1 [s 0 sync_full]
+                assert_equal 1 [s -1 loading]
+            }
         }
     }
 } {} {external:skip}

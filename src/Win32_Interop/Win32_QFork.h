@@ -87,7 +87,10 @@ typedef struct QForkStaticRoots {
 #define QFORK_RDB_SOCKET_PIPE  1
 #define QFORK_RDB_CHANNEL      2
 #define QFORK_MAX_SOCKET_CONNS 128
-#define QFORK_PROTO_INFO_SIZE  512 /* >= sizeof(WSAPROTOCOL_INFO) */
+/* WSAPROTOCOL_INFOW is 628 bytes (WCHAR szProtocol[256]). A smaller slot
+ * overlaps the next duplicate, WSASocket fails, and the parent sees an
+ * immediate pipe EOF. */
+#define QFORK_PROTO_INFO_SIZE  1024
 
 typedef struct QForkPayloadHeader {
     uint32_t magic;
@@ -114,6 +117,9 @@ typedef struct QForkPayloadHeader {
     uint64_t module_snapshot_handle;
     uint64_t module_snapshot_size;
     uint32_t module_snapshot_count;
+    /* SOCKET_PIPE: child sets this event after WSASocket on the duplicated
+     * pipe ends, so the parent can drop its write end without an early EOF. */
+    uint64_t pipe_ready_event;
     QForkStaticRoots roots;
 } QForkPayloadHeader;
 

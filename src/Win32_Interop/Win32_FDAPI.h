@@ -310,6 +310,9 @@ int ftruncate(int fd, off_t length);
 
 int fdapi_open(const char *pathname, int flags, ...);
 int fdapi_close(int fd);
+/* closesocket only. fdapi_close shutdown(SD_SEND)s, which FINs every
+ * descriptor sharing the connection, including a QFork child's pipe end. */
+int fdapi_close_shared(int fd);
 ssize_t fdapi_read(int fd, void *buf, size_t count);
 ssize_t fdapi_write(int fd, const void *buf, size_t count);
 int fdapi_isatty(int fd);

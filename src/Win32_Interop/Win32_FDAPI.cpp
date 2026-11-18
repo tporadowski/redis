@@ -690,20 +690,27 @@ static void win32_socket_flush_then_close(SOCKET s) {
     while (recv(s, buf, (int)sizeof(buf), 0) > 0) {}
 }
 
-int fdapi_close(int fd) {
+static int close_socket_rfd(int fd, int shutdown_send) {
     SOCKET s = sock_of(fd);
-    if (s != INVALID_SOCKET) {
-        if (g_close_sock_state)
-            g_close_sock_state(fd);
-        RFDMap::getInstance().removeRFDToSocketInfo(fd);
-        RFDMap::getInstance().removeSocketToRFD(s);
+    if (s == INVALID_SOCKET)
+        return -2;
+    if (g_close_sock_state)
+        g_close_sock_state(fd);
+    RFDMap::getInstance().removeRFDToSocketInfo(fd);
+    RFDMap::getInstance().removeSocketToRFD(s);
+    if (shutdown_send)
         win32_socket_flush_then_close(s);
-        if (closesocket(s) == SOCKET_ERROR) {
-            set_wsa_errno(0);
-            return -1;
-        }
-        return 0;
+    if (closesocket(s) == SOCKET_ERROR) {
+        set_wsa_errno(0);
+        return -1;
     }
+    return 0;
+}
+
+int fdapi_close(int fd) {
+    int rc = close_socket_rfd(fd, 1);
+    if (rc != -2)
+        return rc;
     {
         int crt = RFDMap::getInstance().lookupCrtFD(fd);
         if (crt < 0) {
@@ -713,6 +720,15 @@ int fdapi_close(int fd) {
         RFDMap::getInstance().removeCrtFD(crt);
         return crt_close(crt);
     }
+}
+
+int fdapi_close_shared(int fd) {
+    int rc = close_socket_rfd(fd, 0);
+    if (rc == -2) {
+        errno = EBADF;
+        return -1;
+    }
+    return rc;
 }
 
 ssize_t fdapi_read(int fd, void *buf, size_t count) {

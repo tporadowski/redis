@@ -5281,6 +5281,16 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
         close(server.rdb_pipe_read);
     }
+    /* A writable completion can still be queued. Drop those handlers before
+     * the buffer they read is freed. */
+    if (server.rdb_pipe_conns) {
+        int i;
+        for (i = 0; i < server.rdb_pipe_numconns; i++) {
+            connection *conn = server.rdb_pipe_conns[i];
+            if (conn && connHasWriteHandler(conn))
+                connSetWriteHandler(conn, NULL);
+        }
+    }
     server.rdb_child_exit_pipe = -1;
     server.rdb_pipe_read = -1;
     zfree(server.rdb_pipe_conns);
@@ -5505,7 +5515,13 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             if (!rdb_channel) {
+#ifdef _WIN32
+                /* The child holds a WSADuplicateSocket of this end. shutdown()
+                 * inside close() is connection-wide and would FIN it now. */
+                fdapi_close_shared(rdb_pipe_write);
+#else
                 close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
+#endif
                 if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                     serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
                 }
@@ -5513,8 +5529,17 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         }
         if (rdb_channel)
             zfree(conns);
-        else
+        else if (childpid == -1)
             close(safe_to_exit_pipe);
+        else {
+#ifdef _WIN32
+            /* Child is blocked in read() on a duplicate of this end.
+             * fdapi_close() would shutdown it and force FIONBIO. */
+            fdapi_close_shared(safe_to_exit_pipe);
+#else
+            close(safe_to_exit_pipe);
+#endif
+        }
 
         return (childpid == -1) ? C_ERR : C_OK;
     }

@@ -18,6 +18,9 @@
 #include <string.h>
 #include <ctype.h>
 
+static_assert(sizeof(WSAPROTOCOL_INFOW) <= QFORK_PROTO_INFO_SIZE,
+              "QFork proto slot is smaller than WSAPROTOCOL_INFOW");
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -287,7 +290,11 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     int rc = 1;
     if (hdr->purpose == CHILD_TYPE_RDB) {
         void *rsi = hdr->rsi_valid ? (void *)hdr->rsi : NULL;
-        if (hdr->rdb_subtype != QFORK_RDB_DISK) {
+        if (hdr->rdb_subtype == QFORK_RDB_SOCKET_PIPE) {
+            void *proto = (char *)sharedData + hdr->sharedDataSize;
+            if (do_rdbSaveToPipeChild(hdr, proto) == 0)
+                rc = 0;
+        } else if (hdr->rdb_subtype != QFORK_RDB_DISK) {
             void *proto = (char *)sharedData + hdr->sharedDataSize;
             if (do_rdbSaveToSocketsChild(hdr, proto) == 0)
                 rc = 0;

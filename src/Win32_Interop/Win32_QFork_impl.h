@@ -35,6 +35,7 @@ int do_rdbSave(int req, char *filename, void *rsi, int rdbflags);
 int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
                         int use_conns, int rdb_pipe_write, int safe_to_exit);
 int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob);
+int do_rdbSaveToPipeChild(QForkPayloadHeader *hdr, void *proto_blob);
 int do_aofRewrite(const char *filename);
 int do_moduleFork(const char *path, const char *symbol, void *user_data);
 void win32PrepareAofJob(void);
