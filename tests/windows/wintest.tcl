@@ -116,6 +116,7 @@ set units {
     unit/cluster/tls-peer-impersonation
     integration/block-repl
     integration/psync2-reg
+    integration/replication-2
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
