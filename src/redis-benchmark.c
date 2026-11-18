@@ -41,6 +41,7 @@
 #include "mt19937-64.h"
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Error.h"
+#include "Win32_Interop/win32_wsiocp.h"
 #endif
 
 #define UNUSED(V) ((void) V)
@@ -363,6 +364,19 @@ static void freeClient(client c) {
             aeStop(el);
         }
     }
+#ifdef _WIN32
+    /* hiredis closes the raw SOCKET. Winsock recycles that handle value,
+     * and FDAPI_AdoptSocket keeps the old RFD when the handle is still
+     * mapped. The reused SocketInfo can still say a zero-byte read is
+     * queued, so the next stage never observes its reply. Drop the RFD
+     * (and both maps) here, then keep hiredis from closing the SOCKET. */
+    if (c->context && c->ae_fd >= 0 &&
+        c->context->fd != REDIS_INVALID_FD) {
+        WSIOCP_CancelAndDrainRead(c->ae_fd);
+        fdapi_close(c->ae_fd);
+        c->context->fd = REDIS_INVALID_FD;
+    }
+#endif
     redisFree(c->context);
     sdsfree(c->obuf);
     zfree(c->randptr);
@@ -585,6 +599,11 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         int requests_issued = 0;
         atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
+            /* Nothing left to send. A leftover AE_WRITABLE is level-triggered,
+             * so epoll would call this handler again immediately. The IOCP
+             * backend posts that same wakeup as a completion, and the loop
+             * never reaches clients that still have replies to read. */
+            aeDeleteFileEvent(el,c->ae_fd,AE_WRITABLE);
             return;
         }
 

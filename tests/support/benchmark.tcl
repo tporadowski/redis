@@ -11,22 +11,30 @@ proc redisbenchmark_tls_config {testsdir} {
     }
 }
 
+proc redis_benchmark_bin {} {
+    # The CMake tree ships redis-benchmark.exe next to the server.
+    if {$::tcl_platform(platform) eq "windows"} {
+        return [file nativename [file join [file dirname [redis_server_bin]] redis-benchmark.exe]]
+    }
+    return src/redis-benchmark
+}
+
 proc redisbenchmark {host port {opts {}}} {
-    set cmd [list src/redis-benchmark -h $host -p $port]
+    set cmd [list [redis_benchmark_bin] -h $host -p $port]
     lappend cmd {*}[redisbenchmark_tls_config "tests"]
     lappend cmd {*}$opts
     return $cmd
 }
 
 proc redisbenchmarkuri {host port {opts {}}} {
-    set cmd [list src/redis-benchmark -u redis://$host:$port]
+    set cmd [list [redis_benchmark_bin] -u redis://$host:$port]
     lappend cmd {*}[redisbenchmark_tls_config "tests"]
     lappend cmd {*}$opts
     return $cmd
 }
 
 proc redisbenchmarkuriuserpass {host port user pass {opts {}}} {
-    set cmd [list src/redis-benchmark -u redis://$user:$pass@$host:$port]
+    set cmd [list [redis_benchmark_bin] -u redis://$user:$pass@$host:$port]
     lappend cmd {*}[redisbenchmark_tls_config "tests"]
     lappend cmd {*}$opts
     return $cmd
