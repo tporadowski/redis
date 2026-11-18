@@ -123,6 +123,7 @@ set units {
     integration/psync2-master-restart
     integration/shutdown
     integration/psync2-pingoff
+    integration/failover
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
