@@ -120,6 +120,7 @@ set units {
     integration/replication-3
     integration/replication-psync
     integration/redis-benchmark
+    integration/psync2-master-restart
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
