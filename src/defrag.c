@@ -70,6 +70,13 @@ struct DefragContext {
     long long timeproc_id;      /* Eventloop ID of the timerproc (or AE_DELETED_EVENT_ID) */
     monotime timeproc_end_time; /* Ending time of previous timerproc execution */
     long timeproc_overage_us;   /* A correction value if over target CPU percent */
+
+    /* Set when a finished pass moved nothing and did not change
+     * fragmentation. Another immediate pass would spin, which happens
+     * after a replica flush: leftover allocations sit in 1 MB slabs that
+     * this pass cannot pack. Cleared when frag moves or config changes. */
+    int suspended;
+    size_t suspended_frag_bytes;
 };
 static struct DefragContext defrag = {0, 0, 0, 0, 1.0f};
 
@@ -1842,6 +1849,18 @@ static void updateDefragDecayRate(float frag_pct) {
     }
 }
 
+/* A finished pass that neither moved allocations nor shifted the
+ * fragmentation percentage will not do better if started again. */
+static int defragPassWasProductive(float frag_pct) {
+    long long hits = server.stat_active_defrag_hits - defrag.start_defrag_hits;
+    long long misses = server.stat_active_defrag_misses - defrag.start_defrag_misses;
+    float change = defrag.start_frag_pct - frag_pct;
+    long long attempts = hits + misses;
+    if (change > 2.0f) return 1;
+    if (attempts > 0 && hits * 100 >= attempts) return 1;
+    return 0;
+}
+
 /* Called at the end of a complete defrag cycle, or when defrag is terminated */
 static void endDefragCycle(int normal_termination) {
     if (normal_termination) {
@@ -1874,6 +1893,15 @@ static void endDefragCycle(int normal_termination) {
 
     updateDefragDecayRate(frag_pct);
     moduleDefragEnd();
+
+    /* An unproductive pass leaves active_defrag_running at 0. Cron retries
+     * only after fragmentation moves (see activeDefragCycle). */
+    if (normal_termination && !defragPassWasProductive(frag_pct)) {
+        defrag.suspended = 1;
+        defrag.suspended_frag_bytes = frag_bytes;
+        return;
+    }
+    if (normal_termination) defrag.suspended = 0;
 
     /* Immediately check to see if we should start another defrag cycle. */
     activeDefragCycle();
@@ -2135,6 +2163,25 @@ void activeDefragCycle(void) {
     /* Defrag gets paused while a child process is active. So there's no point in starting a new
      * cycle or adjusting the CPU percentage for an existing cycle. */
     if (hasActiveChildProcess()) return;
+
+    if (defrag.suspended) {
+        if (server.active_defrag_configuration_changed) {
+            defrag.suspended = 0;
+        } else {
+            size_t frag_bytes;
+            float frag_pct;
+            /* Cron publishes this once per 100ms. Skip the tick when the
+             * sample is stale instead of walking every jemalloc bin. */
+            if (!defragFragCacheTake(&frag_pct, &frag_bytes)) return;
+            size_t base = defrag.suspended_frag_bytes;
+            size_t delta = (frag_bytes > base) ? (frag_bytes - base) : (base - frag_bytes);
+            size_t thresh = base / 50; /* 2% */
+            if (thresh < ((size_t)2 << 20)) thresh = (size_t)2 << 20;
+            if (delta < thresh) return;
+            defrag.suspended = 0;
+            defrag.decay_rate = 1.0f;
+        }
+    }
 
     computeDefragCycles();
 

@@ -25,6 +25,7 @@
 #include "keymeta.h"
 #ifdef _WIN32
 #include "Win32_Interop/Win32_QFork.h"
+#include "Win32_Interop/win32_wsiocp.h"
 #endif
 
 #include <math.h>
@@ -5384,6 +5385,19 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             /* Check slave has the exact requirements */
             if (slave->slave_req != req)
                 continue;
+#ifdef _WIN32
+            /* The QFork child sends the snapshot with a blocking send() on a
+             * duplicated socket. A queued 0-byte WSARecv on this fd makes
+             * that send fail, and the event loop would re-arm another recv
+             * while the child is still writing. Drop both before the reply
+             * byte and the fork. */
+            if (rdb_channel && slave->conn && slave->conn->fd >= 0) {
+                if (server.el)
+                    aeDeleteFileEvent(server.el, slave->conn->fd,
+                                      AE_READABLE | AE_WRITABLE);
+                WSIOCP_CancelAndDrainRead(slave->conn->fd);
+            }
+#endif
             replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
             conns[numconns++] = slave->conn;
             if (rdb_channel) {

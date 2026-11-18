@@ -464,12 +464,25 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
                 continue; /* Skip failed connections. */
             }
 
+#ifdef _WIN32
+            int win_again = 0;
+#endif
             do {
                 ssize_t ret;
                 connection *c = r->io.connset.dst[i].conn;
 
                 ret = connWrite(c, p + n_written, count - n_written);
                 if (ret <= 0) {
+#ifdef _WIN32
+                    /* A pending 0-byte WSARecv makes send() fail with no
+                     * Winsock error, which fdapi_write reports as EAGAIN.
+                     * That is not SO_SNDTIMEO (that path is ETIMEDOUT). */
+                    if (ret == -1 && errno == EAGAIN && win_again < 20) {
+                        win_again++;
+                        usleep(1000);
+                        continue;
+                    }
+#endif
                     if (errno == 0)
                         errno = EIO;
                     /* With blocking sockets, which is the sole user of this
@@ -479,10 +492,15 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
                     if (ret == -1 && errno == EWOULDBLOCK)
                         errno = ETIMEDOUT;
 
+                    serverLog(LL_WARNING,
+                        "RDB connection write failed: %s", strerror(errno));
                     r->io.connset.dst[i].failed = 1;
                     failed++;
                     break;
                 }
+#ifdef _WIN32
+                win_again = 0;
+#endif
                 n_written += ret;
             } while (n_written != count);
         }

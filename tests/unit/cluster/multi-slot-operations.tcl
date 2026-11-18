@@ -181,7 +181,7 @@ test "SFLUSH - Deletes the keys with argument <NONE>/SYNC/ASYNC" {
 
 }
 
-set testmodule [file normalize tests/modules/atomicslotmigration.so]
+set testmodule [redis_test_module atomicslotmigration]
 start_cluster 2 2 [list tags {external:skip cluster experimental modules} config_lines [list loadmodule $testmodule]] {
 foreach sync_method {"SYNC" "BLOCKING-ASYNC" "ASYNC"} {
 foreach trim_method {"active" "bg"} {

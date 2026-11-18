@@ -3236,6 +3236,8 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 /* Modules */
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
+/* QFork child is a new image: module.c lists are not in the COW heap. */
+void moduleQForkChildReinit(void);
 void modulesCron(void);
 int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
@@ -3571,6 +3573,9 @@ void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+#ifdef _WIN32
+void disconnectReplicasOnClosedSocket(void);
+#endif
 void setReplCompression(int level);
 void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);

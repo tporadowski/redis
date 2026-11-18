@@ -132,14 +132,14 @@ proc kill_server config {
         if {$wait == $max_wait} {
             puts "Forcing process $pid to crash..."
             if {$::tcl_platform(platform) eq "windows"} {
-                win32_kill_pid $pid
+                win32_kill_pid $pid 1
             } else {
                 catch {exec kill -SEGV $pid}
             }
         } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             if {$::tcl_platform(platform) eq "windows"} {
-                win32_kill_pid $pid
+                win32_kill_pid $pid 1
             } else {
                 catch {exec kill -KILL $pid}
             }
@@ -501,6 +501,13 @@ proc wait_server_started {config_file stdout pid} {
         set log [file_contents $stdout]
         if {[regexp -- "$pid:.*Server initialized" $log] ||
             [string match "*Server initialized*" $log]} {
+            break
+        }
+        # A module load failure aborts before "Server initialized". Do not
+        # sit on the full startup timeout after the process is already gone.
+        if {![is_alive $pid] ||
+            [string match "*server aborting*" $log] ||
+            [string match "*failed to load*" $log]} {
             break
         }
         after $checkperiod

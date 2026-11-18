@@ -953,8 +953,15 @@ size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
         sz = sizeof(size_t);
         assert(!je_mallctlbymib(curslabs_mib, curslabs_miblen, &curslabs, &sz, NULL, 0));
 
-        /* Calculate the fragmentation bytes for the current bin and add it to the total. */
-        frag += ((nregs * curslabs) - curregs) * reg_size;
+        /* Bytes in slabs beyond the number required to hold the live
+         * regions. The unused tail of the last needed slab cannot be
+         * freed by active defrag: with 1 MB pages that tail alone is
+         * larger than active-defrag-ignore-bytes, so counting it keeps
+         * a cycle running after the data is gone. */
+        if (nregs == 0) continue;
+        size_t slabs_needed = (curregs + nregs - 1) / nregs;
+        if (curslabs > slabs_needed)
+            frag += (curslabs - slabs_needed) * (size_t)nregs * reg_size;
     }
 
     return frag;

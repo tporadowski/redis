@@ -1922,6 +1922,13 @@ void whileBlockedCron(void) {
     /* Only defragment during AOF loading. */
     if (isAOFLoadingContext()) defragWhileBlocked();
 
+#ifdef _WIN32
+    /* A busy script does not run replicationCron, and a missed IOCP read
+     * completion never delivers the replica's FIN. Drop those sockets so
+     * connected_slaves can reach 0 while the script is still running. */
+    disconnectReplicasOnClosedSocket();
+#endif
+
     /* Update memory stats during loading (excluding blocked scripts) */
     if (server.loading) cronUpdateMemoryStats();
 

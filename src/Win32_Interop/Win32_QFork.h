@@ -55,6 +55,8 @@ extern int g_PersistenceDisabled;
 #define QFORK_KEYMETA_MAX 4096
 typedef struct QForkStaticRoots {
     void *modules;
+    /* module.c .bss. The slot-migration propagate event runs in the child. */
+    void *module_event_listeners;
     void *acl_users;
     void *acl_default_user;
     void *acl_users_to_load;

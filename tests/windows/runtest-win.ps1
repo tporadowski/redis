@@ -34,17 +34,20 @@ $tclsh = $null
 foreach ($c in @(
         "C:\Program Files\Git\mingw64\bin\tclsh.exe",
         "C:\Program Files\Git\mingw64\bin\tclsh86.exe",
+        "C:\Program Files\Git\ucrt64\bin\tclsh.exe",
+        "C:\Program Files\Git\ucrt64\bin\tclsh86.exe",
         (Get-Command tclsh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
     )) {
     if ($c -and (Test-Path $c)) { $tclsh = $c; break }
 }
 if (-not $tclsh) {
-    throw "tclsh not found (install Git for Windows mingw64 tclsh)"
+    throw "tclsh not found (install Git for Windows mingw64 or ucrt64 tclsh)"
 }
 
 $gitUsr = "C:\Program Files\Git\usr\bin"
 $gitMingw = "C:\Program Files\Git\mingw64\bin"
-$env:PATH = "$gitMingw;$gitUsr;$env:PATH"
+$gitUcrt = "C:\Program Files\Git\ucrt64\bin"
+$env:PATH = "$gitMingw;$gitUcrt;$gitUsr;$env:PATH"
 $env:REDIS_SERVER = Join-Path $BuildDir "redis-server.exe"
 $env:REDIS_TEST_LAUNCHER = Join-Path $BuildDir "redis-test-launcher.exe"
 if (-not $env:QFORK_HEAP_BYTES) { $env:QFORK_HEAP_BYTES = "512M" }
@@ -54,9 +57,8 @@ if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }
 Set-Location $Root
 $wintest = Join-Path $PSScriptRoot "wintest.tcl"
 
-# Former reboot units are on the default list. Their heavy cases stay in
-# skip-list.txt. Add a name here only after a solo run reboots the machine.
-# A listed unit still needs REDIS_TEST_UNSAFE=1, and only for a fenced subset.
+# Heavy cases (blocking pops, SCAN write-load, long KEYS) run. Do not refuse
+# a unit by name. $watchdogDeny stays empty so a full list is not blocked.
 $watchdogDeny = @()
 
 if ($Single) {

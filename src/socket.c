@@ -552,12 +552,24 @@ static ConnectionType CT_Socket = {
 
 int connBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;
+#ifdef _WIN32
+    /* A queued 0-byte WSARecv owns the receive. Blocking recv() then waits
+     * behind that overlapped op and can ignore SO_RCVTIMEO, so diskless RDB
+     * load never returns and REPLICAOF is never read. */
+    WSIOCP_CancelQueuedRead(conn->fd);
+#endif
     return anetBlock(NULL, conn->fd);
 }
 
 int connNonBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;
-    return anetNonBlock(NULL, conn->fd);
+    if (anetNonBlock(NULL, conn->fd) == ANET_ERR) return C_ERR;
+#ifdef _WIN32
+    /* connBlock dropped the one-shot read. Put it back if the caller still
+     * wants readability; otherwise the next peer FIN is invisible. */
+    WSIOCP_RearmRead(conn->fd);
+#endif
+    return C_OK;
 }
 
 int connEnableTcpNoDelay(connection *conn) {

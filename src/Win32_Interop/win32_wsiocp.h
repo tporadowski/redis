@@ -100,6 +100,9 @@ int WSIOCP_CancelAndDrainRead(int rfd);
 void WSIOCP_CancelQueuedRead(int rfd);
 /* Re-arm zero-byte WSARecv if AE_READABLE and nothing is queued. */
 int WSIOCP_RearmRead(int rfd);
+/* 1 if the TCP peer has sent FIN or the connection is already closing.
+ * 0 if the socket is still established, not TCP, or the query fails. */
+int WSIOCP_TcpPeerClosed(int rfd);
 int WSIOCP_QueueAccept(int listenfd);
 /* Post the next AcceptEx only if none is already in flight. */
 int WSIOCP_EnsureAcceptQueued(int listenfd);

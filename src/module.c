@@ -9520,7 +9520,25 @@ static void executePostExecUnitJob(RedisModulePostExecUnitJob *job) {
     zfree(job);
 }
 
+/* QFork loads a fresh image. These lists live in .bss, not the mapped heap,
+ * so a child that fires a module event would otherwise dereference NULL. */
+void moduleQForkChildReinit(void) {
+    if (!moduleUnblockedClients)
+        moduleUnblockedClients = listCreate();
+    if (!moduleAuthCallbacks)
+        moduleAuthCallbacks = listCreate();
+    if (!moduleKeyspaceSubscribers)
+        moduleKeyspaceSubscribers = listCreate();
+    if (!modulePostExecUnitJobs)
+        modulePostExecUnitJobs = listCreate();
+    if (!moduleCommandFilters)
+        moduleCommandFilters = listCreate();
+}
+
 void firePostExecutionUnitJobs(void) {
+    /* A persistence child has no queued jobs until moduleQForkChildReinit. */
+    if (!modulePostExecUnitJobs)
+        return;
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs.
@@ -9551,6 +9569,8 @@ void firePostExecutionUnitJobs(void) {
  * notifications and cannot enqueue further jobs; the queue is stable across the
  * scan and capturing the next node up front is safe. */
 void firePerKeyJobsBetweenSubcommands(void) {
+    if (!modulePostExecUnitJobs)
+        return;
     keyedPostNotifRMCallWarned = 0;
     keyedPostNotifNotifyWarned = 0;
     enterExecutionUnit(0, 0);

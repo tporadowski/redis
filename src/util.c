@@ -1123,14 +1123,6 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
-char *getFileExtension(char *path) {
-    char *pch = strrchr(path,'.');
-    if (!pch)
-        return NULL;
-    else
-        return pch+1;
-}
-
 /* pathIsBaseName rejects both separators. A Windows absolute path often
  * contains only '\', so looking for '/' alone yields NULL and a wrapped
  * length in getFilePath. */
@@ -1140,6 +1132,19 @@ static char *lastPathSeparator(char *path) {
     if (bslash != NULL && (slash == NULL || bslash > slash))
         return bslash;
     return slash;
+}
+
+/* Extension of the final component only. A dot in a directory name
+ * (redis-win-8.10/noext) is not an extension of the file. */
+char *getFileExtension(char *path) {
+    char *base = path;
+    char *sep = lastPathSeparator(path);
+    if (sep != NULL)
+        base = sep + 1;
+    char *pch = strrchr(base, '.');
+    if (!pch)
+        return NULL;
+    return pch + 1;
 }
 
 char *getFileBaseName(char *path) {

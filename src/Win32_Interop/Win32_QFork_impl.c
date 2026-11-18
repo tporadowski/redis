@@ -146,12 +146,14 @@ void win32PrepareRdbSocketJob(int req, const void *rsi, int rdb_channel,
 
 #ifdef _WIN32
 extern dict *modules;
+extern list *RedisModule_EventListeners;
 #endif
 
 void win32CaptureQForkStaticRoots(QForkStaticRoots *roots) {
     memset(roots, 0, sizeof(*roots));
 #ifdef _WIN32
     roots->modules = modules;
+    roots->module_event_listeners = RedisModule_EventListeners;
 #endif
     ACLGetForkData(&roots->acl_users, &roots->acl_default_user,
                    &roots->acl_users_to_load, &roots->acl_log,
@@ -193,6 +195,7 @@ int SetupRedisGlobals(void *redisData, size_t redisDataSize,
     if (roots) {
 #ifdef _WIN32
         modules = roots->modules;
+        RedisModule_EventListeners = roots->module_event_listeners;
 #endif
         ACLSetForkData(roots->acl_users, roots->acl_default_user,
                        roots->acl_users_to_load, roots->acl_log,
@@ -260,6 +263,7 @@ int SetupRedisGlobals(void *redisData, size_t redisDataSize,
         return -1;
     }
     rehydrateCommandTableForQFork();
+    moduleQForkChildReinit();
     return 0;
 }
 
@@ -296,8 +300,10 @@ int do_rdbSaveToSockets(int req, void *rsi, void **conns, int numconns,
     else
         retval = rdbSaveRioWithEOFMark(req, &rdb, NULL, rsiptr);
 
-    if (retval == C_OK && rioFlush(&rdb) == 0)
+    if (retval == C_OK && rioFlush(&rdb) == 0) {
+        serverLog(LL_WARNING, "RDB socket flush failed: %s", strerror(errno));
         retval = C_ERR;
+    }
     if (retval == C_OK)
         sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
 
@@ -336,6 +342,10 @@ int do_rdbSaveToSocketsChild(QForkPayloadHeader *hdr, void *proto_blob) {
             return C_ERR;
         c->state = CONN_STATE_CONNECTED;
         connBlock(c);
+        /* Parent set SO_SNDTIMEO before WSADuplicateSocket. Set it again on
+         * this handle so a blocked snapshot send cannot hang the child. */
+        if (server.repl_timeout > 0)
+            connSendTimeout(c, (long long)server.repl_timeout * 1000);
         local[i] = c;
     }
     return do_rdbSaveToSockets(hdr->rdb_req,

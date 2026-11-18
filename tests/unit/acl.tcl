@@ -1330,7 +1330,7 @@ start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl e
 }
 
 tags {modules external:skip cluster} {
-    set testmodule [file normalize tests/modules/internalsecret.so]
+    set testmodule [redis_test_module internalsecret]
 
     # A valid ACL file must exist at startup for `ACL LOAD` to be available.
     set aclpath [file normalize tests/tmp/internalauth-acl-load.acl]

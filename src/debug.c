@@ -2854,7 +2854,24 @@ void applyWatchdogPeriod(void) {
 
 void debugPauseProcess(void) {
     serverLog(LL_NOTICE, "Process is about to stop.");
+#ifdef _WIN32
+    /* raise(SIGSTOP) does not stop a Windows process. Suspend every
+     * thread, matching the test launcher's NtSuspendProcess, so
+     * resume_process can continue us. This call returns after that
+     * resume. DEBUG repl-pause uses it to freeze a destination while
+     * the source fills the replica output buffer. */
+    {
+        typedef LONG (NTAPI *NtSuspendProcessFn)(HANDLE);
+        HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+        NtSuspendProcessFn suspend_process = NULL;
+        if (ntdll)
+            suspend_process = (NtSuspendProcessFn)GetProcAddress(ntdll, "NtSuspendProcess");
+        if (suspend_process)
+            suspend_process(GetCurrentProcess());
+    }
+#else
     raise(SIGSTOP);
+#endif
     serverLog(LL_NOTICE, "Process has been continued.");
 }
 

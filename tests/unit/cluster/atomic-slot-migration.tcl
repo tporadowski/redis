@@ -2410,7 +2410,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 }
 
-set testmodule [file normalize tests/modules/atomicslotmigration.so]
+set testmodule [redis_test_module atomicslotmigration]
 
 start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
     test "Module api sanity" {
@@ -3177,7 +3177,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
     }
 }
 
-set testmodule [file normalize tests/modules/atomicslotmigration.so]
+set testmodule [redis_test_module atomicslotmigration]
 
 start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no appendonly yes]] {
     test "TRIMSLOTS in AOF will work synchronously on restart" {
@@ -3305,7 +3305,7 @@ start_server {tags "cluster external:skip"} {
 #   node 0: 0-5461     (5462 slots)
 #   node 1: 5462-10922 (5461 slots)
 #   node 2: 10923-16383 (5461 slots)
-set testmodule [file normalize tests/modules/atomicslotmigration.so]
+set testmodule [redis_test_module atomicslotmigration]
 start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000]] {
     set id0 [R 0 cluster myid]
     set id1 [R 1 cluster myid]
@@ -3313,7 +3313,7 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
     test "redis-cli --cluster reshard automatically uses atomic slot migration" {
         # Move the lowest 1000 slots (0-999) from node 0 to node 1 using ASM.
         clear_module_event_log
-        exec src/redis-cli --cluster reshard 127.0.0.1:[get_port 0] \
+        exec [redis_cli_bin] --cluster reshard 127.0.0.1:[get_port 0] \
             --cluster-from $id0 --cluster-to $id1 \
             --cluster-slots 1000 --cluster-yes
         wait_for_asm_done
@@ -3330,7 +3330,7 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
         # Rebalance distributes 16384 slots evenly across the 3 nodes.
         # (0-999) will be moved back to node 0.
         clear_module_event_log
-        exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
+        exec [redis_cli_bin] --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
         wait_for_asm_done
         # Non-empty event logs confirm redis-cli used ASM.
         assert {[R 1 asm.get_cluster_event_log] ne {}}

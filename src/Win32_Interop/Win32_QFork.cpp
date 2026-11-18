@@ -154,9 +154,11 @@ int QForkChildMain(void *control_handle, void *payload_handle,
 
 static DWORD WINAPI qfork_abort_watch(LPVOID arg) {
     /* Same code as SERVER_CHILD_NOERROR_RETVAL: parent treats this as a
-     * requested stop, not a failed save. */
+     * requested stop, not a failed save. TerminateProcess skips
+     * DLL_PROCESS_DETACH; ExitProcess runs C++ destructors and Winsock
+     * teardown, which fault in RtlFreeHeap on this disposable image. */
     if (WaitForSingleObject((HANDLE)arg, INFINITE) == WAIT_OBJECT_0)
-        ExitProcess(255);
+        TerminateProcess(GetCurrentProcess(), 255);
     return 0;
 }
 
@@ -306,8 +308,12 @@ int QForkChildMain(void *control_handle, void *payload_handle,
     UnmapViewOfFile(hdr);
     CloseHandle(local_payload);
     CloseHandle(parent);
-    /* Skip CRT/jemalloc atexit in this disposable persistence process. */
-    ExitProcess(rc == 0 ? 0 : 1);
+    /* Skip CRT/jemalloc atexit and DLL_PROCESS_DETACH. ExitProcess still
+     * runs those, and the second socket-save child faults in RtlFreeHeap
+     * while Winsock and the RFD map tear down — after the bytes are already
+     * in the kernel socket buffer. */
+    TerminateProcess(GetCurrentProcess(), rc == 0 ? 0 : 1);
+    return rc == 0 ? 0 : 1;
 }
 
 int RedisWindowsParentMain(int argc, char **argv) {

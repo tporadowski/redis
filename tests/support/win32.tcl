@@ -48,6 +48,26 @@ proc redis_server_bin {} {
     return "src/redis-server"
 }
 
+# CMake puts redis-cli next to redis-server. Linux keeps src/redis-cli.
+proc redis_cli_bin {} {
+    if {$::tcl_platform(platform) eq "windows"} {
+        set dir [file dirname [redis_server_bin]]
+        foreach name {redis-cli.exe redis-cli} {
+            set cand [file join $dir $name]
+            if {[file exists $cand]} {
+                return [file nativename [file normalize $cand]]
+            }
+        }
+        foreach c {build/redis-cli.exe redis-cli.exe} {
+            if {[file exists $c]} {
+                return [file nativename [file normalize $c]]
+            }
+        }
+        return "redis-cli.exe"
+    }
+    return "src/redis-cli"
+}
+
 proc redis_test_launcher_bin {} {
     if {[info exists ::env(REDIS_TEST_LAUNCHER)] &&
         $::env(REDIS_TEST_LAUNCHER) ne ""} {
@@ -67,6 +87,18 @@ proc redis_test_launcher_bin {} {
 
 set ::redis_server_path [redis_server_bin]
 set ::redis_test_launcher_path [redis_test_launcher_bin]
+
+# Unit tests name modules as tests/modules/<name>.so. On Windows those are
+# DLLs produced next to redis-server.exe.
+proc redis_test_module {name} {
+    if {$::tcl_platform(platform) eq "windows"} {
+        set dll [file join [file dirname [redis_server_bin]] "${name}.dll"]
+        if {[file exists $dll]} {
+            return [file normalize $dll]
+        }
+    }
+    return [file normalize [file join tests modules "${name}.so"]]
+}
 
 proc win32_pid_alive {pid} {
     if {![info exists ::redis_test_launcher_path] ||
@@ -114,8 +146,27 @@ proc win32_process_owned {pid} {
     }]}]
 }
 
-proc win32_kill_pid {pid} {
+proc win32_kill_exe {} {
+    if {[info exists ::env(REDIS_TEST_LAUNCHER)] && $::env(REDIS_TEST_LAUNCHER) ne ""} {
+        set cand [file join [file dirname $::env(REDIS_TEST_LAUNCHER)] test-bin kill.exe]
+        if {[file exists $cand]} { return [file normalize $cand] }
+    }
+    set cand [file join [file dirname $::redis_server_path] test-bin kill.exe]
+    if {[file exists $cand]} { return [file normalize $cand] }
+    return ""
+}
+
+# Unix `kill` (no signal) is SIGTERM: Redis saves and exits. TerminateProcess
+# skips that snapshot, so a later restart has nothing to load.
+# force 1 is the escalation path (SIGKILL): the process must die now.
+proc win32_kill_pid {pid {force 0}} {
     if {![win32_process_owned $pid]} { return }
+    if {!$force} {
+        set kill_exe [win32_kill_exe]
+        if {$kill_exe ne "" && ![catch {exec $kill_exe -TERM $pid}]} {
+            return
+        }
+    }
     if {[file exists $::redis_test_launcher_path]} {
         set token ""
         catch {

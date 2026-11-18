@@ -2,7 +2,7 @@
 # module (cluster_topology.so) subscribes to the event and counts the subevents;
 # here we drive topology changes and assert that modules get notified.
 
-set testmodule [file normalize tests/modules/cluster_topology.so]
+set testmodule [redis_test_module cluster_topology]
 
 # Returns the cluster_topology.stats of a node as a dict with the fields:
 #   events slot role state node

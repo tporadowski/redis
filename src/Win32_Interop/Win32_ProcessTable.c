@@ -87,6 +87,12 @@ void winpid_unregister(pid_t pid) {
 }
 
 static int status_from_exit(DWORD code) {
+    /* 255 is SERVER_CHILD_NOERROR_RETVAL (qfork abort). It must stay a
+     * normal exit status so the parent can map it to SIGUSR1. Encoding it
+     * as a signal yields 127, which is neither WIFEXITED nor WIFSIGNALED,
+     * and the transfer is then reported as a generic failure. */
+    if (code == 255)
+        return (int)((code & 0xff) << 8);
     /* 128+sig from TerminateProcess(kill) → WIFSIGNALED. Else WIFEXITED. */
     if (code >= 128 && code < 256)
         return (int)((code - 128) & 0x7f);

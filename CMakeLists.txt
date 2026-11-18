@@ -541,6 +541,30 @@ if(MSVC)
         /EXPORT:RedisModule_OnLoad /DYNAMICBASE:NO /GUARD:NO)
 endif()
 
+# Modules loaded by in-scope unit/cluster tests (not tests/unit/moduleapi).
+function(redis_test_module target src)
+    add_library(${target} SHARED ${src})
+    set_source_files_properties(${src} PROPERTIES LANGUAGE C)
+    target_include_directories(${target} PRIVATE
+        "${CMAKE_SOURCE_DIR}/src"
+        "${REDIS_POSIX_INC}"
+        "${REDIS_INTEROP_INC}")
+    set_target_properties(${target} PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME ${target}
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    if(MSVC)
+        target_compile_definitions(${target} PRIVATE WIN32_NO_RANDOM_REMAP)
+        target_compile_options(${target} PRIVATE "/FI${REDIS_PRE_HEADER}")
+        target_link_options(${target} PRIVATE
+            /EXPORT:RedisModule_OnLoad /DYNAMICBASE:NO /GUARD:NO)
+    endif()
+endfunction()
+redis_test_module(internalsecret tests/modules/internalsecret.c)
+redis_test_module(atomicslotmigration tests/modules/atomicslotmigration.c)
+redis_test_module(cluster_topology tests/modules/cluster_topology.c)
+
 add_custom_target(smoke_module
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/windows/smoke_module.ps1"

@@ -29,7 +29,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     set node3_rd [redis_deferring_client -2]
 
     test {Create 3 node cluster} {
-        exec src/redis-cli --cluster-yes --cluster create \
+        exec [redis_cli_bin] --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
                            127.0.0.1:[srv -2 port]
@@ -56,7 +56,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Perform a Resharding" {
-        exec src/redis-cli --cluster-yes --cluster reshard 127.0.0.1:[srv -2 port] \
+        exec [redis_cli_bin] --cluster-yes --cluster reshard 127.0.0.1:[srv -2 port] \
                            --cluster-to [$node1 cluster myid] \
                            --cluster-from [$node3 cluster myid] \
                            --cluster-slots 1
@@ -77,9 +77,9 @@ start_multiple_servers 3 [list overrides $base_conf] {
         # waiting for cluster_state to be okay is an independent check that all the
         # nodes actually believe each other are healthy, prevent cluster down error.
         wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
             [CI 2 cluster_state] eq {ok}
@@ -101,8 +101,8 @@ start_multiple_servers 3 [list overrides $base_conf] {
         assert_error "*MOVED $slot_for_foo :*" {$node1 set foo bar}
 
         # when in cluster mode, redirect using previous hostip
-        assert_equal "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c set foo bar]" {OK}
-        assert_match "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c get foo]" {bar}
+        assert_equal "[exec [redis_cli_bin] -h 127.0.0.1 -p [srv 0 port] -c set foo bar]" {OK}
+        assert_match "[exec [redis_cli_bin] -h 127.0.0.1 -p [srv 0 port] -c get foo]" {bar}
 
         assert_equal [$node1 CONFIG SET cluster-preferred-endpoint-type "$endpoint_type_before_set"]  {OK}
     }
@@ -173,7 +173,7 @@ start_multiple_servers 5 [list overrides $base_conf] {
     set node5_rd [redis_client -4]
 
     test {Functions are added to new node on redis-cli cluster add-node} {
-        exec src/redis-cli --cluster-yes --cluster create \
+        exec [redis_cli_bin] --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
                            127.0.0.1:[srv -2 port]
@@ -188,13 +188,13 @@ start_multiple_servers 5 [list overrides $base_conf] {
         }
 
         # upload a function to all the cluster
-        exec src/redis-cli --cluster-yes --cluster call 127.0.0.1:[srv 0 port] \
+        exec [redis_cli_bin] --cluster-yes --cluster call 127.0.0.1:[srv 0 port] \
                            FUNCTION LOAD {#!lua name=TEST
                                redis.register_function('test', function() return 'hello' end)
                            }
 
         # adding node to the cluster
-        exec src/redis-cli --cluster-yes --cluster add-node \
+        exec [redis_cli_bin] --cluster-yes --cluster add-node \
                        127.0.0.1:[srv -3 port] \
                        127.0.0.1:[srv 0 port]
 
@@ -222,7 +222,7 @@ start_multiple_servers 5 [list overrides $base_conf] {
 
         # adding node 5 to the cluster should failed because it already contains the 'test' function
         catch {
-            exec src/redis-cli --cluster-yes --cluster add-node \
+            exec [redis_cli_bin] --cluster-yes --cluster add-node \
                         127.0.0.1:[srv -4 port] \
                         127.0.0.1:[srv 0 port]
         } e
@@ -236,7 +236,7 @@ test {Migrate the last slot away from a node using redis-cli} {
     start_multiple_servers 4 [list overrides $base_conf] {
 
         # Create a cluster of 3 nodes
-        exec src/redis-cli --cluster-yes --cluster create \
+        exec [redis_cli_bin] --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
                            127.0.0.1:[srv -2 port]
@@ -250,11 +250,11 @@ test {Migrate the last slot away from a node using redis-cli} {
         }
 
         # Insert some data
-        assert_equal OK [exec src/redis-cli -c -p [srv 0 port] SET foo bar]
-        set slot [exec src/redis-cli -c -p [srv 0 port] CLUSTER KEYSLOT foo]
+        assert_equal OK [exec [redis_cli_bin] -c -p [srv 0 port] SET foo bar]
+        set slot [exec [redis_cli_bin] -c -p [srv 0 port] CLUSTER KEYSLOT foo]
 
         # Add new node to the cluster
-        exec src/redis-cli --cluster-yes --cluster add-node \
+        exec [redis_cli_bin] --cluster-yes --cluster add-node \
                      127.0.0.1:[srv -3 port] \
                      127.0.0.1:[srv 0 port]
         
@@ -292,10 +292,10 @@ test {Migrate the last slot away from a node using redis-cli} {
         # Using --cluster check make sure we won't get `Not all slots are covered by nodes`.
         # Wait for the cluster to become stable make sure the cluster is up during MIGRATE.
         wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
-            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -3 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [catch {exec [redis_cli_bin] --cluster check 127.0.0.1:[srv -3 port]}] == 0 &&
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
             [CI 2 cluster_state] eq {ok} &&
@@ -305,7 +305,7 @@ test {Migrate the last slot away from a node using redis-cli} {
         }
 
         # Move the only slot back to original node using redis-cli
-        exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
+        exec [redis_cli_bin] --cluster reshard 127.0.0.1:[srv -3 port] \
             --cluster-from $newnode_id \
             --cluster-to $owner_id \
             --cluster-slots 1 \
@@ -346,7 +346,7 @@ start_cluster 3 0 {} {
         
         set master0_id [R 0 CLUSTER MYID]
         catch {
-            exec src/redis-cli --cluster-yes --cluster rebalance \
+            exec [redis_cli_bin] --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
                                --cluster-weight ${master0_id}=0 \
                                --cluster-timeout 10000
@@ -365,7 +365,7 @@ start_cluster 3 0 {} {
 
         set master0_id [R 0 CLUSTER MYID]
         catch {
-            exec src/redis-cli --cluster-yes --cluster rebalance \
+            exec [redis_cli_bin] --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
                                --user testuser \
                                --cluster-weight ${master0_id}=0 \
@@ -385,7 +385,7 @@ start_cluster 3 0 {} {
 
         set master0_id [R 0 CLUSTER MYID]
         catch {
-            exec src/redis-cli --cluster-yes --cluster rebalance \
+            exec [redis_cli_bin] --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
                                --user testuser2 \
                                -a testpass \
@@ -411,7 +411,7 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
     # The last two are used to test --cluster add-node
 
     test "redis-cli -4 --cluster create using $ip_or_localhost with cluster-port" {
-        exec src/redis-cli -4 --cluster-yes --cluster create \
+        exec [redis_cli_bin] -4 --cluster-yes --cluster create \
                            $ip_or_localhost:[srv 0 port] \
                            $ip_or_localhost:[srv -1 port] \
                            $ip_or_localhost:[srv -2 port]
@@ -432,7 +432,7 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
 
     test "redis-cli -4 --cluster add-node using $ip_or_localhost with cluster-port" {
         # Adding node to the cluster (without cluster-port)
-        exec src/redis-cli -4 --cluster-yes --cluster add-node \
+        exec [redis_cli_bin] -4 --cluster-yes --cluster add-node \
                            $ip_or_localhost:[srv -3 port] \
                            $ip_or_localhost:[srv 0 port]
 
@@ -448,7 +448,7 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
         }
 
         # Adding node to the cluster (with cluster-port)
-        exec src/redis-cli -4 --cluster-yes --cluster add-node \
+        exec [redis_cli_bin] -4 --cluster-yes --cluster add-node \
                            $ip_or_localhost:[srv -4 port] \
                            $ip_or_localhost:[srv 0 port]
 

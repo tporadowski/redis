@@ -1,147 +1,23 @@
-# 8.10 Windows skip-list (--skipfile). Empty / # lines are ignored.
-# Inventory + how to re-enable each group: tests/windows/DEFERRED-TESTS.md
-# Nothing here is dropped. Groups marked DEFERRED come back when the
-# unblocking work lands. OS-impossible cases stay until the OS grows them.
+# Windows skip-list (--skipfile). Empty lines and # comments are ignored.
+# A pattern is a full test name, or a regexp when it starts with "/".
+# Only facilities Windows does not provide belong here. Replication, cluster,
+# blocking pops, SCAN, KEYS, RANDOMKEY, SORT, MIGRATE, FLUSH/SWAPDB,
+# query-buffer shrink, script and function kill, MONITOR, and extra clients run.
 
-# --- OS-impossible (not this port) ---
-# SIGSTOP / SIGCONT / process state (leading / = regexp; no closing slash)
+# Process stop/continue that the test itself requires as SIGSTOP/SIGCONT
+# (pause/resume of a stopped client, DEBUG SLEEP while stopped).
+# pause_process in tests/support/util.tcl is implemented via the test
+# launcher on Windows and those tests are not named like the patterns below.
 /pause process
 /resume process
 /DEBUG SLEEP.*stopped
 /stopped clients
 
-# abstract Unix namespace (not on Windows AF_UNIX)
+# Abstract-namespace Unix sockets (not implemented by Windows AF_UNIX).
 /abstract unix
 
-# Linux-only introspection
+# Linux /proc and Linux-only process controls.
 /smaps
 /taskset
 /setsid
 /daemonize
-
-# --- DEFERRED: attach_to_replication_stream / SYNC (hangs; 0x133 risk) ---
-# Re-enable after SYNC + extra-client AcceptEx is safe on this port.
-# wintest also passes --tags "-needs:repl -repl". Names below are not tagged
-# needs:repl / repl and would still run without the skipfile.
-/propagate.*replica
-GETEX without argument does not propagate to replica
-Redis should not propagate the read command on lazy expire
-SCAN: Lazy-expire should not be wrapped in MULTI/EXEC
-RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC
-# INCREX rewrite tests now carry needs:repl; keep the name net too.
-/INCREX - rewrite
-
-# --- DEFERRED: slow / large-payload (not a correctness skip) ---
-Very big payload random access
-Very big payload in GET/SET
-SET 10000 numeric keys and access all them in reverse order
-DBSIZE should be 10000 now
-SETBIT fuzzing
-GETRANGE fuzzing
-MSET spanning multiple prefetch batches (batch size 16)
-/BITOP .*fuzz
-/BITPOS.*fuzz
-/BITOP .*large values
-/GEOSEARCH fuzzy
-/GEOSEARCH box edges fuzzy
-# 10k-set SORT BY weight_* / wobj_*->weight: 172s + 123s then the
-# hash-field case exceeded the harness and dropped the client.
-# Big Quicklist is the same 10k-element SORT BY. Dataset creation still
-# runs; only the SORT commands are skipped.
-/Big Hash table: SORT
-/Big Quicklist:
-
-# SORT is CMD_WRITE; this EVAL is not compat-flagged as write on this port
-# (script.c SCRIPT_READ_ONLY). unit/scripting's own SORT cases passed.
-# Re-enable this sort.tcl name only as a timed solo.
-SORT sorted set BY nosort works as expected from scripts
-publish to self inside script
-MONITOR can log commands issued by the scripting engine
-MONITOR can log commands issued by functions
-# Also 1e6 SADD in EVAL — do not run even if scripting flags are fixed.
-LATENCY of expire events are correctly collected
-command stats for scripts
-HOTKEYS - nested commands
-HOTKEYS - EVAL inside MULTI/EXEC with nested calls
-
-# lua-time-limit + busy loop: Windows has no SIGALRM; hook did not abort
-# and the server dropped the client (MULTI and script timeout).
-/script timeout
-FUNCTION - test function kill
-FUNCTION - test script kill not working on function
-FUNCTION - test function kill not working on eval
-LIBRARIES - load timeout
-# debug loadaof after dummy slaveof dropped the client (I/O error).
-FUNCTION can processes create, delete and flush commands in AOF when doing "debug loadaof" in read-only slaves
-
-# list.tcl quicklist "plain nodes" pass: DEBUG RELOAD then LINDEX 71s
-# and LTRIM dropped the client. First start_server already covers
-# packed/plain compression. large-memory 4GB cases stay ignored.
-/on plain nodes
-/Test LSET with packed
-/Crash due to delete entry
-/Crash due to split quicklist
-/Check if list is still ok after a DEBUG RELOAD
-
-# 2026-08-22 Kernel-Power 41 reboot during unit/type/list BLPOP/BLMPOP
-# extra-client storm (AcceptEx + mapped heap). Do not re-run these.
-# Do not use /BLMOVE — that would skip green list-4 BLMOVEM.
-# blpop_one covers one and two waiters. Three or four waiters stay out.
-/BLPOP:
-/BLMPOP_
-/BRPOP:
-/BRPOPLPUSH
-BLMPOP with multiple blocked clients
-Unblock fairness is kept during nested unblock
-
-# --- DEFERRED: SWAPDB/FLUSHALL very slow on mapped heap (61s / >180s timeout) ---
-Coverage: basic SWAPDB test and unhappy path
-Coverage: SWAPDB and FLUSHDB
-FLUSHALL is able to touch the watched keys
-FLUSHALL does not touch non affected keys
-FLUSHDB is able to touch the watched keys
-FLUSHDB does not touch non affected keys
-/SWAPDB is able to touch
-/SWAPDB does not touch
-
-# --- DEFERRED: introspection (100k load / slow BGSAVE) ---
-# maxAGE is green after one-shot write rearm (DEBUG SLEEP 2s).
-CLIENT KILL close the client connection during bgsave
-config during loading
-# io-threads 2/4 start_server hung after alias-rewrite (2026-09-04).
-IO threads client number
-Clients are evenly distributed among io threads
-
-# --- DEFERRED: querybuf shrink (mapped heap / clientsCron peak reset) ---
-query buffer resized correctly when not idle
-query buffer resized correctly with fat argv
-
-# --- DEFERRED: MIGRATE (needs a second server; --tags -repl skips it) ---
-# The outer tests still run: 40k RPUSH + DUMP (~56s), then mapped-heap
-# FLUSHDB after the leftover list drops the client (~245s, I/O error).
-# Re-enable with the replica start_server, not the setup-only path.
-/MIGRATE
-
-
-# --- DEFERRED: unit/scan bombs (2026-08-18 LiveKernel 141) ---
-# The TYPE+PATTERN expire scan ran ~75s; the machine rebooted before
-# write-load finished. #4906 is 100 SSCAN passes over ~1k elements.
-# Re-enable only as a timed solo, never inside the default list.
-/SCAN with expired keys with TYPE filter and PATTERN filter
-/SCAN guarantees check under write load
-/SCAN regression test for issue #4906
-
-# --- DEFERRED: set/zset bombs (same watchdog class as the list storm) ---
-# 100k-member set plus BGSAVE with rdb-key-save-delay at INT_MAX.
-# Four blocked BZMPOP clients; blpop_one only proved one and two waiters.
-SRANDMEMBER with a dict containing long chain
-BZMPOP with multiple blocked clients
-
-# --- DEFERRED: KEYS/RANDOMKEY CPU bombs (DPC_WATCHDOG 0x133 on this laptop) ---
-# Re-enable after the 13.x harness fences are proven and these are timed alone.
-RANDOMKEY
-RANDOMKEY against empty DB
-RANDOMKEY regression 1
-KEYS * two times with long key, Github issue #1208
-Regression for pattern matching long nested loops
-Regression for pattern matching very long nested loops

@@ -682,6 +682,8 @@ start_server {tags {"increx"}} {
         }
         close_replication_stream $repl
         r config set lazyfree-lazy-expire no
+        # CONFIG SET returns OK. This test's expectation is empty.
+        set _ {}
     } {} {needs:repl}
 
     test {INCREX - rewrite carries saturated value after UBOUND/LBOUND} {

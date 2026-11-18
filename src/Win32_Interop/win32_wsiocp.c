@@ -543,15 +543,20 @@ int WSIOCP_CancelAndDrainRead(int rfd) {
     FDAPI_CancelIoEx(rfd, &ss->ov_read);
 
     /* Also drop a completion already pulled into this loop's pending
-     * queue. GetQueuedCompletionStatusEx will not see it again. */
+     * queue. GetQueuedCompletionStatusEx will not see it again. That
+     * packet is the finished op, so do not wait on the port for it:
+     * the wait is two seconds and every slot-migration ACK would stall. */
     if (ss->dest_el && ss->dest_el->apidata) {
         aeApiState *st = (aeApiState *)ss->dest_el->apidata;
         iocpPendingQueue *q = (iocpPendingQueue *)st->pending_comps;
         int k;
         if (q) {
             for (k = q->i; k < q->n; k++) {
-                if (q->items[k].entry.lpOverlapped == &ss->ov_read)
+                if (q->items[k].entry.lpOverlapped == &ss->ov_read) {
                     q->items[k].entry.lpOverlapped = NULL;
+                    ss->masks &= ~READ_QUEUED;
+                    return 0;
+                }
             }
         }
     }
@@ -592,6 +597,51 @@ int WSIOCP_RearmRead(int rfd) {
     if (ss->masks & (READ_QUEUED | CONNECT_PENDING | CLOSE_PENDING | LISTEN_SOCK))
         return 0;
     return WSIOCP_QueueNextRead(rfd);
+}
+
+/* SIO_TCP_INFO / TCP_INFO_v0.State. The SDK hides these unless
+ * NTDDI_VERSION >= NTDDI_WIN10_RS2, which this build does not set.
+ * Values match the 10.0.26100 header: ioctl 0xD8000027, state at offset 0,
+ * struct size 88. */
+#define WSIOCP_SIO_TCP_INFO 0xD8000027UL
+#define WSIOCP_TCP_INFO_V0_SIZE 88
+#define WSIOCP_TCP_CLOSE_WAIT 7
+#define WSIOCP_TCP_CLOSING 8
+#define WSIOCP_TCP_LAST_ACK 9
+#define WSIOCP_TCP_TIME_WAIT 10
+
+int WSIOCP_TcpPeerClosed(int rfd) {
+    int soerr = 0;
+    socklen_t solen = sizeof(soerr);
+    unsigned long version = 0;
+    unsigned char raw[WSIOCP_TCP_INFO_V0_SIZE];
+    unsigned long got = 0;
+    unsigned long state;
+    struct sockaddr_storage addr;
+    socklen_t alen = sizeof(addr);
+
+    if (rfd < 0) return 0;
+    /* This file is FDAPI_IMPLEMENTATION, so the getsockname macro is off.
+     * rfd is a Redis fd, not a SOCKET. */
+    if (fdapi_getsockname(rfd, (struct sockaddr *)&addr, &alen) != 0)
+        return 1;
+    if (addr.ss_family != AF_INET && addr.ss_family != AF_INET6)
+        return 0;
+
+    if (fdapi_getsockopt(rfd, SOL_SOCKET, SO_ERROR, (char *)&soerr, &solen) == 0) {
+        if (soerr == ECONNRESET || soerr == ECONNABORTED || soerr == ENOTCONN ||
+            soerr == ETIMEDOUT || soerr == EPIPE || soerr == ECONNREFUSED)
+            return 1;
+    }
+
+    memset(raw, 0, sizeof(raw));
+    if (FDAPI_WSAIoctl(rfd, WSIOCP_SIO_TCP_INFO, &version, sizeof(version),
+                       raw, sizeof(raw), &got, NULL, NULL) != 0)
+        return 0;
+    if (got < sizeof(state)) return 0;
+    memcpy(&state, raw, sizeof(state));
+    return state == WSIOCP_TCP_CLOSE_WAIT || state == WSIOCP_TCP_CLOSING ||
+           state == WSIOCP_TCP_LAST_ACK || state == WSIOCP_TCP_TIME_WAIT;
 }
 
 int WSIOCP_QueueAccept(int listenfd) {
@@ -995,12 +1045,24 @@ int WSIOCP_Poll(aeEventLoop *el, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)el->apidata;
     int numevents = 0;
     int drained = 0;
-    DWORD mswait = tvp ? (DWORD)(tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : 100;
+    DWORD mswait;
     DWORD wait;
     BOOL rc;
-    /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
-    if (mswait > 250)
-        mswait = 250;
+    if (!tvp) {
+        mswait = 100;
+    } else {
+        /* Round up. Truncating tv_usec/1000 turned a 1..999us timeout into
+         * a 0ms wait, and GQCS returned immediately until the timer was due.
+         * Each spin is an event-loop cycle, so
+         * instantaneous_eventloop_cycles_per_sec climbed far above hz.
+         * A {0,0} timeval (AE_DONT_WAIT, or a timer that is already due)
+         * still waits 0ms. */
+        long long usec = (long long)tvp->tv_sec * 1000000LL + tvp->tv_usec;
+        long long ms = usec > 0 ? (usec + 999) / 1000 : 0;
+        /* Cap so a wedged timer cannot pin an IO thread in GQCS (pause/QFork). */
+        if (ms > 250) ms = 250;
+        mswait = (DWORD)ms;
+    }
     retry_accepts(el);
     retry_writes(el);
     /* Backpressured writes retry on a short cadence, not a busy loop. */

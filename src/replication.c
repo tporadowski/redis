@@ -94,6 +94,10 @@ static sds bulkline = NULL;
 /* Handshake replies: connSyncReadLine + poll fights a pending 0-byte
  * WSARecv (AUTH +OK / REPLCONF never arrives; replica stays down). */
 static sds handshake_line = NULL;
+/* Bytes pulled off the main channel after +RDBCHANNELSYNC, before the
+ * replica replication buffer exists. The RDB channel handshake shares
+ * handshake_line, so this prefix cannot stay there. */
+static sds repl_main_ch_prefetch = NULL;
 static char repl_sync_again_blob;
 #define REPL_SYNC_AGAIN ((char *)&repl_sync_again_blob)
 
@@ -101,7 +105,15 @@ static char repl_sync_again_blob;
  * one-shot, so the socket will not become readable again for bytes that
  * are already in this buffer. Callers must keep going. */
 static int handshakeHasPendingLine(void) {
-    return handshake_line && strstr(handshake_line, "\r\n") != NULL;
+    /* syncReadLine() ends a line on '\n'. The pre-BGSAVE keepalive is a
+     * bare '\n', not "\r\n". */
+    return handshake_line && strchr(handshake_line, '\n') != NULL;
+}
+
+static void replicationFreeMainChPrefetch(void) {
+    if (!repl_main_ch_prefetch) return;
+    sdsfree(repl_main_ch_prefetch);
+    repl_main_ch_prefetch = NULL;
 }
 #endif
 
@@ -2369,21 +2381,28 @@ void readSyncBulkPayload(connection *conn) {
     if (server.repl_transfer_size == -1) {
 #ifdef _WIN32
         char chunk[256];
-        char *nl;
+        char *nl = NULL;
         size_t linelen;
-        nread = connRead(conn, chunk, sizeof(chunk));
-        if (nread <= 0) {
-            if (connGetState(conn) == CONN_STATE_CONNECTED)
-                return; /* EAGAIN */
-            serverLog(LL_WARNING,
-                "I/O error reading bulk count from MASTER: %s",
-                nread == -1 ? connGetLastError(conn) : "connection lost");
-            if (bulkline) { sdsfree(bulkline); bulkline = NULL; }
-            goto error;
+        /* The handshake read may have already pulled the bulk header (and
+         * the start of the RDB) into bulkline. Parse that before touching
+         * the socket again. */
+        if (bulkline && sdslen(bulkline))
+            nl = strstr(bulkline, "\r\n");
+        if (!nl) {
+            nread = connRead(conn, chunk, sizeof(chunk));
+            if (nread <= 0) {
+                if (connGetState(conn) == CONN_STATE_CONNECTED)
+                    return; /* EAGAIN */
+                serverLog(LL_WARNING,
+                    "I/O error reading bulk count from MASTER: %s",
+                    nread == -1 ? connGetLastError(conn) : "connection lost");
+                if (bulkline) { sdsfree(bulkline); bulkline = NULL; }
+                goto error;
+            }
+            if (!bulkline) bulkline = sdsempty();
+            bulkline = sdscatlen(bulkline, chunk, nread);
+            nl = strstr(bulkline, "\r\n");
         }
-        if (!bulkline) bulkline = sdsempty();
-        bulkline = sdscatlen(bulkline, chunk, nread);
-        nl = strstr(bulkline, "\r\n");
         if (!nl) {
             if (sdslen(bulkline) > 1024) {
                 serverLog(LL_WARNING,
@@ -2942,56 +2961,86 @@ error:
     return;
 }
 
+/* True when receiveSynchronousResponse() has no complete reply yet.
+ * The pointer is not an sds. Callers must return it to the event loop
+ * and must not free it. */
+int receiveSyncResponseAgain(const char *reply) {
+#ifdef _WIN32
+    return reply == REPL_SYNC_AGAIN;
+#else
+    UNUSED(reply);
+    return 0;
+#endif
+}
+
 char *receiveSynchronousResponse(connection *conn) {
 #ifdef _WIN32
     char chunk[256];
-    ssize_t nread;
-    char *nl;
-    sds line;
-    size_t linelen;
+    int extra_reads = 0;
 
-    if (!handshake_line || !strstr(handshake_line, "\r\n")) {
-        /* Pending 0-byte WSARecv makes recv() EAGAIN even when the AUTH
-         * line is in the TCP buffer; handshake then never completes. */
-        if (conn->fd >= 0)
-            WSIOCP_CancelQueuedRead(conn->fd);
-        nread = connRead(conn, chunk, sizeof(chunk));
-        if (nread <= 0) {
-            if (connGetState(conn) == CONN_STATE_CONNECTED)
+    /* One connRead often returns EAGAIN, or a bare '\n' the master writes
+     * while BGSAVE is still starting. Keep the bytes already pulled and
+     * let the caller wait for the next readable event. */
+    while (1) {
+        ssize_t nread;
+        char *nl;
+        sds line;
+        size_t linelen, consumed;
+
+        if (!handshake_line || strchr(handshake_line, '\n') == NULL) {
+            if (extra_reads >= 4)
                 return REPL_SYNC_AGAIN;
-            if (handshake_line) {
+            extra_reads++;
+            /* Pending 0-byte WSARecv makes recv() EAGAIN even when the AUTH
+             * line is in the TCP buffer; handshake then never completes. */
+            if (conn->fd >= 0)
+                WSIOCP_CancelQueuedRead(conn->fd);
+            nread = connRead(conn, chunk, sizeof(chunk));
+            if (nread <= 0) {
+                if (connGetState(conn) == CONN_STATE_CONNECTED)
+                    return REPL_SYNC_AGAIN;
+                if (handshake_line) {
+                    sdsfree(handshake_line);
+                    handshake_line = NULL;
+                }
+                serverLog(LL_WARNING, "Failed to read response from the server: %s",
+                          nread == -1 ? connGetLastError(conn) : "connection lost");
+                return NULL;
+            }
+            if (!handshake_line) handshake_line = sdsempty();
+            handshake_line = sdscatlen(handshake_line, chunk, nread);
+        }
+        nl = strchr(handshake_line, '\n');
+        if (!nl) {
+            if (sdslen(handshake_line) > 512) {
+                serverLog(LL_WARNING, "Failed to read response from the server: line too long");
                 sdsfree(handshake_line);
                 handshake_line = NULL;
+                return NULL;
             }
-            serverLog(LL_WARNING, "Failed to read response from the server: %s",
-                      nread == -1 ? connGetLastError(conn) : "connection lost");
-            return NULL;
+            return REPL_SYNC_AGAIN;
         }
-        if (!handshake_line) handshake_line = sdsempty();
-        handshake_line = sdscatlen(handshake_line, chunk, nread);
-    }
-    nl = strstr(handshake_line, "\r\n");
-    if (!nl) {
-        if (sdslen(handshake_line) > 512) {
-            serverLog(LL_WARNING, "Failed to read response from the server: line too long");
+        linelen = (size_t)(nl - handshake_line);
+        consumed = linelen + 1;
+        if (linelen && handshake_line[linelen - 1] == '\r')
+            linelen--;
+        line = sdsnewlen(handshake_line, linelen);
+        {
+            sds rest = sdsnewlen(handshake_line + consumed,
+                                 sdslen(handshake_line) - consumed);
             sdsfree(handshake_line);
-            handshake_line = NULL;
-            return NULL;
+            handshake_line = sdslen(rest) ? rest : NULL;
+            if (!handshake_line) sdsfree(rest);
         }
-        return REPL_SYNC_AGAIN;
+        if (sdslen(line) == 0) {
+            sdsfree(line);
+            continue;
+        }
+        server.repl_transfer_lastio = server.unixtime;
+        if (conn->fd >= 0)
+            WSIOCP_RearmRead(conn->fd);
+        return line;
     }
-    linelen = (size_t)(nl - handshake_line);
-    line = sdsnewlen(handshake_line, linelen);
-    {
-        sds rest = sdsnewlen(nl + 2, sdslen(handshake_line) - linelen - 2);
-        sdsfree(handshake_line);
-        handshake_line = sdslen(rest) ? rest : NULL;
-        if (!handshake_line) sdsfree(rest);
-    }
-    server.repl_transfer_lastio = server.unixtime;
-    if (conn->fd >= 0)
-        WSIOCP_RearmRead(conn->fd);
-    return line;
 #else
     char buf[256];
     /* Read the reply from the server. */
@@ -3009,7 +3058,11 @@ char *receiveSynchronousResponse(connection *conn) {
 char* sendCommandRaw(connection *conn, sds cmd) {
 #ifdef _WIN32
     /* A pending 0-byte WSARecv makes send() fail and WSAPoll miss POLLOUT.
-     * Drop it for the synchronous handshake write; the event loop rearms. */
+     * Drop it for the synchronous write. Rearm afterwards: callers in
+     * beforeSleep and cron (slot-migration ACKs) are not inside this fd's
+     * handler, so the event loop will not post another recv for them.
+     * Without the rearm, STREAM-EOF stays in the TCP buffer and the source
+     * times out waiting for slot ownership. */
     if (conn->fd >= 0)
         WSIOCP_CancelQueuedRead(conn->fd);
 #endif
@@ -3017,6 +3070,15 @@ char* sendCommandRaw(connection *conn, sds cmd) {
         return sdscatprintf(sdsempty(),"-Writing to master: %s",
                 connGetLastError(conn));
     }
+#ifdef _WIN32
+    if (conn->fd >= 0 && conn->state == CONN_STATE_CONNECTED &&
+        WSIOCP_RearmRead(conn->fd) != 0)
+    {
+        serverLog(LL_WARNING,
+            "IOCP read rearm after synchronous write failed: fd=%d err=%d",
+            conn->fd, errno);
+    }
+#endif
     return NULL;
 }
 
@@ -3337,13 +3399,71 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     return PSYNC_NOT_SUPPORTED;
 }
 
+#ifdef _WIN32
+/* Give bytes that followed the PSYNC reply to the master client. A chunked
+ * read pulls them off the socket together with +CONTINUE, and the drain
+ * loop would otherwise feed them back into syncWithMaster after the
+ * partial resync has already installed the master. */
+static void replicationHandoffHandshakeTail(client *master) {
+    sds tail;
+    size_t n, off = 0;
+
+    if (!handshake_line || !master) return;
+    tail = handshake_line;
+    handshake_line = NULL;
+    n = sdslen(tail);
+    if (n == 0) {
+        sdsfree(tail);
+        return;
+    }
+
+    if (master->compression_state) {
+        while (off < n && server.master == master) {
+            char out[PROTO_IOBUF_LEN];
+            size_t consumed = 0;
+            int got = clientReadBufAndDecompress(master, (char *)tail + off,
+                                                 n - off, out, sizeof(out),
+                                                 &consumed);
+            if (got > 0) {
+                if (!master->querybuf) master->querybuf = sdsempty();
+                master->querybuf = sdscatlen(master->querybuf, out, (size_t)got);
+                master->read_reploff += got;
+                if (master->querybuf_peak < sdslen(master->querybuf))
+                    master->querybuf_peak = sdslen(master->querybuf);
+            }
+            if (consumed > 0) {
+                atomicIncr(server.stat_net_repl_input_bytes, (long long)consumed);
+                master->net_input_bytes += consumed;
+            }
+            if (consumed == 0 || got <= 0) break;
+            off += consumed;
+        }
+    } else {
+        if (!master->querybuf) master->querybuf = sdsempty();
+        master->querybuf = sdscatlen(master->querybuf, tail, n);
+        master->read_reploff += (long long)n;
+        master->net_input_bytes += n;
+        if (master->querybuf_peak < sdslen(master->querybuf))
+            master->querybuf_peak = sdslen(master->querybuf);
+        atomicIncr(server.stat_net_repl_input_bytes, (long long)n);
+    }
+    sdsfree(tail);
+    if (server.master == master && master->querybuf &&
+        sdslen(master->querybuf) > master->qb_pos)
+        processInputBuffer(master);
+}
+#endif
+
 /* This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
 void syncWithMaster(connection *conn) {
 #ifdef _WIN32
     /* Drain replies already sitting in handshake_line. One connRead can
      * pull every +OK the master pipelined; returning here would wait for a
-     * socket event that never comes. */
+     * socket event that never comes. Stop once the handshake state is left:
+     * bytes after +CONTINUE are the replication stream, and feeding them
+     * back into this function closes the master link that partial resync
+     * just installed. */
     static int draining_handshake;
     if (!draining_handshake) {
         int spins = 0;
@@ -3352,7 +3472,8 @@ void syncWithMaster(connection *conn) {
             syncWithMaster(conn);
         } while (handshakeHasPendingLine() && spins++ < 64 &&
                  conn->state == CONN_STATE_CONNECTED &&
-                 server.repl_transfer_s == conn);
+                 server.repl_transfer_s == conn &&
+                 slaveIsInHandshakeState());
         draining_handshake = 0;
         return;
     }
@@ -3640,6 +3761,17 @@ void syncWithMaster(connection *conn) {
 
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
+        /* Partial resync already turned this socket into the master client.
+         * Closing it here leaves server.master set, and the next full
+         * resync asserts in replicationAttachToNewMaster. */
+        if (server.repl_state == REPL_STATE_CONNECTED &&
+            server.master && server.master->conn == conn)
+        {
+#ifdef _WIN32
+            replicationHandoffHandshakeTail(server.master);
+#endif
+            return;
+        }
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC_REPLY but is %d",
                              server.repl_state);
@@ -3676,7 +3808,10 @@ void syncWithMaster(connection *conn) {
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
         enableMasterClientDecompressionIfNeeded(server.master);
-        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+#ifdef _WIN32
+        replicationHandoffHandshakeTail(server.master);
+#endif
+        if (server.master && server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }
         return;
@@ -3719,6 +3854,17 @@ void syncWithMaster(connection *conn) {
     /* Using rdb channel replication, the master responded +RDBCHANNELSYNC.
      * We need to initialize the RDB channel. */
     if (psync_result == PSYNC_FULLRESYNC_RDBCHANNEL) {
+#ifdef _WIN32
+        /* The chunked PSYNC read may already hold the start of the main
+         * channel replication stream. Park it until the buffer exists.
+         * Leaving it in handshake_line makes the RDB channel parse it as
+         * the next handshake reply. */
+        if (handshake_line) {
+            replicationFreeMainChPrefetch();
+            repl_main_ch_prefetch = handshake_line;
+            handshake_line = NULL;
+        }
+#endif
         /* Create RDB connection */
         server.repl_rdb_transfer_s = connCreate(server.el, connTypeOfReplication());
         if (connConnect(server.repl_rdb_transfer_s, server.masterhost,
@@ -3731,6 +3877,18 @@ void syncWithMaster(connection *conn) {
         connSetReadHandler(server.repl_transfer_s, NULL);
         return;
     }
+
+#ifdef _WIN32
+    /* Same chunked read can include the start of the RDB after +FULLRESYNC.
+     * readSyncBulkPayload keeps that prefix in bulkline and, for diskless
+     * load, prepends it to the rio buffer. */
+    if (handshake_line) {
+        if (!bulkline) bulkline = sdsempty();
+        bulkline = sdscatsds(bulkline, handshake_line);
+        sdsfree(handshake_line);
+        handshake_line = NULL;
+    }
+#endif
 
     /* Setup the non blocking download of the bulk file. */
     if (connSetReadHandler(conn, readSyncBulkPayload)
@@ -3756,6 +3914,7 @@ error:
         sdsfree(handshake_line);
         handshake_line = NULL;
     }
+    replicationFreeMainChPrefetch();
 #endif
     if (dfd != -1) close(dfd);
     connClose(conn);
@@ -3784,6 +3943,7 @@ int connectWithMaster(void) {
         sdsfree(handshake_line);
         handshake_line = NULL;
     }
+    replicationFreeMainChPrefetch();
 #endif
     server.repl_current_sync_attempts++;
     server.repl_total_sync_attempts++;
@@ -3850,6 +4010,7 @@ int cancelReplicationHandshake(int reconnect) {
         sdsfree(handshake_line);
         handshake_line = NULL;
     }
+    replicationFreeMainChPrefetch();
 #endif
     if (rdbChannelAbort() != C_OK)
         return 1;
@@ -4396,6 +4557,24 @@ void replDataBufClear(replDataBuf *buf) {
  * during rdb channel sync. */
 static void rdbChannelReplDataBufInit(void) {
     replDataBufInit(&server.repl_full_sync_buffer);
+#ifdef _WIN32
+    if (repl_main_ch_prefetch && sdslen(repl_main_ch_prefetch)) {
+        size_t n = sdslen(repl_main_ch_prefetch);
+        size_t usable = 0;
+        replDataBuf *buf = &server.repl_full_sync_buffer;
+        replDataBufBlock *block = zmalloc_usable(sizeof(replDataBufBlock) + n, &usable);
+        block->size = usable - sizeof(replDataBufBlock);
+        block->used = n;
+        memcpy(block->buf, repl_main_ch_prefetch, n);
+        listAddNodeTail(buf->blocks, block);
+        buf->size += block->size;
+        buf->used += n;
+        buf->mem_used += usable + sizeof(listNode);
+        if (buf->peak < buf->size) buf->peak = buf->size;
+        atomicIncr(server.stat_net_repl_input_bytes, (long long)n);
+    }
+    replicationFreeMainChPrefetch();
+#endif
 }
 
 /* Replication: Replica side.
@@ -4582,12 +4761,26 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 processEventsWhileBlocked();
             }
 
-            /* Check if we should yield back to the event loop */
+            /* Check if we should yield back to the event loop.
+             * Process socket events before the callback. The callback
+             * sends a synchronous reply, and on Windows that cancels the
+             * one-shot read. Data already queued (and the slot-migration
+             * read failpoint) has to be delivered first. A second pass
+             * after the callback observes the rearmed read. */
             if (server.loading_process_events_interval_bytes &&
                 ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
                   ctx->applied_offset / server.loading_process_events_interval_bytes))
             {
+                processEventsWhileBlocked();
+                if (!ctx->should_continue(ctx)) {
+                    ret = C_ERR;
+                    break;
+                }
                 ctx->yield_callback(ctx);
+                if (!ctx->should_continue(ctx)) {
+                    ret = C_ERR;
+                    break;
+                }
                 processEventsWhileBlocked();
             }
             ctx->applied_offset += consumed;
@@ -4720,6 +4913,9 @@ static void rdbChannelCleanup(void) {
  * Return C_OK if cleanup is done. Otherwise, returns C_ERR which means cleanup
  * will be done asynchronously. */
 static int rdbChannelAbort(void) {
+#ifdef _WIN32
+    replicationFreeMainChPrefetch();
+#endif
     if (server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE)
         return C_OK;
 
@@ -5087,6 +5283,25 @@ void replicationResurrectCachedMaster(connection *conn) {
 /* This function counts the number of slaves with lag <= min-slaves-max-lag.
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less). */
+#ifdef _WIN32
+/* Free replica clients whose TCP peer has already gone away. Safe to call
+ * while a script is blocked: the iterator keeps the next list node, and
+ * freeClient() is how replicationCron drops a timed-out replica. */
+void disconnectReplicasOnClosedSocket(void) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave->flags & CLIENT_PROTECTED) continue;
+        if (!slave->conn || slave->conn->fd < 0) continue;
+        if (!WSIOCP_TcpPeerClosed(slave->conn->fd)) continue;
+        freeClient(slave);
+    }
+}
+#endif
+
 void refreshGoodSlavesCount(void) {
     listIter li;
     listNode *ln;
@@ -5455,7 +5670,18 @@ void replicationCron(void) {
              server.rdb_child_type != RDB_CHILD_TYPE_SOCKET));
 
         if (is_presync && !(slave->flags & CLIENT_CLOSE_ASAP)) {
+#ifdef _WIN32
+            /* Same pending-recv rule as sendCommandRaw: the newline is how
+             * the replica refreshes its handshake timer while BGSAVE waits. */
+            if (slave->conn && slave->conn->fd >= 0)
+                WSIOCP_CancelQueuedRead(slave->conn->fd);
+#endif
             connWrite(slave->conn, "\n", 1);
+#ifdef _WIN32
+            if (slave->conn && slave->conn->fd >= 0 &&
+                slave->conn->state == CONN_STATE_CONNECTED)
+                WSIOCP_RearmRead(slave->conn->fd);
+#endif
         }
     }
 

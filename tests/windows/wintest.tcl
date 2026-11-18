@@ -24,9 +24,10 @@ for {set i 0} {$i < [llength $argv]} {incr i} {
     }
 }
 
-# Default units: skip-list + --tags -needs:repl -repl -cluster.
-# Add a unit here only after a solo runtest-win.ps1 -Single pass.
-# Deferred names: tests/windows/DEFERRED-TESTS.md
+# Every tests/unit, tests/unit/type, and tests/unit/cluster stem, plus the
+# Windows and integration names the Windows runner must execute.
+# tests/unit/moduleapi is omitted: this CMake build does not produce those
+# test modules as DLLs. Skip-list is only facilities Windows does not provide.
 set units {
     unit/printver
     unit/type/incr
@@ -89,6 +90,30 @@ set units {
     unit/type/stream-cgroups
     unit/scripting
     unit/acl-v2
+    unit/gcra
+    unit/maxmemory
+    unit/memefficiency
+    unit/oom-score-adj
+    unit/tls
+    unit/violations
+    unit/cluster/announced-endpoints
+    unit/cluster/atomic-slot-migration
+    unit/cluster/cli
+    unit/cluster/cluster-response-tls
+    unit/cluster/cluster-topology-change
+    unit/cluster/failure-marking
+    unit/cluster/hostnames
+    unit/cluster/human-announced-nodename
+    unit/cluster/internal-secret
+    unit/cluster/links
+    unit/cluster/misc
+    unit/cluster/multi-slot-operations
+    unit/cluster/packet-validation
+    unit/cluster/scripting
+    unit/cluster/sharded-pubsub
+    unit/cluster/slot-ownership
+    unit/cluster/slot-stats
+    unit/cluster/tls-peer-impersonation
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
@@ -133,26 +158,19 @@ if {![info exists ::env(QFORK_HEAP_BYTES)] || $::env(QFORK_HEAP_BYTES) eq ""} {
     set ::env(QFORK_HEAP_BYTES) 512M
 }
 
-# SYNC / replica-stream / cluster stay denied until DEFERRED-TESTS.md says otherwise.
-# Progress timeout is 600s so 10k-key SORT / list stress can finish on the
-# mapped heap. A solo unit/scan still uses 900s; write-load and issue #4906
-# stay in the skip-list, so the fenced unit itself finishes in a few seconds.
+# No tag denies. needs:repl, repl, and cluster tests run.
+# Progress timeout is 1800s: one Tcl body (10k SORT, long KEYS, SCAN #4906,
+# script kill) can sit without a harness message for several minutes and
+# must not be killed while it is still doing the work the test asked for.
 set has_single 0
-set singles {}
 for {set i 0} {$i < [llength $rest]} {incr i} {
     if {[lindex $rest $i] eq "--single"} {
         set has_single 1
-        incr i
-        lappend singles [lindex $rest $i]
+        break
     }
 }
-set timeout_sec 600
-if {(!$has_single && [lsearch -exact $units unit/scan] >= 0) ||
-    [lsearch -exact $singles unit/scan] >= 0} {
-    set timeout_sec 900
-}
-set argv [list --clients 1 --timeout $timeout_sec --skipfile tests/windows/skip-list.txt \
-    --tags "-needs:repl -repl -cluster"]
+set timeout_sec 1800
+set argv [list --clients 1 --timeout $timeout_sec --skipfile tests/windows/skip-list.txt]
 if {!$has_single} {
     foreach u $units {
         lappend argv --single $u

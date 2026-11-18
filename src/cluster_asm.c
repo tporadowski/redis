@@ -191,6 +191,7 @@ void asmSetQForkState(void *state) {
 char *sendCommand(connection *conn, ...);
 char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens);
 char *receiveSynchronousResponse(connection *conn);
+int receiveSyncResponseAgain(const char *reply);
 ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
@@ -1402,6 +1403,8 @@ void asmRdbChannelSyncWithSource(connection *conn) {
 
     if (task->rdb_channel_state == ASM_AUTH_REPLY) {
         err = receiveSynchronousResponse(conn);
+        /* Not an sds. Wait for the next readable event. */
+        if (receiveSyncResponseAgain(err)) return;
         /* The source node did not reply */
         if (err == NULL) goto no_response_error;
 
@@ -1428,6 +1431,8 @@ void asmRdbChannelSyncWithSource(connection *conn) {
 
     if (task->rdb_channel_state == ASM_RDBCHANNEL_REPLY) {
         err = receiveSynchronousResponse(conn);
+        /* Not an sds. Wait for the next readable event. */
+        if (receiveSyncResponseAgain(err)) return;
         /* The source node did not reply */
         if (err == NULL) goto no_response_error;
 
@@ -1552,6 +1557,8 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_AUTH_REPLY) {
         err = receiveSynchronousResponse(conn);
+        /* Not an sds. Wait for the next readable event. */
+        if (receiveSyncResponseAgain(err)) return;
         /* The source node did not reply */
         if (err == NULL) goto no_response_error;
 
@@ -1580,6 +1587,8 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_HANDSHAKE_REPLY) {
         err = receiveSynchronousResponse(conn);
+        /* Not an sds. Wait for the next readable event. */
+        if (receiveSyncResponseAgain(err)) return;
         /* The source node did not reply */
         if (err == NULL) goto no_response_error;
 
@@ -1607,6 +1616,8 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_SYNCSLOTS_REPLY) {
         err = receiveSynchronousResponse(conn);
+        /* Not an sds. Wait for the next readable event. */
+        if (receiveSyncResponseAgain(err)) return;
         /* The source node did not reply */
         if (err == NULL) goto no_response_error;
 
@@ -2461,7 +2472,12 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                     /* Delay return if required (for testing) */
                     if (unlikely(server.rdb_key_save_delay)) {
                         /* Send buffer to the destination ASAP. */
-                        if (rioFlush(rdb) == 0) goto werr2;
+                        if (rioFlush(rdb) == 0) {
+                            serverLog(LL_WARNING,
+                                "Slot snapshot key flush failed: %s",
+                                strerror(errno));
+                            goto werr2;
+                        }
                         debugDelay(server.rdb_key_save_delay);
                     }
                 }
@@ -2481,6 +2497,7 @@ werr2:
     kvstoreResetDictIterator(&kvs_di);
 werr:
     if (error) *error = errno;
+    serverLog(LL_WARNING, "Slot snapshot write failed: %s", strerror(errno));
     return C_ERR;
 }
 
