@@ -131,6 +131,7 @@ set units {
     integration/replication-iothreads
     integration/replication-buffer
     integration/rdb
+    integration/replication-rdbchannel
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

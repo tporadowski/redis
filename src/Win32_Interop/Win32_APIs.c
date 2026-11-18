@@ -168,10 +168,49 @@ unsigned int sleep(unsigned int seconds) {
     return 0;
 }
 
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+/* Sleep() follows the scheduler tick (~15 ms). A 300 us rdb-key-save-delay
+ * then costs ~15 ms per key, and a 10k-key snapshot misses the replication
+ * tests' deadlines. Spin the short waits so they last about as long as asked. */
+static void usleep_spin(unsigned int usec) {
+    LARGE_INTEGER freq, start, now;
+    LONGLONG ticks;
+
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&start);
+    ticks = ((LONGLONG)usec * freq.QuadPart) / 1000000LL;
+    if (ticks < 1) ticks = 1;
+    do {
+        QueryPerformanceCounter(&now);
+    } while ((now.QuadPart - start.QuadPart) < ticks);
+}
+
 int usleep(unsigned int usec) {
+    HANDLE timer;
+    LARGE_INTEGER due;
+
     if (usec == 0) {
         Sleep(0);
         return 0;
+    }
+    if (usec < 2000) {
+        usleep_spin(usec);
+        return 0;
+    }
+    timer = CreateWaitableTimerExW(NULL, NULL,
+                                   CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                   TIMER_ALL_ACCESS);
+    if (timer) {
+        due.QuadPart = -((LONGLONG)usec * 10);
+        if (SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE) &&
+            WaitForSingleObject(timer, INFINITE) == WAIT_OBJECT_0) {
+            CloseHandle(timer);
+            return 0;
+        }
+        CloseHandle(timer);
     }
     Sleep((usec + 999) / 1000);
     return 0;

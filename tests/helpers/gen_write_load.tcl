@@ -65,7 +65,14 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
             break
         }
         if {$sleep ne 0} {
-            after $sleep
+            # Windows Tcl after waits in scheduler ticks (~15 ms), so a 4 ms
+            # pause never happens. Spin short pauses to keep the requested rate.
+            if {$::tcl_platform(platform) eq "windows" && $sleep < 15} {
+                set end [expr {[clock microseconds] + $sleep * 1000}]
+                while {[clock microseconds] < $end} {}
+            } else {
+                after $sleep
+            }
         }
     }
 
