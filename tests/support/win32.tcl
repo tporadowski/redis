@@ -174,6 +174,13 @@ proc win32_kill_exe {} {
 # Unix `kill` (no signal) is SIGTERM: Redis saves and exits. TerminateProcess
 # skips that snapshot, so a later restart has nothing to load.
 # force 1 is the escalation path (SIGKILL): the process must die now.
+# Test clients are tclsh, which win32_process_owned ignores. the_end and the
+# timeout path must still terminate them before deleting tests/tmp, or cleanup
+# blocks on their open handles and a hung client keeps the suite pipe open.
+proc win32_kill_pid_tree {pid} {
+    catch {exec taskkill.exe /F /T /PID $pid}
+}
+
 proc win32_kill_pid {pid {force 0}} {
     if {![win32_process_owned $pid]} { return }
     if {!$force} {

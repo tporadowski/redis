@@ -439,7 +439,7 @@ proc show_clients_state {} {
 proc kill_clients {} {
     foreach p $::clients_pids {
         if {$::tcl_platform(platform) eq "windows"} {
-            win32_kill_pid $p
+            win32_kill_pid_tree $p
         } else {
             catch {exec kill $p}
         }
