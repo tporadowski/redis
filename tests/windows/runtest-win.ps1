@@ -51,6 +51,7 @@ $env:PATH = "$gitMingw;$gitUcrt;$gitUsr;$env:PATH"
 $env:REDIS_SERVER = Join-Path $BuildDir "redis-server.exe"
 $env:REDIS_TEST_LAUNCHER = Join-Path $BuildDir "redis-test-launcher.exe"
 if (-not $env:QFORK_HEAP_BYTES) { $env:QFORK_HEAP_BYTES = "512M" }
+$defaultHeap = $env:QFORK_HEAP_BYTES
 # Default off: AF_UNIX listen in start_server. Set to 1 to re-enable.
 if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }
 
@@ -83,6 +84,13 @@ foreach ($u in $units) {
     $u = "$u".Trim()
     if (-not $u) { continue }
     Stop-RedisTestServers
+    # 20000 x 10KB values plus the repl buffer a slow replica holds do not
+    # fit the 512M heap. This unit uses 2G when the runner default is 512M.
+    if ($u -eq "integration/replication-buffer" -and $defaultHeap -eq "512M") {
+        $env:QFORK_HEAP_BYTES = "2G"
+    } else {
+        $env:QFORK_HEAP_BYTES = $defaultHeap
+    }
     Write-Host "== wintest $u via $tclsh (QFORK_HEAP_BYTES=$($env:QFORK_HEAP_BYTES)) =="
     $sw = [Diagnostics.Stopwatch]::StartNew()
     & $tclsh $wintest --build $BuildDir --single $u

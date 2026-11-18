@@ -610,6 +610,8 @@ int WSIOCP_RearmRead(int rfd) {
 #define WSIOCP_TCP_LAST_ACK 9
 #define WSIOCP_TCP_TIME_WAIT 10
 
+static int wsiocp_peek_peer_closed(int rfd);
+
 int WSIOCP_TcpPeerClosed(int rfd) {
     int soerr = 0;
     socklen_t solen = sizeof(soerr);
@@ -636,12 +638,62 @@ int WSIOCP_TcpPeerClosed(int rfd) {
 
     memset(raw, 0, sizeof(raw));
     if (FDAPI_WSAIoctl(rfd, WSIOCP_SIO_TCP_INFO, &version, sizeof(version),
-                       raw, sizeof(raw), &got, NULL, NULL) != 0)
+                       raw, sizeof(raw), &got, NULL, NULL) == 0 &&
+        got >= sizeof(state))
+    {
+        memcpy(&state, raw, sizeof(state));
+        if (state == WSIOCP_TCP_CLOSE_WAIT || state == WSIOCP_TCP_CLOSING ||
+            state == WSIOCP_TCP_LAST_ACK || state == WSIOCP_TCP_TIME_WAIT)
+            return 1;
+    }
+
+    /* SIO_TCP_INFO stays ESTABLISHED when the overlapped read was cancelled
+     * and the FIN is only queued. A synchronous peek does not stay posted,
+     * so it does not block the QFork child's send the way a 0-byte WSARecv
+     * does. Skip it while that read is still queued. */
+    return wsiocp_peek_peer_closed(rfd);
+}
+
+static int wsiocp_peek_peer_closed(int rfd) {
+    iocpSockState *ss = WSIOCP_GetExistingSocketState(rfd);
+    SOCKET s;
+    fd_set rfds;
+    struct winsock_timeval tv;
+    char b;
+    int n, err;
+    DWORD rcv_to = 0;
+    DWORD one_ms = 1;
+    int have_to = 0;
+    int tolen = sizeof(rcv_to);
+
+    if (ss && (ss->masks & READ_QUEUED))
         return 0;
-    if (got < sizeof(state)) return 0;
-    memcpy(&state, raw, sizeof(state));
-    return state == WSIOCP_TCP_CLOSE_WAIT || state == WSIOCP_TCP_CLOSING ||
-           state == WSIOCP_TCP_LAST_ACK || state == WSIOCP_TCP_TIME_WAIT;
+    s = (SOCKET)FDAPI_GetSocket(rfd);
+    if (s == INVALID_SOCKET)
+        return 1;
+
+    FD_ZERO(&rfds);
+    FD_SET(s, &rfds);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    if (select(0, &rfds, NULL, NULL, &tv) <= 0)
+        return 0;
+
+    if (getsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_to, &tolen) == 0)
+        have_to = 1;
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&one_ms, sizeof(one_ms));
+    n = recv(s, &b, 1, MSG_PEEK);
+    err = (n == SOCKET_ERROR) ? WSAGetLastError() : 0;
+    if (have_to)
+        (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_to, sizeof(rcv_to));
+    if (n == 0)
+        return 1;
+    /* one_ms expiring is our timer, not a dead TCP connection. */
+    if (n == SOCKET_ERROR &&
+        (err == WSAECONNRESET || err == WSAECONNABORTED || err == WSAENOTCONN ||
+         err == WSAESHUTDOWN || err == WSAENETRESET || err == WSAECONNREFUSED))
+        return 1;
+    return 0;
 }
 
 int WSIOCP_QueueAccept(int listenfd) {

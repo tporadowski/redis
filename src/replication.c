@@ -5694,6 +5694,30 @@ void replicationCron(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
+#ifdef _WIN32
+            /* rdb-channel full sync deletes AE_READABLE before the QFork
+             * child sends on a duplicated socket. After the main channel
+             * closes, this orphan still counts as a replica until the
+             * child writes and notices the peer FIN. rdb-key-save-delay
+             * can hold that write off past the test's disconnect wait.
+             * Probe only the orphan so a live replica's transfer is left
+             * alone. TcpPeerClosed does not post a recv. */
+            if ((slave->flags & CLIENT_REPL_RDB_CHANNEL) &&
+                server.rdb_child_type == RDB_CHILD_TYPE_SOCKET &&
+                (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
+                 slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) &&
+                slave->conn && slave->conn->fd >= 0 &&
+                !(slave->flags & (CLIENT_CLOSE_ASAP | CLIENT_PROTECTED)) &&
+                !replicationCheckHasMainChannel(slave) &&
+                WSIOCP_TcpPeerClosed(slave->conn->fd))
+            {
+                serverLog(LL_NOTICE,
+                    "Disconnecting closed replica (rdb channel): %s",
+                    replicationGetSlaveName(slave));
+                freeClient(slave);
+                continue;
+            }
+#endif
             if (slave->replstate == SLAVE_STATE_ONLINE) {
                 if (slave->flags & CLIENT_PRE_PSYNC)
                     continue;

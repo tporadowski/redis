@@ -129,6 +129,7 @@ set units {
     integration/corrupt-dump-fuzzer
     integration/psync2
     integration/replication-iothreads
+    integration/replication-buffer
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
