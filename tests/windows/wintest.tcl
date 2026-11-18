@@ -127,6 +127,7 @@ set units {
     integration/replication-4
     integration/dismiss-mem
     integration/corrupt-dump-fuzzer
+    integration/psync2
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
