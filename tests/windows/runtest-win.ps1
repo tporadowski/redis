@@ -86,9 +86,10 @@ foreach ($u in $units) {
     Stop-RedisTestServers
     # replication-buffer holds 20000 x 10KB values plus a slow replica's
     # repl buffer. replication diskless swapdb keeps a second copy of
-    # 2000 x 100KB values. Neither fits the 512M heap. Those units use 2G
-    # when the runner default is 512M.
-    if (($u -eq "integration/replication-buffer" -or $u -eq "integration/replication") -and $defaultHeap -eq "512M") {
+    # 2000 x 100KB values. corrupt-dump-fuzzer traffic can grow one string
+    # to just under proto-max-bulk-len (512MB); the 512M heap aborts that
+    # allocation. Those units use 2G when the runner default is 512M.
+    if (($u -eq "integration/replication-buffer" -or $u -eq "integration/replication" -or $u -eq "integration/corrupt-dump-fuzzer") -and $defaultHeap -eq "512M") {
         $env:QFORK_HEAP_BYTES = "2G"
     } else {
         $env:QFORK_HEAP_BYTES = $defaultHeap
