@@ -114,6 +114,7 @@ set units {
     unit/cluster/slot-ownership
     unit/cluster/slot-stats
     unit/cluster/tls-peer-impersonation
+    integration/block-repl
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load
