@@ -133,6 +133,7 @@ set units {
     integration/rdb
     integration/replication-rdbchannel
     integration/aof
+    integration/redis-cli
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
     integration/convert-ziplist-zset-on-load

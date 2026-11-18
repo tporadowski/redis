@@ -2414,21 +2414,52 @@ static void cliWaitForMessagesOrStdin(void) {
             }
         } while(reply);
 
-        /* Wait for input, either on the Redis socket or on stdin. */
-        struct timeval tv;
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(context->fd, &readfds);
-        FD_SET(STDIN_FILENO, &readfds);
-        tv.tv_sec = 5;
-        tv.tv_usec = 0;
+        /* Wait for input, either on the Redis socket or on stdin.
+         * Draw the prompt first so a reader can observe it while we block. */
         if (show_info) {
             if (use_color) printf("\033[1;90m"); /* Bold, bright color. */
             printf("Reading messages... (press Ctrl-C to quit or any key to type command)\r");
             if (use_color) printf("\033[0m"); /* Reset color. */
             fflush(stdout);
         }
-        select(context->fd + 1, &readfds, NULL, NULL, &tv);
+        /* 1 = socket, 2 = stdin, 0 = timeout. */
+        int ready = 0;
+#ifdef _WIN32
+        /* fdapi_select only waits on RFD sockets. hiredis keeps a raw
+         * SOCKET and stdin is a pipe, so one fd_set is empty and Winsock
+         * returns EINVAL at once. Slice the wait so stdin is noticed
+         * without redrawing the prompt on every slice. */
+        {
+            int waited = 0;
+            while (waited < 5000 && !config.blocking_state_aborted) {
+                int slice = 5000 - waited;
+                if (slice > 250) slice = 250;
+                ready = cliWin32WaitSocketOrStdin((long long)context->fd, slice);
+                if (ready < 0) {
+                    usleep(200 * 1000);
+                    waited += 200;
+                    ready = 0;
+                    continue;
+                }
+                if (ready != 0) break;
+                waited += slice;
+            }
+        }
+#else
+        {
+            struct timeval tv;
+            fd_set readfds;
+            int sel;
+            FD_ZERO(&readfds);
+            FD_SET(context->fd, &readfds);
+            FD_SET(STDIN_FILENO, &readfds);
+            tv.tv_sec = 5;
+            tv.tv_usec = 0;
+            sel = select(context->fd + 1, &readfds, NULL, NULL, &tv);
+            if (sel > 0 && FD_ISSET(context->fd, &readfds)) ready = 1;
+            else if (sel > 0 && FD_ISSET(STDIN_FILENO, &readfds)) ready = 2;
+        }
+#endif
         if (show_info) {
             printf("\033[K"); /* Erase current line */
             fflush(stdout);
@@ -2442,14 +2473,14 @@ static void cliWaitForMessagesOrStdin(void) {
                 exit(1);
             }
             break;
-        } else if (FD_ISSET(context->fd, &readfds)) {
+        } else if (ready == 1) {
             /* Message from Redis */
             if (cliReadReply(0) != REDIS_OK) {
                 cliPrintContextError();
                 exit(1);
             }
             fflush(stdout);
-        } else if (FD_ISSET(STDIN_FILENO, &readfds)) {
+        } else if (ready == 2) {
             /* Any key pressed */
             break;
         }
@@ -9543,7 +9574,14 @@ static void pipeMode(void) {
         int mask = AE_READABLE;
 
         if (!eof || obuf_len != 0) mask |= AE_WRITABLE;
+#ifdef _WIN32
+        /* aeWait -> fdapi_poll only waits on RFD sockets. hiredis stores
+         * the Winsock handle, so that poll never becomes writable and
+         * --pipe never reads stdin. */
+        mask = cliWin32PollSocket((long long)context->fd, mask, 1000);
+#else
         mask = aeWait(context->fd,mask,1000);
+#endif
 
         /* Handle the readable state: we can read replies from the server. */
         if (mask & AE_READABLE) {

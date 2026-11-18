@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -17,6 +19,13 @@ void cliWin32Init(void) {
 
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+
+    /* A console needs CRLF so the cursor returns to column 0. A pipe must
+     * keep the LF bytes redis-cli writes, matching the Unix CLI. */
+    if (_isatty(_fileno(stdout)) == 0)
+        _setmode(_fileno(stdout), _O_BINARY);
+    if (_isatty(_fileno(stderr)) == 0)
+        _setmode(_fileno(stderr), _O_BINARY);
 
     if (out != INVALID_HANDLE_VALUE && GetConsoleMode(out, &mode)) {
         SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING |

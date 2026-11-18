@@ -55,9 +55,35 @@ start_server {tags {"cli"}} {
         return $ret
     }
 
-    proc write_cli {fd buf} {
-        puts $fd $buf
+    # Windows Tcl can return from a non-blocking pipe flush while bytes are
+    # still queued. A later command then never reaches redis-cli.
+    proc flush_cli {fd} {
         flush $fd
+        if {$::tcl_platform(platform) ne "windows"} {
+            return
+        }
+        if {[fconfigure $fd -blocking]} {
+            return
+        }
+        if {[chan pending output $fd] == 0} {
+            return
+        }
+        fconfigure $fd -blocking 1
+        set rc [catch {flush $fd} err]
+        fconfigure $fd -blocking 0
+        if {$rc} {
+            error $err
+        }
+    }
+
+    proc puts_cli {args} {
+        puts {*}$args
+        flush_cli [lindex $args end-1]
+    }
+
+    proc write_cli {fd buf} {
+        puts_cli $fd $buf
+        flush_cli $fd
     }
 
     # Helpers to run tests in interactive mode
@@ -127,13 +153,26 @@ start_server {tags {"cli"}} {
 
     proc _run_cli {host port db opts args} {
         set cmd [rediscli $host $port [list -n $db {*}$args]]
+        set win_pipeline 0
         foreach {key value} $opts {
             if {$key eq "pipe"} {
-                set cmd "sh -c \"$value | $cmd\""
+                # sh treats backslashes in the Windows redis-cli path as escapes.
+                if {$::tcl_platform(platform) eq "windows"} {
+                    set cmd "$value | $cmd"
+                    set win_pipeline 1
+                } else {
+                    set cmd "sh -c \"$value | $cmd\""
+                }
             }
             if {$key eq "path"} {
                 set cmd "$cmd < $value"
+                if {$::tcl_platform(platform) eq "windows"} {
+                    set win_pipeline 1
+                }
             }
+        }
+        if {$win_pipeline} {
+            set cmd [string map {\\ /} $cmd]
         }
 
         set fd [open "|$cmd" "r"]
@@ -183,10 +222,10 @@ start_server {tags {"cli"}} {
         run_command $fd "keys one\x0D"
         run_command $fd "keys two\x0D"
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli $fd
 
-        puts -nonewline $fd "ey"
+        puts_cli -nonewline $fd "ey"
         read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
     }
 
@@ -195,28 +234,28 @@ start_server {tags {"cli"}} {
         run_command $fd "SET blah \"myvalue\"\x0D"
         run_command $fd "GET blah\x0D"
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli $fd
 
-        puts -nonewline $fd "ET b"
+        puts_cli -nonewline $fd "ET b"
         read_cli_until $fd {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah}
 
-        puts $fd "\x0D" ;# ENTER
+        puts_cli $fd "\x0D" ;# ENTER
         read_cli_until $fd {.*"myvalue"\n}
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
         run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
         read_cli_until $fd {\(reverse-i-search\):}
@@ -228,13 +267,13 @@ start_server {tags {"cli"}} {
         run_command $fd "keys one\x0D"
         run_command $fd "keys two\x0D"
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli $fd
 
-        puts -nonewline $fd "ey"
+        puts_cli -nonewline $fd "ey"
         read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one}
     }
 
@@ -243,105 +282,105 @@ start_server {tags {"cli"}} {
         run_command $fd "keys ${unique}-one\x0D"
         run_command $fd "keys ${unique}-two\x0D"
 
-        puts $fd "\x13" ;# CTRL+S
+        puts_cli $fd "\x13" ;# CTRL+S
         read_cli $fd
 
-        puts -nonewline $fd $unique
+        puts_cli -nonewline $fd $unique
         read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-one} $unique]
 
-        puts $fd "\x13" ;# CTRL+S
+        puts_cli $fd "\x13" ;# CTRL+S
         read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-two} $unique]
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts $fd "\x07" ;# CTRL+G
+        puts_cli $fd "\x07" ;# CTRL+G
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses up arrow" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts $fd "\x1B\x5B\x41" ;# up arrow
+        puts_cli $fd "\x1B\x5B\x41" ;# up arrow
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses right arrow" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts $fd "\x1B\x5B\x42" ;# right arrow
+        puts_cli $fd "\x1B\x5B\x42" ;# right arrow
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses down arrow" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts $fd "\x1B\x5B\x43" ;# down arrow
+        puts_cli $fd "\x1B\x5B\x43" ;# down arrow
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses left arrow" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts $fd "\x1B\x5B\x44" ;# left arrow
+        puts_cli $fd "\x1B\x5B\x44" ;# left arrow
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line if user presses tab" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts -nonewline $fd "GET blah"
+        puts_cli -nonewline $fd "GET blah"
         read_cli $fd
 
-        puts -nonewline $fd "\x09" ;# TAB
+        puts_cli -nonewline $fd "\x09" ;# TAB
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
     }
 
     test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
         run_command $fd "GET one\x0D"
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts -nonewline $fd "one"
+        puts_cli -nonewline $fd "one"
         read_cli $fd
 
-        puts -nonewline $fd "\x09" ;# TAB
+        puts_cli -nonewline $fd "\x09" ;# TAB
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line and move the cursor if user presses tab" {
         run_command $fd ""
 
-        puts $fd "\x12" ;# CTRL+R
+        puts_cli $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        puts -nonewline $fd "GET blah"
+        puts_cli -nonewline $fd "GET blah"
         read_cli $fd
 
-        puts -nonewline $fd "\x09" ;# TAB
+        puts_cli -nonewline $fd "\x09" ;# TAB
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
 
-        puts -nonewline $fd "suffix"
+        puts_cli -nonewline $fd "suffix"
         read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix}
     }
 
@@ -697,10 +736,12 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
         assert_equal "OK" [r debug populate 100000 key 1000]
         assert_equal "lib1" [r function load "#!lua name=lib1\nredis.register_function('func1', function() return 123 end)"]
+        # {*} on a string reparses it as a Tcl list and treats
+        # backslashes in the Windows dir as escapes.
         if {$functions_only} {
-            set args "--functions-rdb $dir/cli.rdb"
+            set args [list --functions-rdb $dir/cli.rdb]
         } else {
-            set args "--rdb $dir/cli.rdb"
+            set args [list --rdb $dir/cli.rdb]
         }
         catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
@@ -915,13 +956,13 @@ start_server {tags {"cli external:skip"}} {
     set tls_args [rediscli_tls_config "tests"]
 
     test "redis-cli -u with empty username falls back to legacy AUTH" {
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             -u "$scheme://:uri-no-username-pass@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
     }
 
     test "redis-cli -u with explicit username uses ACL AUTH" {
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
     }
@@ -929,14 +970,14 @@ start_server {tags {"cli external:skip"}} {
     test "redis-cli -u after -a overrides auth without leaking" {
         # -a sets connInfo->auth first, then -u must free the previous
         # value before assigning the URI-provided one.
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             -a wrong-pass \
             -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
     }
 
     test "redis-cli -u after --user overrides user without leaking" {
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             --user wronguser \
             -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
@@ -947,7 +988,7 @@ start_server {tags {"cli external:skip"}} {
         # the URI explicitly empties the username component, otherwise
         # cliAuth() would send ACL AUTH with the stale username instead
         # of the intended legacy single-argument AUTH.
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             --user wronguser \
             -u "$scheme://:uri-no-username-pass@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
@@ -958,7 +999,7 @@ start_server {tags {"cli external:skip"}} {
         # override earlier ones, the URI clears the password supplied via
         # -a, so cliAuth() sends no AUTH and the password-protected server
         # rejects the command with NOAUTH.
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+        set cmd [list [redis_cli_bin] --no-auth-warning {*}$tls_args \
             -a uri-no-username-pass \
             -u "$scheme://@$host:$port" PING]
         catch {exec {*}$cmd 2>@1} e
@@ -982,13 +1023,13 @@ start_server {tags {"cli external:skip"}} {
     set tls_args [rediscli_tls_config "tests"]
 
     test "redis-cli -u with empty userinfo skips AUTH" {
-        set cmd [list src/redis-cli {*}$tls_args \
+        set cmd [list [redis_cli_bin] {*}$tls_args \
             -u "$scheme://@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
     }
 
     test "redis-cli -u with empty password skips AUTH" {
-        set cmd [list src/redis-cli {*}$tls_args \
+        set cmd [list [redis_cli_bin] {*}$tls_args \
             -u "$scheme://default:@$host:$port" PING]
         assert_equal "PONG" [exec {*}$cmd]
     }

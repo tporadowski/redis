@@ -439,6 +439,19 @@ int fcntl(int fd, int cmd, ...) {
                 return -1;
             }
             info->flags = flags;
+        } else {
+            /* hiredis keeps the Winsock handle, not an RFD. Returning
+             * success without FIONBIO left --pipe blocked in send(). */
+            SOCKET s = (SOCKET)(intptr_t)fd;
+            int type = 0;
+            int len = (int)sizeof(type);
+            u_long nb = (flags & O_NONBLOCK) ? 1 : 0;
+            if (::getsockopt(s, SOL_SOCKET, SO_TYPE, (char *)&type, &len) == 0) {
+                if (::ioctlsocket(s, FIONBIO, &nb) == SOCKET_ERROR) {
+                    set_wsa_errno(0);
+                    return -1;
+                }
+            }
         }
         return 0;
     }
@@ -536,6 +549,83 @@ int fdapi_select(int nfds, redis_fd_set *readfds, redis_fd_set *writefds,
     if (writefds) ws_to_rfdset(&ws, writefds);
     if (exceptfds) ws_to_rfdset(&es, exceptfds);
     return rc;
+}
+
+/* redis-cli pubsub wait. hiredis stores a SOCKET, not an RFD, and stdin is
+ * a pipe or console. fdapi_select drops both, Winsock then rejects the
+ * empty set with WSAEINVAL, and the prompt is erased before anyone reads it. */
+extern "C" int cliWin32WaitSocketOrStdin(long long sock, int timeout_ms) {
+    HANDLE hin;
+    DWORD ftype;
+    fd_set rfds;
+    struct timeval tv;
+    SOCKET s;
+    int sel;
+
+    if (timeout_ms < 0) timeout_ms = 0;
+    hin = GetStdHandle(STD_INPUT_HANDLE);
+    if (hin == NULL || hin == INVALID_HANDLE_VALUE) {
+        ftype = FILE_TYPE_UNKNOWN;
+    } else {
+        ftype = GetFileType(hin) & 0x0FFF; /* strip FILE_TYPE_REMOTE */
+    }
+
+    /* Peek leaves the byte for linenoise. */
+    if (ftype == FILE_TYPE_PIPE) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(hin, NULL, 0, NULL, &avail, NULL)) {
+            DWORD err = GetLastError();
+            if (err == ERROR_BROKEN_PIPE || err == ERROR_INVALID_HANDLE)
+                return 2;
+        } else if (avail > 0) {
+            return 2;
+        }
+    } else if (ftype == FILE_TYPE_CHAR) {
+        INPUT_RECORD rec[32];
+        DWORD n = 0, i;
+        if (PeekConsoleInput(hin, rec, 32, &n)) {
+            for (i = 0; i < n; i++) {
+                if (rec[i].EventType == KEY_EVENT &&
+                    rec[i].Event.KeyEvent.bKeyDown)
+                    return 2;
+            }
+        }
+    } else if (ftype == FILE_TYPE_DISK) {
+        if (_eof(_fileno(stdin)) == 0)
+            return 2;
+    }
+
+    s = (SOCKET)sock;
+    if (s == INVALID_SOCKET) return -1;
+    FD_ZERO(&rfds);
+    FD_SET(s, &rfds);
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (long)(timeout_ms % 1000) * 1000;
+    sel = ::select(0, &rfds, NULL, NULL, &tv);
+    if (sel == SOCKET_ERROR) return -1;
+    if (sel > 0 && FD_ISSET(s, &rfds)) return 1;
+    return 0;
+}
+
+extern "C" int cliWin32PollSocket(long long sock, int mask, int timeout_ms) {
+    WSAPOLLFD pfd;
+    int rc;
+    int ready = 0;
+
+    if (timeout_ms < 0) timeout_ms = 0;
+    pfd.fd = (SOCKET)sock;
+    pfd.events = 0;
+    pfd.revents = 0;
+    if (mask & 1) pfd.events |= POLLIN;
+    if (mask & 2) pfd.events |= POLLOUT;
+    if (pfd.fd == INVALID_SOCKET) return -1;
+    rc = WSAPoll(&pfd, 1, timeout_ms);
+    if (rc == SOCKET_ERROR) return -1;
+    if (rc == 0) return 0;
+    if (pfd.revents & POLLNVAL) return -1;
+    if (pfd.revents & (POLLIN | POLLHUP)) ready |= 1;
+    if (pfd.revents & (POLLOUT | POLLERR | POLLHUP)) ready |= 2;
+    return ready;
 }
 
 int fdapi_open(const char *pathname, int flags, ...) {
