@@ -35,6 +35,21 @@ proc get_slave_client_io_thread {r slave_idx} {
     return -1
 }
 
+# WAIT must see every replica. On Windows an ack can land after the upstream
+# 2s budget once those clients have just been moved onto IO threads.
+proc wait_n_replicas {master n} {
+    if {$::tcl_platform(platform) ne "windows"} {
+        return [$master wait $n 2000]
+    }
+    set deadline [expr {[clock milliseconds] + 15000}]
+    set got 0
+    while {[clock milliseconds] < $deadline} {
+        set got [$master wait $n 1000]
+        if {$got >= $n} { return $got }
+    }
+    return $got
+}
+
 start_server {overrides {io-threads 4 save ""} tags {"iothreads repl network external:skip"}} {
 start_server {overrides {io-threads 4 save ""}} {
     set master [srv 0 client]
@@ -290,7 +305,7 @@ start_server {overrides {io-threads 4 save ""}} {
         for {set i 0} {$i < 200} {incr i} {
             $master set multi_key_$i value_$i
             if {$i % 50 == 0} {
-                assert {[$master wait 3 2000] == 3}
+                assert_equal [wait_n_replicas $master 3] 3
             }
         }
 
@@ -307,7 +322,7 @@ start_server {overrides {io-threads 4 save ""}} {
     test {WAIT with multiple slaves in IO threads} {
         # Test various WAIT scenarios
         $master set wait_multi_test1 value1
-        assert {[$master wait 3 2000] == 3}
+        assert_equal [wait_n_replicas $master 3] 3
 
         $master set wait_multi_test2 value2
         assert {[$master wait 2 2000] >= 2}
