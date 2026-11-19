@@ -5364,7 +5364,27 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
      * drained the pipe. */
     if (server.rdb_pipe_conns) return C_ERR;
 
-    if (!rdb_channel) {
+    /* Unix fork inherits the SSL object, so an rdb-channel child can write the
+     * replica socket. The QFork child receives only a duplicated TCP socket and
+     * would write plaintext into a TLS session (the replica then fails the
+     * bulk read with SSL_R_BAD_RECORD_TYPE). Those transfers use the parent
+     * pipe, and the parent's connWrite keeps the TLS state. */
+    int child_owns_sockets = rdb_channel;
+#ifdef _WIN32
+    if (rdb_channel) {
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li))) {
+            client *slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START &&
+                slave->slave_req == req && connIsTLS(slave->conn)) {
+                child_owns_sockets = 0;
+                break;
+            }
+        }
+    }
+#endif
+
+    if (!child_owns_sockets) {
         /* Before to fork, create a pipe that is used to transfer the rdb bytes to
          * the parent, we can't let it write directly to the sockets, since in case
          * of TLS we must let the parent handle a continuous TLS state when the
@@ -5401,7 +5421,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
              * that send fail, and the event loop would re-arm another recv
              * while the child is still writing. Drop both before the reply
              * byte and the fork. */
-            if (rdb_channel && slave->conn && slave->conn->fd >= 0) {
+            if (child_owns_sockets && slave->conn && slave->conn->fd >= 0) {
                 if (server.el)
                     aeDeleteFileEvent(server.el, slave->conn->fd,
                                       AE_READABLE | AE_WRITABLE);
@@ -5410,7 +5430,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
 #endif
             replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
             conns[numconns++] = slave->conn;
-            if (rdb_channel) {
+            if (child_owns_sockets) {
                 /* Put the socket in blocking mode to simplify RDB transfer. */
                 connSendTimeout(slave->conn, server.repl_timeout * 1000);
                 connBlock(slave->conn);
@@ -5418,7 +5438,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         }
     }
 
-    if (!rdb_channel) {
+    if (!child_owns_sockets) {
         server.rdb_pipe_conns = conns;
         server.rdb_pipe_numconns = numconns;
         server.rdb_pipe_numconns_writing = 0;
@@ -5426,7 +5446,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
 
     /* Create the child process. */
 #ifdef _WIN32
-    win32PrepareRdbSocketJob(req, rsi, rdb_channel, slots_req,
+    win32PrepareRdbSocketJob(req, rsi, child_owns_sockets, slots_req,
                              (void **)conns, numconns,
                              rdb_pipe_write, safe_to_exit_pipe);
 #endif
@@ -5435,7 +5455,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         int retval, dummy;
         rio rdb;
 
-        if (rdb_channel) {
+        if (child_owns_sockets) {
             rioInitWithConnset(&rdb, conns, numconns);
         } else {
             rioInitWithFd(&rdb,rdb_pipe_write);
@@ -5468,7 +5488,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
 
-        if (rdb_channel) {
+        if (child_owns_sockets) {
             rioFreeConnset(&rdb);
         } else {
             rioFreeFd(&rdb);
@@ -5499,7 +5519,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 }
             }
 
-            if (!rdb_channel)  {
+            if (!child_owns_sockets)  {
                 close(rdb_pipe_write);
                 close(server.rdb_pipe_read);
                 close(server.rdb_child_exit_pipe);
@@ -5510,11 +5530,11 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             }
         } else {
             serverLog(LL_NOTICE, "Background RDB transfer started by pid %ld to %s", (long)childpid,
-                rdb_channel ? (slots_req ? "slot migration destination socket" : "replica socket") :
+                child_owns_sockets ? (slots_req ? "slot migration destination socket" : "replica socket") :
                               "parent process pipe");
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
-            if (!rdb_channel) {
+            if (!child_owns_sockets) {
 #ifdef _WIN32
                 /* The child holds a WSADuplicateSocket of this end. shutdown()
                  * inside close() is connection-wide and would FIN it now. */
@@ -5527,7 +5547,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 }
             }
         }
-        if (rdb_channel)
+        if (child_owns_sockets)
             zfree(conns);
         else if (childpid == -1)
             close(safe_to_exit_pipe);
