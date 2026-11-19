@@ -362,7 +362,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
     SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE);
 
     if (ctx_config->dh_params_file) {
-        FILE *dhfile = fopen(ctx_config->dh_params_file, "r");
+        FILE *dhfile = fopen(ctx_config->dh_params_file, "rb");
         if (!dhfile) {
             serverLog(LL_WARNING, "Failed to load %s: %s", ctx_config->dh_params_file, strerror(errno));
             goto error;
@@ -377,15 +377,41 @@ static int tlsConfigure(void *priv, int reconfigure) {
             fclose(dhfile);
             goto error;
         }
+#ifdef _WIN32
+        /* MSVC OpenSSL aborts in OSSL_DECODER_from_fp (OPENSSL_Uplink:
+         * no OPENSSL_Applink) when the FILE* belongs to this CRT. */
+        int dh_ok = 0;
+        if (fseek(dhfile, 0, SEEK_END) == 0) {
+            long dhlen = ftell(dhfile);
+            if (dhlen > 0 && dhlen <= INT_MAX && fseek(dhfile, 0, SEEK_SET) == 0) {
+                char *dhbuf = zmalloc((size_t)dhlen);
+                if (fread(dhbuf, 1, (size_t)dhlen, dhfile) == (size_t)dhlen) {
+                    BIO *dhbio = BIO_new_mem_buf(dhbuf, (int)dhlen);
+                    if (dhbio) {
+                        dh_ok = OSSL_DECODER_from_bio(dctx, dhbio) == 1;
+                        BIO_free(dhbio);
+                    }
+                }
+                zfree(dhbuf);
+            }
+        }
+        fclose(dhfile);
+        if (!dh_ok) {
+            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
+            OSSL_DECODER_CTX_free(dctx);
+            goto error;
+        }
+#else
         if (!OSSL_DECODER_from_fp(dctx, dhfile)) {
             serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
             OSSL_DECODER_CTX_free(dctx);
             fclose(dhfile);
             goto error;
         }
+        fclose(dhfile);
+#endif
 
         OSSL_DECODER_CTX_free(dctx);
-        fclose(dhfile);
 
         if (SSL_CTX_set0_tmp_dh_pkey(ctx, pkey) <= 0) {
             ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
