@@ -32,6 +32,7 @@ deps/hdr_histogram/libhdrhistogram.a
 deps/fpconv/libfpconv.a
 deps/tre/libtre.a
 tests/tls/*
+tests/windows/.tcltls/
 .make-*
 .prerequisites
 *.dSYM

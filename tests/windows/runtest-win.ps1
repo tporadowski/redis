@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: RSALv2 OR SSPLv1 OR AGPLv3
 # 13.1 runner: 5.0 RDB load + one-unit-at-a-time Tcl suite (wintest.tcl).
 # Fences: QFORK_HEAP_BYTES, no default AF_UNIX, skip-list, leftover kill.
+# -Tls is off by default. It builds TclTLS on first use, generates tests/tls
+# when the certificate set is missing, and forwards --tls. The 117-unit run
+# stays on plain TCP.
 param(
     [string]$BuildDir = "",
-    [string]$Single = ""
+    [string]$Single = "",
+    [switch]$Tls
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +27,54 @@ function Stop-RedisTestServers {
                 Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
             }
         }
+}
+
+function Format-TclLibPath([string]$Path) {
+    $p = $Path -replace '\\', '/'
+    if ($p -match '[\s\{\}]') { return "{$p}" }
+    return $p
+}
+
+# tests/tls is gitignored. Regenerate when a required file is missing or the
+# server/SAN certificates predate the loopback and redis.local names.
+function Ensure-TlsCerts {
+    $dir = Join-Path $Root "tests\tls"
+    $need = @(
+        "ca.crt", "ca.key", "server.crt", "server.key",
+        "client.crt", "client.key", "redis.crt", "redis.key",
+        "san.crt", "san.key", "redis.dh"
+    )
+    $stale = $false
+    foreach ($n in $need) {
+        if (-not (Test-Path (Join-Path $dir $n))) { $stale = $true }
+    }
+    if (-not $stale) {
+        $serverSan = & openssl x509 -in (Join-Path $dir "server.crt") -noout -ext subjectAltName 2>$null
+        $sanSan = & openssl x509 -in (Join-Path $dir "san.crt") -noout -ext subjectAltName 2>$null
+        if ("$serverSan" -notmatch "127\.0\.0\.1" -or "$sanSan" -notmatch "DNS:redis\.local" -or "$sanSan" -notmatch "DNS:cluster\.local") {
+            $stale = $true
+        }
+    }
+    if (-not $stale) { return }
+    $bash = "C:\Program Files\Git\bin\bash.exe"
+    if (-not (Test-Path $bash)) { throw "Git bash is required to generate tests/tls" }
+    if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
+        throw "openssl.exe not found (Git ucrt64 openssl is required for tests/tls)"
+    }
+    Write-Host "== generating tests/tls (dhparam 2048 runs only when redis.dh is absent) =="
+    # Git bash rewrites a leading /O= subject into a filesystem path.
+    $savedNoConv = $env:MSYS_NO_PATHCONV
+    $savedExcl = $env:MSYS2_ARG_CONV_EXCL
+    $env:MSYS_NO_PATHCONV = "1"
+    $env:MSYS2_ARG_CONV_EXCL = "*"
+    & $bash --noprofile --norc ./utils/gen-test-certs.sh
+    $genCode = $LASTEXITCODE
+    if ($null -eq $savedNoConv) { Remove-Item Env:MSYS_NO_PATHCONV -ErrorAction SilentlyContinue } else { $env:MSYS_NO_PATHCONV = $savedNoConv }
+    if ($null -eq $savedExcl) { Remove-Item Env:MSYS2_ARG_CONV_EXCL -ErrorAction SilentlyContinue } else { $env:MSYS2_ARG_CONV_EXCL = $savedExcl }
+    if ($genCode -ne 0) { throw "utils/gen-test-certs.sh failed ($genCode)" }
+    foreach ($n in $need) {
+        if (-not (Test-Path (Join-Path $dir $n))) { throw "gen-test-certs.sh did not write tests/tls/$n" }
+    }
 }
 
 $rdbSmoke = Join-Path $PSScriptRoot "smoke_rdb50.ps1"
@@ -57,6 +109,13 @@ if (-not $env:REDIS_TEST_UNIXSOCKET) { $env:REDIS_TEST_UNIXSOCKET = "0" }
 
 Set-Location $Root
 $wintest = Join-Path $PSScriptRoot "wintest.tcl"
+$forward = @()
+if ($Tls) {
+    & (Join-Path $PSScriptRoot "ensure-tcltls.ps1") -BuildDir $BuildDir -Tclsh $tclsh
+    $env:TCLLIBPATH = Format-TclLibPath (Join-Path $PSScriptRoot ".tcltls\lib")
+    Ensure-TlsCerts
+    $forward = @("--tls")
+}
 
 # Heavy cases (blocking pops, SCAN write-load, long KEYS) run. Do not refuse
 # a unit by name. $watchdogDeny stays empty so a full list is not blocked.
@@ -96,7 +155,7 @@ foreach ($u in $units) {
     }
     Write-Host "== wintest $u via $tclsh (QFORK_HEAP_BYTES=$($env:QFORK_HEAP_BYTES)) =="
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    & $tclsh $wintest --build $BuildDir --single $u
+    & $tclsh $wintest --build $BuildDir --single $u @forward
     $code = $LASTEXITCODE
     $sw.Stop()
     Stop-RedisTestServers
