@@ -46,8 +46,8 @@ Bundled Rust modules (Search / JSON / Time Series / Bloom) are **out of
 scope**. In-tree vector-sets compile into `redis-server` (`INCLUDE_VEC_SETS`).
 
 Known gaps and the next work queue:
-[WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md) (mapped-heap QFork
-COW, replica PSYNC, wider tests).
+[WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md) (module API tests,
+top-level cluster / Sentinel / module suites, `--tls` and `--large-memory`).
 
 ## Redis 5.0.14.1 for Windows (`win-5.0`)
 

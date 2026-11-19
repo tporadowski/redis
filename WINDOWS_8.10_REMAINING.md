@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **For** | `win-8.10` after M10 (10.1–10.4) |
-| **Date** | 2026-11-18 |
-| **Status** | 18.1 done — default wintest is the Windows-runnable suite |
+| **Date** | 2026-11-19 |
+| **Status** | 18.1 done — default wintest is 117 units, including every integration stem |
 | **Upstream** | Redis Open Source 8.10.0 |
 | **How to run** | “Take 11.1” / “work on 12.1” means implement that PR, commit locally, **do not push** unless asked |
 
@@ -18,7 +18,7 @@ Do **not** introduce `PORT_LONG`. Do **not** start Rust modules unless asked. Do
 
 TCP, TLS, pathname AF_UNIX, ACL, Functions, in-tree vector-sets, Multi-Part AOF + `BACKUP`, mapped-heap QFork COW (`BGSAVE` / `BGREWRITEAOF`), cluster (MEET / slots / failover smoked, plus `tests/unit/cluster`), Sentinel + scripts, IO threads (including TLS + `io-threads 4`), Windows Service + Event Log, zip layout, 5.0 RDB load.
 
-Default `tests/windows/runtest-win.ps1` runs 94 Tcl units: every `tests/unit`, `tests/unit/type`, and `tests/unit/cluster` stem except `tests/unit/moduleapi`, the Windows non-blocking type files, and the integration files named in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). `needs:repl`, `repl`, and `cluster` are not denied. Two consecutive full runs on 2026-11-18 exited 0.
+Default `tests/windows/runtest-win.ps1` runs 117 Tcl units: every `tests/unit`, `tests/unit/type`, and `tests/unit/cluster` stem except `tests/unit/moduleapi`, plus the Windows type, IOCP, AOF, and regression files and every `tests/integration` stem. The names are in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). `needs:repl`, `repl`, and `cluster` are not denied. Two consecutive full runs on 2026-11-19 exited 0.
 
 ---
 
@@ -27,7 +27,7 @@ Default `tests/windows/runtest-win.ps1` runs 94 Tcl units: every `tests/unit`, `
 13.x–14.x, 17.1–17.6, and **18.1** are **Done**. The default Tcl run is no longer a fenced subset.
 
 1. **Later / out of this queue unless asked** — Rust modules, faithful `RedisModule_Fork` stack, MSI, GA tag.
-2. **Still outside the default run** — `tests/unit/moduleapi`, top-level `tests/cluster`, `tests/sentinel`, `tests/modules`, integration files not named in `DEFERRED-TESTS.md`, and passes that need `--tls` or `--large-memory`. GitHub Actions `windows.yml` builds and smokes; it does not run `runtest-win.ps1`.
+2. **Still outside the default run** — `tests/unit/moduleapi`, top-level `tests/cluster`, `tests/sentinel`, `tests/modules`, and passes that need `--tls` or `--large-memory`. Every `tests/integration` stem is on the default run. GitHub Actions `windows.yml` builds and smokes; it does not run `runtest-win.ps1`.
 
 ---
 
@@ -54,7 +54,7 @@ Default `tests/windows/runtest-win.ps1` runs 94 Tcl units: every `tests/unit`, `
 | 17.4 | QFork | Done | `DiscardVirtualMemory` (fallback `MEM_RESET`) on `FreeHeapBlock` so partial frees drop from the working set; skip in the QFork child |
 | 17.5 | QFork | Done | `dirty_decay_ms:0,muzzy_decay_ms:0`; `CommitHeapBlock` decommit is `PurgePages` so `arena.purge` / decay actually discard |
 | 17.6 | QFork | Done | jemalloc `LG_PAGE=20` (1 MB); 4 slots per 4 MB map. 22 still OOM-risk; 16 was 64 slots |
-| 18.1 | Tests | Done | Default `wintest` is 94 units: all `unit` / `unit/type` / `unit/cluster` stems except `moduleapi`, plus Windows type files and the named integration files. Replication, cluster, blocking pops, SCAN, KEYS, RANDOMKEY, SORT, MIGRATE, FLUSH/SWAPDB, query-buffer shrink, script and function kill, MONITOR, and extra clients run. Skip-list is OS-impossible only. Two consecutive `runtest-win.ps1` runs exited 0 (2026-11-18). |
+| 18.1 | Tests | Done | Default `wintest` is 117 units: all `unit` / `unit/type` / `unit/cluster` stems except `moduleapi`, plus the Windows type, IOCP, AOF, and regression files and every `tests/integration` stem. Replication, cluster, blocking pops, SCAN, KEYS, RANDOMKEY, SORT, MIGRATE, FLUSH/SWAPDB, query-buffer shrink, script and function kill, MONITOR, and extra clients run. Skip-list is OS-impossible only. Two consecutive `runtest-win.ps1` runs exited 0 (2026-11-19). |
 
 ---
 
@@ -80,11 +80,11 @@ jemalloc 5.3 with `LG_PAGE=22` OOMed a 16-byte `zmalloc` at `aeCreate` on the ma
 
 Official 8.10 runs a large `tests/unit` + `tests/integration` set. This port's default runner is `tests/windows/runtest-win.ps1`: `smoke_rdb50`, then one `wintest.tcl` unit per process, with leftover `redis-server.exe` killed between units. Progress timeout is 1800s. `QFORK_HEAP_BYTES` defaults to 512M and is raised only when a correct workload does not fit.
 
-**DoD for 13.1:** Met. **13.2:** Met. **18.1:** Met. AUTH replica sync, binary `MASTERAUTH`, AUTH-fail `maxclients`, and the rest of the replication and cluster units are in that run.
+**DoD for 13.1:** Met. **13.2:** Met. **18.1:** Met. AUTH replica sync, binary `MASTERAUTH`, AUTH-fail `maxclients`, and the rest of the replication and cluster units are in that run. Every `tests/integration` stem is on it (117 units; two consecutive greens on 2026-11-19).
 
 **Stay skipped unless the OS grows the feature:** abstract Unix, `/proc`/`smaps`, `taskset`, `setsid`, `daemonize`, `SIGSTOP`/`SIGCONT` process-state tests (`pause process`, `resume process`, stopped clients, `DEBUG SLEEP` while stopped). `tests/unit/moduleapi` is not on the list: those files load `tests/modules/*.so`, and this CMake build does not build those test modules as DLLs. `pause_process` / `resume_process` in `tests/support/util.tcl` go through `redis-test-launcher.exe` and do run.
 
-**Still not the default run:** top-level `tests/cluster`, `tests/sentinel`, `tests/modules`, and integration files other than the ones named in [tests/windows/DEFERRED-TESTS.md](tests/windows/DEFERRED-TESTS.md). Upstream-style ignores stay: `large-memory` without `--large-memory`, `if {$::tls}` bodies without `--tls`, the `if 0` block in `unit/gcra.tcl`, and branches the file already takes only when `uname` is Linux or `/proc` exists. `unit/oom-score-adj.tcl` hits `exec uname -s` first; Git Tcl reports `MSYS_NT-…`, so the Linux body does not run.
+**Still not the default run:** `tests/unit/moduleapi`, top-level `tests/cluster`, `tests/sentinel`, and `tests/modules`. Every `tests/integration` stem is on the default run. Upstream-style ignores stay: `large-memory` without `--large-memory`, `if {$::tls}` bodies without `--tls`, the `if 0` block in `unit/gcra.tcl`, and branches the file already takes only when `uname` is Linux or `/proc` exists. `unit/oom-score-adj.tcl` hits `exec uname -s` first; Git Tcl reports `MSYS_NT-…`, so the Linux body does not run.
 
 `start_server` does not listen on AF_UNIX unless the test sets `REDIS_TEST_UNIXSOCKET=1` or passes `unixsocket`. Tests that need a pathname socket do that themselves.
 

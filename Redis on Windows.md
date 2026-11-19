@@ -199,15 +199,16 @@ Windows x64 `long` is 32-bit. This port keeps upstream `long` (no `PORT_LONG`).
 `arch_bits` is `sizeof(void *)`. CMake target `lint_llp64` /
 `tests/windows/lint-llp64.ps1` is the regression net (`llp64-allow.txt`).
 
-## Tests (13.1)
+## Tests
 
 `tests/windows/runtest-win.ps1` (CMake target `wintest`):
 
 1. Load a Redis 5.0 `encodings.rdb` (`smoke_rdb50.ps1`).
-2. Run one Tcl unit per process (`wintest.tcl`: `printver`, `type/incr`,
-   `type/string`, `keyspace`, `expire`, `auth`, `protocol`, `quit`,
-   `windows/regression`) with leftover `redis-server` killed between units.
-   `unit/scan` is deferred (`DEFERRED-TESTS.md`).
+2. Run one Tcl unit per process, then kill leftover `redis-server` from that
+   build. The list is 117 stems: every `tests/unit`, `tests/unit/type`, and
+   `tests/unit/cluster` stem except `tests/unit/moduleapi`, plus the Windows
+   type, IOCP, AOF, and regression files and every `tests/integration` stem.
+   Inventory: `tests/windows/DEFERRED-TESTS.md`.
 
 RDB/AOF files are opened with `fopen(..., "rb"/"wb")`. Text mode on Windows
 treats `0x1A` as EOF and truncated old RDBs.
@@ -216,13 +217,15 @@ Tcl-spawned servers do **not** listen on AF_UNIX unless `REDIS_TEST_UNIXSOCKET=1
 (or the test overrides `unixsocket`). Dedicated coverage stays
 `tests/windows/smoke_unix.ps1`.
 
-Skip-list: `tests/windows/skip-list.txt`. **Deferred** groups (SYNC stream,
-long `KEYS`/`RANDOMKEY`, 14.1 protocol desync flood) are listed in
-`tests/windows/DEFERRED-TESTS.md` so they can be turned back on later.
-OS-impossible cases (abstract Unix, `/proc`, `setsid`, `taskset`, `daemonize`,
-`SIGSTOP`) stay skipped. Lifted 5.0 `tests/windows/regression.tcl` (AUTH
-replica + AUTH-fail `maxclients`) and binary `MASTERAUTH` are in the
-default run (13.2). Before a long run, `tests/windows/defender-exclude.ps1`
+Skip-list: `tests/windows/skip-list.txt` matches only facilities Windows does
+not provide (abstract Unix, `/proc`, `setsid`, `taskset`, `daemonize`,
+`SIGSTOP`/`SIGCONT` process-state tests). `needs:repl`, `repl`, and `cluster`
+are not denied, so `unit/scan`, replication, long `KEYS`/`RANDOMKEY`, and the
+protocol desync flood run. `tests/unit/moduleapi` stays off the list because
+those files load `tests/modules/*.so` and this CMake build does not build
+those test modules as DLLs. Top-level `tests/cluster`, `tests/sentinel`, and
+`tests/modules`, and passes that need `--tls` or `--large-memory`, are not
+the default run. Before a long run, `tests/windows/defender-exclude.ps1`
 (elevated).
 
 ## Modules

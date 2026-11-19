@@ -13,7 +13,8 @@ Unofficial native port of Redis Open Source 8.10.0. Tri-licensed
   to `win-8.10` at that GA. README tells both 8.10 and 5.0 stories.
 
 Known gaps and next work: [WINDOWS_8.10_REMAINING.md](WINDOWS_8.10_REMAINING.md)
-(mapped-heap QFork COW, replica PSYNC, wider tests). IOCP is the production
+(module API tests, top-level cluster / Sentinel / module suites, `--tls` and
+`--large-memory`). IOCP is the production
 backend (9.3: stay). Zip layout is `Redis-x64-8.10.0-win.1.zip` (`pack_zip`).
 
 ## 5.0 and earlier
